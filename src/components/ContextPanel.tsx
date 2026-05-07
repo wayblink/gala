@@ -1,11 +1,13 @@
 import { selectedPhoto } from '../data/mockLibrary'
 import type { DesktopEnvironment } from '../desktop/environment'
+import type { LibrarySummary } from '../types/library'
 
 type ContextPanelProps = {
   desktopEnvironment: DesktopEnvironment
+  librarySummary: LibrarySummary
 }
 
-export function ContextPanel({ desktopEnvironment }: ContextPanelProps) {
+export function ContextPanel({ desktopEnvironment, librarySummary }: ContextPanelProps) {
   return (
     <aside className="context-panel" aria-label="View context">
       <section>
@@ -20,12 +22,19 @@ export function ContextPanel({ desktopEnvironment }: ContextPanelProps) {
         </p>
       </section>
       <section>
-        <p className="eyebrow">Source Safety</p>
-        <ul className="safety-list">
-          <li className="is-online">3 sources online</li>
-          <li>1 source offline</li>
-          <li className="is-missing">1 missing source</li>
-        </ul>
+        <p className="eyebrow">Library Index</p>
+        <p className="mono-muted">
+          {librarySummary.totalPhotos} photos indexed
+        </p>
+        {librarySummary.sources.length > 0 && (
+          <ul className="safety-list">
+            {librarySummary.sources.map((source) => (
+              <li key={source.id} className={source.status === 'online' ? 'is-online' : ''}>
+                {source.name} · {source.photoCount} photos
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
       <section>
         <p className="eyebrow">Desktop Runtime</p>

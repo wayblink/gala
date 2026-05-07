@@ -10,7 +10,7 @@ describe('App', () => {
     expect(screen.getByText('Timeline: All Photos')).toBeInTheDocument()
     expect(screen.getByText(/18,426 photos/)).toBeInTheDocument()
     expect(screen.getByText('View Context')).toBeInTheDocument()
-    expect(screen.getByText('Source Safety')).toBeInTheDocument()
+    expect(screen.getByText('Library Index')).toBeInTheDocument()
     expect(await screen.findByText('Desktop Runtime')).toBeInTheDocument()
     expect(screen.getByText('web · browser · mock')).toBeInTheDocument()
   })

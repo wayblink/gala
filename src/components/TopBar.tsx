@@ -1,6 +1,11 @@
-import { Filter, Grid3X3, Plus, Search } from 'lucide-react'
+import { Filter, FolderPlus, Grid3X3, Search } from 'lucide-react'
 
-export function TopBar() {
+type TopBarProps = {
+  onAddFolder: () => void
+  isScanning: boolean
+}
+
+export function TopBar({ onAddFolder, isScanning }: TopBarProps) {
   return (
     <header className="top-bar">
       <div className="top-bar__brand">Memory Table</div>
@@ -20,9 +25,9 @@ export function TopBar() {
         <button className="icon-button" aria-label="Open filters">
           <Filter size={16} />
         </button>
-        <button className="primary-button">
-          <Plus size={16} />
-          Add Source
+        <button className="primary-button" onClick={onAddFolder} disabled={isScanning}>
+          <FolderPlus size={16} />
+          {isScanning ? 'Scanning...' : 'Add Folder'}
         </button>
       </div>
     </header>
