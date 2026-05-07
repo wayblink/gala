@@ -1,0 +1,97 @@
+<h2>Where should the design continue?</h2>
+<p class="subtitle">The product direction is already set: a non-destructive local photo view engine with a warm darkroom desktop surface. Pick the next design artifact to make concrete.</p>
+
+<div class="cards">
+  <div class="card" data-choice="desktop-shell" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height: 260px; background:#171615; color:#eee6d8; border-radius:14px; overflow:hidden; display:grid; grid-template-rows:42px 1fr; font-family:Georgia,serif;">
+        <div style="background:#201f1d; display:flex; align-items:center; justify-content:space-between; padding:0 16px; border-bottom:1px solid #38342f;">
+          <strong style="color:#eee6d8;">Memory Table</strong>
+          <span style="font:12px monospace; color:#8e887e;">18,426 photos</span>
+        </div>
+        <div style="display:grid; grid-template-columns:118px 1fr 132px; min-height:0;">
+          <div style="background:#201f1d; padding:12px; border-right:1px solid #38342f;">
+            <div style="height:8px; width:58px; background:#c9974d; border-radius:4px; margin-bottom:14px;"></div>
+            <div style="display:grid; gap:9px;">
+              <span style="height:7px; background:#8e887e; opacity:.55; border-radius:4px;"></span>
+              <span style="height:7px; background:#8e887e; opacity:.35; border-radius:4px;"></span>
+              <span style="height:7px; background:#8e887e; opacity:.35; border-radius:4px;"></span>
+            </div>
+          </div>
+          <div style="background:#24221f; padding:14px; overflow:hidden;">
+            <div style="font-size:20px; margin-bottom:12px;">Timeline</div>
+            <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:7px;">
+              <span style="aspect-ratio:1/1; background:#a87955; border-radius:4px;"></span>
+              <span style="aspect-ratio:1/1.25; background:#527c8e; border-radius:4px;"></span>
+              <span style="aspect-ratio:1.25/1; background:#d8d0c2; border-radius:4px;"></span>
+              <span style="aspect-ratio:1/1; background:#788b5a; border-radius:4px;"></span>
+              <span style="aspect-ratio:1/1.4; background:#9d4b3f; border-radius:4px;"></span>
+              <span style="aspect-ratio:1.2/1; background:#756455; border-radius:4px;"></span>
+              <span style="aspect-ratio:1/1; background:#b9a27c; border-radius:4px;"></span>
+              <span style="aspect-ratio:1/1.2; background:#3d5962; border-radius:4px;"></span>
+            </div>
+          </div>
+          <div style="background:#2a2825; padding:12px; border-left:1px solid #38342f;">
+            <div style="font:10px monospace; color:#8e887e; margin-bottom:8px;">VIEW CONTEXT</div>
+            <div style="height:8px; width:76px; background:#eee6d8; border-radius:4px; margin-bottom:18px;"></div>
+            <div style="display:grid; gap:7px;">
+              <span style="height:6px; background:#8e887e; opacity:.55; border-radius:4px;"></span>
+              <span style="height:6px; background:#8e887e; opacity:.4; border-radius:4px;"></span>
+              <span style="height:6px; background:#8e887e; opacity:.3; border-radius:4px;"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. Desktop Shell Mockup</h3>
+      <p>Make the main three-region app screen concrete: left rail, photo surface, top bar, and context panel.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="interaction-flows" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:260px; background:#201f1d; color:#eee6d8; border-radius:14px; padding:20px; display:grid; gap:14px; align-content:center;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span style="width:54px; height:54px; border-radius:8px; background:#2a2825; border:1px solid #38342f;"></span>
+          <span style="height:2px; flex:1; background:#c9974d;"></span>
+          <span style="width:54px; height:54px; border-radius:8px; background:#2a2825; border:1px solid #38342f;"></span>
+          <span style="height:2px; flex:1; background:#527c8e;"></span>
+          <span style="width:54px; height:54px; border-radius:8px; background:#2a2825; border:1px solid #38342f;"></span>
+        </div>
+        <div style="font:13px monospace; color:#8e887e; display:grid; grid-template-columns:repeat(3,1fr); gap:12px; text-align:center;">
+          <span>Add source</span>
+          <span>Scan + index</span>
+          <span>Timeline appears</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. Interaction Flow Spec</h3>
+      <p>Define first-run, scan progress, generated-view save, offline source, and focus viewer behavior in detail.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="component-system" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:260px; background:#171615; border-radius:14px; padding:18px; display:grid; grid-template-columns:1fr 1fr; gap:12px; color:#eee6d8;">
+        <button style="height:38px; background:#c9974d; border:0; border-radius:8px; color:#171615; font-weight:700;">Save View</button>
+        <button style="height:38px; background:#2a2825; border:1px solid #38342f; border-radius:8px; color:#eee6d8;">Refresh</button>
+        <div style="grid-column:span 2; background:#24221f; border:1px solid #38342f; border-radius:12px; padding:14px;">
+          <div style="font:11px monospace; color:#8e887e;">CONFIDENCE</div>
+          <div style="margin-top:8px; height:8px; background:#38342f; border-radius:4px; overflow:hidden;"><span style="display:block; width:82%; height:100%; background:#788b5a;"></span></div>
+        </div>
+        <div style="background:#2a2825; border-radius:8px; padding:12px; border-left:3px solid #527c8e; font:12px monospace;">Source online</div>
+        <div style="background:#2a2825; border-radius:8px; padding:12px; border-left:3px solid #9d4b3f; font:12px monospace;">File missing</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. Component System</h3>
+      <p>Specify buttons, navigation items, photo cells, status badges, explanation blocks, and responsive states.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <p class="subtitle">My recommendation is A first, then B. The desktop shell will reveal whether the visual system actually supports the product promise before we over-spec components.</p>
+</div>

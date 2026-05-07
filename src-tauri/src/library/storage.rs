@@ -44,6 +44,15 @@ pub fn initialize_schema(conn: &Connection) -> Result<(), String> {
             updated_at TEXT NOT NULL,
             UNIQUE(source_id, relative_path)
         );
+
+        CREATE TABLE IF NOT EXISTS photo_assets (
+            photo_id TEXT PRIMARY KEY REFERENCES photos(id),
+            thumbnail_small_path TEXT,
+            thumbnail_medium_path TEXT,
+            thumbnail_large_path TEXT,
+            asset_status TEXT NOT NULL,
+            generated_at TEXT
+        );
         "#,
     )
     .map_err(|e| format!("Failed to initialize schema: {}", e))?;
@@ -202,3 +211,41 @@ pub fn get_library_summary(conn: &Connection) -> Result<LibrarySummary, String> 
         total_photos,
     })
 }
+
+pub fn upsert_photo_assets(
+    conn: &Connection,
+    photo_id: &str,
+    thumbnail_small: &str,
+    thumbnail_medium: &str,
+    thumbnail_large: &str,
+) -> Result<(), String> {
+    let now = Utc::now().to_rfc3339();
+
+    conn.execute(
+        "INSERT INTO photo_assets (photo_id, thumbnail_small_path, thumbnail_medium_path, thumbnail_large_path, asset_status, generated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(photo_id) DO UPDATE SET
+            thumbnail_small_path = ?2,
+            thumbnail_medium_path = ?3,
+            thumbnail_large_path = ?4,
+            asset_status = ?5,
+            generated_at = ?6",
+        params![photo_id, thumbnail_small, thumbnail_medium, thumbnail_large, "ready", now],
+    )
+    .map_err(|e| format!("Failed to upsert photo assets: {}", e))?;
+
+    Ok(())
+}
+
+pub fn mark_photo_assets_failed(conn: &Connection, photo_id: &str) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO photo_assets (photo_id, asset_status)
+         VALUES (?1, ?2)
+         ON CONFLICT(photo_id) DO UPDATE SET asset_status = ?2",
+        params![photo_id, "failed"],
+    )
+    .map_err(|e| format!("Failed to mark photo assets as failed: {}", e))?;
+
+    Ok(())
+}
+
