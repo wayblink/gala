@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import { getThumbnailFile } from '../desktop/photos'
 import type { TimelinePhoto } from '../types/photos'
 
@@ -18,14 +19,16 @@ export function PhotoCard({ photo, onClick }: PhotoCardProps) {
       setError(false)
 
       if (photo.thumbnailPath) {
-        // In desktop mode, use the file path directly
-        setThumbnailUrl(`file://${photo.thumbnailPath}`)
+        // Use Tauri's convertFileSrc to get proper URL
+        const url = convertFileSrc(photo.thumbnailPath)
+        setThumbnailUrl(url)
         setIsLoading(false)
       } else {
         // Try to get thumbnail from command
-        const url = await getThumbnailFile(photo.id, 'medium')
-        if (url) {
-          setThumbnailUrl(`file://${url}`)
+        const path = await getThumbnailFile(photo.id, 'medium')
+        if (path) {
+          const url = convertFileSrc(path)
+          setThumbnailUrl(url)
         } else {
           setError(true)
         }

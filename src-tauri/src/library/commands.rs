@@ -55,20 +55,28 @@ pub async fn pick_photo_folder(app: AppHandle) -> Result<Option<String>, String>
 
 #[tauri::command]
 pub fn scan_photo_source(app: AppHandle, root_path: String) -> Result<ScanSummary, String> {
+    eprintln!("[scan_photo_source] Starting scan for: {}", root_path);
+
     let db_path = get_db_path(&app)?;
+    eprintln!("[scan_photo_source] Database path: {:?}", db_path);
+
     let mut conn = open_database(&db_path)?;
     initialize_schema(&conn)?;
 
     let source_path = PathBuf::from(&root_path);
     let source = upsert_source(&conn, &source_path)?;
+    eprintln!("[scan_photo_source] Source ID: {}", source.id);
 
     let photos = discover_photos(&source_path)?;
     let indexed_count = photos.len() as i64;
+    eprintln!("[scan_photo_source] Discovered {} photos", indexed_count);
 
     replace_source_photos(&mut conn, &source.id, &source_path, &photos)?;
 
     // Generate thumbnails for all photos
     let thumbnail_cache = get_thumbnail_cache_dir(&app)?;
+    eprintln!("[scan_photo_source] Thumbnail cache: {:?}", thumbnail_cache);
+
     let thumbnail_gen = ThumbnailGenerator::new(thumbnail_cache)?;
 
     // Get photo IDs from database
@@ -83,8 +91,11 @@ pub fn scan_photo_source(app: AppHandle, root_path: String) -> Result<ScanSummar
         .map_err(|e| format!("Failed to collect photos: {}", e))?;
 
     for (photo_id, photo_path) in photo_rows {
+        eprintln!("[scan_photo_source] Generating thumbnails for: {}", photo_path);
         match thumbnail_gen.generate_all(&photo_id, &PathBuf::from(&photo_path)) {
             Ok(paths) => {
+                eprintln!("[scan_photo_source] Generated thumbnails: small={}, medium={}, large={}",
+                    paths.small, paths.medium, paths.large);
                 if let Err(e) = upsert_photo_assets(
                     &conn,
                     &photo_id,
@@ -105,6 +116,7 @@ pub fn scan_photo_source(app: AppHandle, root_path: String) -> Result<ScanSummar
     }
 
     let updated_source = upsert_source(&conn, &source_path)?;
+    eprintln!("[scan_photo_source] Scan complete!");
 
     Ok(ScanSummary {
         source: updated_source,
