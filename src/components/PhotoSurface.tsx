@@ -20,7 +20,8 @@ export function PhotoSurface() {
       if (newPhotos.length < PHOTOS_PER_PAGE) {
         setHasMore(false)
       }
-      setPhotos((prev) => [...prev, ...newPhotos])
+      // Only append if offset > 0, otherwise replace
+      setPhotos((prev) => (offset === 0 ? newPhotos : [...prev, ...newPhotos]))
       setIsLoading(false)
     }
 
