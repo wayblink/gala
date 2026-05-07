@@ -147,6 +147,8 @@ a {
   min-height: 34px;
   border-radius: 6px;
   cursor: pointer;
+  border: none;
+  font-family: inherit;
 }
 
 .icon-button {
@@ -155,7 +157,7 @@ a {
   place-items: center;
   color: var(--paper-200);
   background: var(--ink-800);
-  border: 1px solid var(--ink-700);
+  border: 1px solid var(--ink-700) !important;
 }
 
 .primary-button,
@@ -165,20 +167,49 @@ a {
   justify-content: center;
   gap: 7px;
   padding: 0 12px;
-  border: 1px solid transparent;
 }
 
 .primary-button {
   color: #17130f;
   background: var(--amber-dust);
-  border-color: #d8ad69;
+  border: 1px solid #d8ad69 !important;
   font-weight: 700;
 }
 
 .secondary-button {
   color: var(--paper-100);
   background: var(--ink-760);
-  border-color: var(--ink-700);
+  border: 1px solid var(--ink-700) !important;
+}
+
+.icon-button:hover {
+  background: var(--ink-700);
+}
+
+.icon-button:active {
+  background: var(--ink-600);
+}
+
+.primary-button:hover {
+  background: #d8ad69;
+  transform: translateY(-1px);
+}
+
+.primary-button:active {
+  transform: translateY(0);
+}
+
+.primary-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.secondary-button:hover {
+  background: var(--ink-700);
+}
+
+.secondary-button:active {
+  background: var(--ink-600);
 }
 
 .workspace-grid {
