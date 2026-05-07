@@ -18,7 +18,13 @@ fn get_app_environment() -> AppEnvironment {
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![get_app_environment])
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![
+            get_app_environment,
+            library::commands::pick_photo_folder,
+            library::commands::scan_photo_source,
+            library::commands::get_library_summary,
+        ])
         .run(tauri::generate_context!())
         .expect("failed to run Gala desktop app");
 }
