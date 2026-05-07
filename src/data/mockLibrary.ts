@@ -31,7 +31,7 @@ export const sources: SourceItem[] = [
   { name: 'Old Export', status: 'missing' },
 ]
 
-export const photos: PhotoItem[] = [
+const primaryPhotos: PhotoItem[] = [
   {
     id: 'p-001',
     fileName: 'DSCF4281.RAF',
@@ -94,5 +94,30 @@ export const photos: PhotoItem[] = [
   },
 ]
 
+const generatedPhotos: PhotoItem[] = Array.from({ length: 28 }, (_, index) => {
+  const colors = ['#c9974d', '#527c8e', '#788b5a', '#6f695f', '#9d4b3f', '#d8d0c2', '#8e887e']
+  const ratios = ['1 / 1', '1.18 / 1', '0.86 / 1', '1.32 / 1', '1 / 1.12']
+  const year = index < 16 ? '2026' : '2025'
+  const month = index < 16 ? '05' : '10'
+  const day = String((index % 12) + 1).padStart(2, '0')
+
+  return {
+    id: `p-${String(index + 5).padStart(3, '0')}`,
+    fileName: `CONTACT_${String(index + 5).padStart(4, '0')}.JPG`,
+    sourceName: index % 3 === 0 ? 'Mac Photos' : 'X100V Drive',
+    sourceStatus: 'online',
+    status: 'indexed',
+    capturedAt: `${year}-${month}-${day}T${String(7 + (index % 9)).padStart(2, '0')}:20:00Z`,
+    importedAt: '2026-05-07T10:00:00Z',
+    camera: index % 3 === 0 ? 'iPhone 16 Pro' : 'X100V',
+    lens: index % 3 === 0 ? '24mm' : '23mm f/2',
+    dimensions: index % 3 === 0 ? '4032 x 3024' : '6240 x 4160',
+    color: colors[index % colors.length],
+    aspectRatio: ratios[index % ratios.length],
+    relatedViews: index % 2 === 0 ? ['Similar Light'] : ['Recently Added'],
+  } satisfies PhotoItem
+})
+
+export const photos: PhotoItem[] = [...primaryPhotos, ...generatedPhotos]
 export const timelineGroups = groupPhotosByTimeline(photos)
 export const selectedPhoto = photos[0]

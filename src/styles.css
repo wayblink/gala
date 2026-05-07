@@ -482,14 +482,12 @@ a {
 
 @media (max-width: 980px) {
   .top-bar {
-    grid-template-columns: 44px minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 12px;
   }
 
   .top-bar__brand {
-    width: 32px;
-    overflow: hidden;
-    white-space: nowrap;
+    display: none;
   }
 
   .search-field {
