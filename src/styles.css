@@ -1,0 +1,39 @@
+:root {
+  --ink-950: #171615;
+  --ink-900: #201f1d;
+  --ink-850: #24221f;
+  --ink-800: #2a2825;
+  --ink-700: #38342f;
+  --stone-600: #6f695f;
+  --stone-500: #8e887e;
+  --paper-200: #d8d0c2;
+  --paper-100: #eee6d8;
+  --amber-dust: #c9974d;
+  --lake-blue: #527c8e;
+  --archive-red: #9d4b3f;
+  --success-moss: #788b5a;
+  color: var(--paper-100);
+  background: var(--ink-950);
+  font-family: "Alegreya Sans", Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--ink-950);
+}
+
+.app-shell {
+  min-height: 100vh;
+  background: var(--ink-950);
+}
