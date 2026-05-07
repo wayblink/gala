@@ -1,0 +1,15 @@
+import { render, screen } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
+import App from './App'
+
+describe('App', () => {
+  it('renders the default Index Light Table shell', () => {
+    render(<App />)
+
+    expect(screen.getByText('Memory Table')).toBeInTheDocument()
+    expect(screen.getByText('Timeline: All Photos')).toBeInTheDocument()
+    expect(screen.getByText(/18,426 photos/)).toBeInTheDocument()
+    expect(screen.getByText('View Context')).toBeInTheDocument()
+    expect(screen.getByText('Source Safety')).toBeInTheDocument()
+  })
+})

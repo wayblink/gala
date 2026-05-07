@@ -6,7 +6,7 @@
 
 **Architecture:** Start with a focused frontend-only app using static mock data. Keep the app shell split into small presentation components: top bar, left rail, photo surface, context panel, and status primitives. Defer SQLite, scanning, thumbnail generation, and real file access until the visual shell is verified.
 
-**Tech Stack:** Vite, React, TypeScript, CSS modules or plain CSS, Vitest, Testing Library, Playwright, lucide-react.
+**Tech Stack:** Vite, React, TypeScript, CSS modules or plain CSS, Vitest, Testing Library, Playwright, lucide-react. Planned backend/local engine stack: Rust plus SQLite, with file-system caches for thumbnails, previews, and derived assets.
 
 ---
 
@@ -28,6 +28,7 @@ In scope:
 Out of scope:
 
 - SQLite schema implementation.
+- Rust backend/local engine implementation.
 - Real source scanning.
 - Real thumbnail generation.
 - Native desktop packaging.
@@ -1229,6 +1230,7 @@ Expected: no source changes remain except intentionally untracked project docs a
 
 ## Implementation Notes
 
+- Backend direction is Rust for the local engine and SQLite data layer. Keep this first shell frontend-only; do not introduce Rust crates, backend APIs, or desktop-native bridges until the shell is visually validated and the data contracts are stable.
 - Keep this first shell frontend-only. Do not introduce backend or desktop-native APIs.
 - Use mock data colors as thumbnail placeholders until real assets exist.
 - Do not use gradient backgrounds, decorative blobs, glassmorphism, or oversized SaaS cards.
