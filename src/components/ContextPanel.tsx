@@ -1,6 +1,11 @@
 import { selectedPhoto } from '../data/mockLibrary'
+import type { DesktopEnvironment } from '../desktop/environment'
 
-export function ContextPanel() {
+type ContextPanelProps = {
+  desktopEnvironment: DesktopEnvironment
+}
+
+export function ContextPanel({ desktopEnvironment }: ContextPanelProps) {
   return (
     <aside className="context-panel" aria-label="View context">
       <section>
@@ -21,6 +26,12 @@ export function ContextPanel() {
           <li>1 source offline</li>
           <li className="is-missing">1 missing source</li>
         </ul>
+      </section>
+      <section>
+        <p className="eyebrow">Desktop Runtime</p>
+        <p className="mono-muted">
+          {desktopEnvironment.runtime} · {desktopEnvironment.platform} · {desktopEnvironment.engine}
+        </p>
       </section>
       <section>
         <p className="eyebrow">Selected Photo</p>

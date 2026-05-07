@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import App from './App'
 
 describe('App', () => {
-  it('renders the default Index Light Table shell', () => {
+  it('renders the default Index Light Table shell', async () => {
     render(<App />)
 
     expect(screen.getByText('Memory Table')).toBeInTheDocument()
@@ -11,5 +11,7 @@ describe('App', () => {
     expect(screen.getByText(/18,426 photos/)).toBeInTheDocument()
     expect(screen.getByText('View Context')).toBeInTheDocument()
     expect(screen.getByText('Source Safety')).toBeInTheDocument()
+    expect(await screen.findByText('Desktop Runtime')).toBeInTheDocument()
+    expect(screen.getByText('web · browser · mock')).toBeInTheDocument()
   })
 })

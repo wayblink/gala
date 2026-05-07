@@ -6,3 +6,5 @@ vite.config.js
 playwright.config.d.ts
 playwright.config.js
 test-results/
+src-tauri/target/
+src-tauri/gen/schemas/
