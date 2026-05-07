@@ -94,7 +94,9 @@ impl ThumbnailGenerator {
         let new_width = (width as f32 * ratio) as u32;
         let new_height = (height as f32 * ratio) as u32;
 
-        img.resize(new_width, new_height, FilterType::Lanczos3)
+        // Use Triangle filter for faster thumbnail generation
+        // Triangle is ~10x faster than Lanczos3 with acceptable quality
+        img.resize(new_width, new_height, FilterType::Triangle)
     }
 
     pub fn get_thumbnail_path(&self, photo_id: &str, size: ThumbnailSize) -> PathBuf {

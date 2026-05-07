@@ -130,6 +130,13 @@ pub fn replace_source_photos(
         .transaction()
         .map_err(|e| format!("Failed to start transaction: {}", e))?;
 
+    // Delete photo_assets first to avoid foreign key constraint
+    tx.execute(
+        "DELETE FROM photo_assets WHERE photo_id IN (SELECT id FROM photos WHERE source_id = ?1)",
+        params![source_id],
+    )
+    .map_err(|e| format!("Failed to delete old photo assets: {}", e))?;
+
     tx.execute("DELETE FROM photos WHERE source_id = ?1", params![source_id])
         .map_err(|e| format!("Failed to delete old photos: {}", e))?;
 
@@ -256,7 +263,7 @@ pub fn get_timeline_photos(
 ) -> Result<Vec<TimelinePhoto>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT p.id, p.file_name, p.width, p.height, pa.thumbnail_medium_path
+            "SELECT p.id, p.file_name, pa.thumbnail_medium_path
              FROM photos p
              LEFT JOIN photo_assets pa ON p.id = pa.photo_id
              ORDER BY p.file_mtime DESC
@@ -270,9 +277,9 @@ pub fn get_timeline_photos(
                 id: row.get(0)?,
                 file_name: row.get(1)?,
                 captured_at: None,
-                width: row.get::<_, Option<i64>>(2)?,
-                height: row.get::<_, Option<i64>>(3)?,
-                thumbnail_path: row.get(4)?,
+                width: None,
+                height: None,
+                thumbnail_path: row.get(2)?,
             })
         })
         .map_err(|e| format!("Failed to query photos: {}", e))?
