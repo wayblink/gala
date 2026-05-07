@@ -24,6 +24,8 @@ pub fn run() {
             library::commands::pick_photo_folder,
             library::commands::scan_photo_source,
             library::commands::get_library_summary,
+            library::commands::get_timeline_photos_cmd,
+            library::commands::get_thumbnail_file,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Gala desktop app");

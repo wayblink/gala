@@ -1,8 +1,9 @@
-use crate::library::models::{LibrarySummary, ScanSummary};
+use crate::library::models::{LibrarySummary, ScanSummary, TimelinePhoto};
 use crate::library::scanner::discover_photos;
 use crate::library::storage::{
-    get_library_summary as get_summary, initialize_schema, mark_photo_assets_failed,
-    open_database, replace_source_photos, upsert_photo_assets, upsert_source,
+    get_library_summary as get_summary, get_timeline_photos, initialize_schema,
+    mark_photo_assets_failed, open_database, replace_source_photos, upsert_photo_assets,
+    upsert_source,
 };
 use crate::library::thumbnails::ThumbnailGenerator;
 use std::path::PathBuf;
@@ -127,3 +128,50 @@ pub fn get_library_summary(app: AppHandle) -> Result<LibrarySummary, String> {
     initialize_schema(&conn)?;
     get_summary(&conn)
 }
+
+#[tauri::command]
+pub fn get_timeline_photos_cmd(
+    app: AppHandle,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<TimelinePhoto>, String> {
+    let db_path = get_db_path(&app)?;
+
+    if !db_path.exists() {
+        return Ok(vec![]);
+    }
+
+    let conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    get_timeline_photos(&conn, limit, offset)
+}
+
+#[tauri::command]
+pub fn get_thumbnail_file(
+    app: AppHandle,
+    photo_id: String,
+    size: String,
+) -> Result<String, String> {
+    let thumbnail_cache = get_thumbnail_cache_dir(&app)?;
+
+    let size_dir = match size.as_str() {
+        "small" => "small",
+        "medium" => "medium",
+        "large" => "large",
+        _ => return Err("Invalid thumbnail size".to_string()),
+    };
+
+    let thumbnail_path = thumbnail_cache
+        .join(size_dir)
+        .join(format!("{}.jpg", photo_id));
+
+    if !thumbnail_path.exists() {
+        return Err(format!("Thumbnail not found: {}", photo_id));
+    }
+
+    thumbnail_path
+        .to_str()
+        .ok_or_else(|| "Invalid thumbnail path".to_string())
+        .map(|s| s.to_string())
+}
+

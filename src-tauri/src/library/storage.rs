@@ -1,4 +1,4 @@
-use crate::library::models::{LibrarySource, LibrarySummary};
+use crate::library::models::{LibrarySource, LibrarySummary, TimelinePhoto};
 use crate::library::scanner::DiscoveredPhoto;
 use chrono::Utc;
 use rusqlite::{params, Connection, Result as SqlResult};
@@ -248,4 +248,38 @@ pub fn mark_photo_assets_failed(conn: &Connection, photo_id: &str) -> Result<(),
 
     Ok(())
 }
+
+pub fn get_timeline_photos(
+    conn: &Connection,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<TimelinePhoto>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT p.id, p.file_name, p.width, p.height, pa.thumbnail_medium_path
+             FROM photos p
+             LEFT JOIN photo_assets pa ON p.id = pa.photo_id
+             ORDER BY p.file_mtime DESC
+             LIMIT ?1 OFFSET ?2",
+        )
+        .map_err(|e| format!("Failed to prepare query: {}", e))?;
+
+    let photos = stmt
+        .query_map(params![limit, offset], |row| {
+            Ok(TimelinePhoto {
+                id: row.get(0)?,
+                file_name: row.get(1)?,
+                captured_at: None,
+                width: row.get::<_, Option<i64>>(2)?,
+                height: row.get::<_, Option<i64>>(3)?,
+                thumbnail_path: row.get(4)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query photos: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to collect photos: {}", e))?;
+
+    Ok(photos)
+}
+
 

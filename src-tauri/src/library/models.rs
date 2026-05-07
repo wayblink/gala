@@ -24,3 +24,14 @@ pub struct LibrarySummary {
     pub sources: Vec<LibrarySource>,
     pub total_photos: i64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimelinePhoto {
+    pub id: String,
+    pub file_name: String,
+    pub captured_at: Option<String>,
+    pub width: Option<i64>,
+    pub height: Option<i64>,
+    pub thumbnail_path: Option<String>,
+}

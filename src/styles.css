@@ -548,3 +548,72 @@ a {
     grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
   }
 }
+
+.photo-card {
+  position: relative;
+  aspect-ratio: 1;
+  background: var(--ink-800);
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.photo-card:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.photo-card__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.photo-card__skeleton {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--ink-800) 25%, var(--ink-700) 50%, var(--ink-800) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s infinite;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.photo-card__error {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ink-800);
+  color: var(--stone-500);
+  font-size: 11px;
+  text-align: center;
+  padding: 4px;
+}
+
+.photo-surface__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  color: var(--stone-500);
+  text-align: center;
+}
+
+.photo-surface__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: var(--stone-500);
+}
