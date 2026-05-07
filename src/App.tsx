@@ -25,18 +25,27 @@ export default function App() {
   }, [])
 
   const handleAddFolder = async () => {
+    console.log('Add folder clicked, isScanning:', isScanning)
     const path = await pickPhotoFolder()
-    if (!path) return
+    console.log('Picked folder path:', path)
+    if (!path) {
+      console.warn('No folder selected or Tauri not available')
+      return
+    }
 
     setIsScanning(true)
     try {
+      console.log('Starting scan for:', path)
       const result = await scanPhotoSource(path)
+      console.log('Scan result:', result)
       if (result) {
         setLibrarySummary((prev) => ({
           sources: [...prev.sources.filter((s) => s.id !== result.source.id), result.source],
           totalPhotos: prev.totalPhotos + result.indexedCount,
         }))
       }
+    } catch (error) {
+      console.error('Scan error:', error)
     } finally {
       setIsScanning(false)
     }

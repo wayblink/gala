@@ -13,8 +13,10 @@ export function PhotoSurface() {
 
   useEffect(() => {
     const loadPhotos = async () => {
+      console.log('[PhotoSurface] Loading photos, offset:', offset)
       setIsLoading(true)
       const newPhotos = await getTimelinePhotos(PHOTOS_PER_PAGE, offset)
+      console.log('[PhotoSurface] Loaded', newPhotos.length, 'photos')
       if (newPhotos.length < PHOTOS_PER_PAGE) {
         setHasMore(false)
       }
@@ -30,6 +32,7 @@ export function PhotoSurface() {
     const isNearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 500
 
     if (isNearBottom && hasMore && !isLoading) {
+      console.log('[PhotoSurface] Near bottom, loading more')
       setOffset((prev) => prev + PHOTOS_PER_PAGE)
     }
   }
