@@ -1,3 +1,5 @@
+pub mod library;
+
 #[derive(serde::Serialize)]
 struct AppEnvironment {
     runtime: &'static str,
