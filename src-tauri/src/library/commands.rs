@@ -1,3 +1,4 @@
+use crate::library::exif::extract_exif_metadata;
 use crate::library::models::{
     LibrarySummary, ScanProgress, ScanSummary, SourceFolder, TimelinePhoto,
 };
@@ -6,7 +7,8 @@ use crate::library::storage::{
     get_favorite_photos, get_library_summary as get_summary, get_photo_original_path,
     get_recently_added_photos, get_source_folders, get_timeline_photos, initialize_schema,
     mark_photo_assets_failed, migrate_schema, open_database, replace_source_photos, search_photos,
-    set_photo_favorite, update_photo_dimensions, upsert_photo_assets, upsert_source,
+    set_photo_favorite, update_photo_dimensions, update_photo_exif_metadata, upsert_photo_assets,
+    upsert_source,
 };
 use crate::library::thumbnails::ThumbnailGenerator;
 use base64::{engine::general_purpose, Engine as _};
@@ -225,6 +227,26 @@ fn scan_photo_source_inner(app: &AppHandle, root_path: String) -> Result<ScanSum
                 if let Err(e) = mark_photo_assets_failed(&conn, &photo_id) {
                     eprintln!("Failed to mark assets as failed for {}: {}", photo_id, e);
                 }
+            }
+        }
+
+        match extract_exif_metadata(&PathBuf::from(&photo_path)) {
+            Ok(metadata) => {
+                if let Err(e) = update_photo_exif_metadata(
+                    &conn,
+                    &photo_id,
+                    metadata.captured_at.as_deref(),
+                    metadata.camera_make.as_deref(),
+                    metadata.camera_model.as_deref(),
+                    metadata.lens_model.as_deref(),
+                    metadata.gps_latitude,
+                    metadata.gps_longitude,
+                ) {
+                    eprintln!("Failed to save EXIF metadata for {}: {}", photo_id, e);
+                }
+            }
+            Err(e) => {
+                eprintln!("Skipping EXIF metadata for {}: {}", photo_id, e);
             }
         }
 

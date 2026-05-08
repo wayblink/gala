@@ -2,7 +2,7 @@ use gala_lib::library::scanner::discover_photos;
 use gala_lib::library::storage::{
     get_library_summary, get_source_folders, get_timeline_photos, initialize_schema,
     migrate_schema, open_database, replace_source_photos, search_photos, update_photo_dimensions,
-    upsert_photo_assets, upsert_source,
+    update_photo_exif_metadata, upsert_photo_assets, upsert_source,
 };
 use std::fs;
 use tempfile::TempDir;
@@ -36,10 +36,16 @@ fn test_initializes_schema() {
     assert!(photo_columns.contains(&"favorited_at".to_string()));
     assert!(photo_columns.contains(&"width".to_string()));
     assert!(photo_columns.contains(&"height".to_string()));
+    assert!(photo_columns.contains(&"captured_at".to_string()));
+    assert!(photo_columns.contains(&"camera_make".to_string()));
+    assert!(photo_columns.contains(&"camera_model".to_string()));
+    assert!(photo_columns.contains(&"lens_model".to_string()));
+    assert!(photo_columns.contains(&"gps_latitude".to_string()));
+    assert!(photo_columns.contains(&"gps_longitude".to_string()));
 }
 
 #[test]
-fn test_migrates_legacy_v2_schema_missing_metadata_columns() {
+fn test_migrates_legacy_v3_schema_missing_exif_columns() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");
 
@@ -47,7 +53,7 @@ fn test_migrates_legacy_v2_schema_missing_metadata_columns() {
     conn.execute_batch(
         r#"
         CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
-        INSERT INTO schema_version (version) VALUES (2);
+        INSERT INTO schema_version (version) VALUES (3);
 
         CREATE TABLE photos (
             id TEXT PRIMARY KEY,
@@ -58,7 +64,10 @@ fn test_migrates_legacy_v2_schema_missing_metadata_columns() {
             extension TEXT NOT NULL,
             file_size INTEGER NOT NULL,
             file_mtime INTEGER NOT NULL,
+            width INTEGER,
+            height INTEGER,
             status TEXT NOT NULL,
+            favorited_at TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -76,9 +85,12 @@ fn test_migrates_legacy_v2_schema_missing_metadata_columns() {
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
 
-    assert!(photo_columns.contains(&"favorited_at".to_string()));
-    assert!(photo_columns.contains(&"width".to_string()));
-    assert!(photo_columns.contains(&"height".to_string()));
+    assert!(photo_columns.contains(&"captured_at".to_string()));
+    assert!(photo_columns.contains(&"camera_make".to_string()));
+    assert!(photo_columns.contains(&"camera_model".to_string()));
+    assert!(photo_columns.contains(&"lens_model".to_string()));
+    assert!(photo_columns.contains(&"gps_latitude".to_string()));
+    assert!(photo_columns.contains(&"gps_longitude".to_string()));
 }
 
 #[test]
@@ -346,6 +358,63 @@ fn test_timeline_photos_include_persisted_dimensions() {
     assert_eq!(photos.len(), 1);
     assert_eq!(photos[0].width, Some(4032));
     assert_eq!(photos[0].height, Some(3024));
+}
+
+#[test]
+fn test_timeline_photos_include_persisted_exif_metadata() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let source_path = temp_dir.path().join("photos");
+    fs::create_dir(&source_path).unwrap();
+    fs::write(source_path.join("photo1.jpg"), b"fake").unwrap();
+
+    let mut conn = open_database(&db_path).unwrap();
+    initialize_schema(&conn).unwrap();
+    migrate_schema(&conn).unwrap();
+
+    let source = upsert_source(&conn, &source_path).unwrap();
+    let photos = discover_photos(&source_path).unwrap();
+    replace_source_photos(&mut conn, &source.id, &source_path, &photos).unwrap();
+
+    let photo_id: String = conn
+        .query_row("SELECT id FROM photos LIMIT 1", [], |row| row.get(0))
+        .unwrap();
+
+    update_photo_exif_metadata(
+        &conn,
+        &photo_id,
+        Some("2026-05-07T10:30:00+00:00"),
+        Some("Fujifilm"),
+        Some("X-T5"),
+        Some("XF 23mm F1.4 R LM WR"),
+        Some(35.0116),
+        Some(135.7681),
+    )
+    .unwrap();
+    upsert_photo_assets(
+        &conn,
+        &photo_id,
+        "/tmp/small.jpg",
+        "/tmp/medium.jpg",
+        "/tmp/large.jpg",
+    )
+    .unwrap();
+
+    let photos = get_timeline_photos(&conn, 20, 0, None, None).unwrap();
+
+    assert_eq!(photos.len(), 1);
+    assert_eq!(
+        photos[0].captured_at,
+        Some("2026-05-07T10:30:00+00:00".to_string())
+    );
+    assert_eq!(photos[0].camera_make, Some("Fujifilm".to_string()));
+    assert_eq!(photos[0].camera_model, Some("X-T5".to_string()));
+    assert_eq!(
+        photos[0].lens_model,
+        Some("XF 23mm F1.4 R LM WR".to_string())
+    );
+    assert_eq!(photos[0].gps_latitude, Some(35.0116));
+    assert_eq!(photos[0].gps_longitude, Some(135.7681));
 }
 
 #[test]

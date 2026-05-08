@@ -20,6 +20,11 @@ export type TimelinePhoto = {
   capturedAt: string | null
   width: number | null
   height: number | null
+  cameraMake: string | null
+  cameraModel: string | null
+  lensModel: string | null
+  gpsLatitude: number | null
+  gpsLongitude: number | null
   fileSize: number
   sourceName: string
   sourceStatus: string

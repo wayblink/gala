@@ -31,6 +31,11 @@ const selectedPhoto: TimelinePhoto = {
   sourceStatus: 'online',
   thumbnailPath: null,
   isFavorite: false,
+  cameraMake: 'Fujifilm',
+  cameraModel: 'X-T5',
+  lensModel: 'XF 23mm F1.4 R LM WR',
+  gpsLatitude: 35.0116,
+  gpsLongitude: 135.7681,
 }
 
 describe('ContextPanel', () => {
@@ -48,5 +53,8 @@ describe('ContextPanel', () => {
     expect(screen.getByText('2.5 MB')).toBeInTheDocument()
     expect(screen.getByText('Trips/Japan')).toBeInTheDocument()
     expect(screen.getByText('Trips/Japan/DSC_1001.jpg')).toBeInTheDocument()
+    expect(screen.getByText('Fujifilm X-T5')).toBeInTheDocument()
+    expect(screen.getByText('XF 23mm F1.4 R LM WR')).toBeInTheDocument()
+    expect(screen.getByText('35.01160, 135.76810')).toBeInTheDocument()
   })
 })

@@ -1,12 +1,12 @@
 use crate::library::models::{LibrarySource, LibrarySummary, SourceFolder, TimelinePhoto};
 use crate::library::scanner::DiscoveredPhoto;
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection, Result as SqlResult};
+use rusqlite::{params, Connection, Result as SqlResult, Row};
 use std::collections::BTreeMap;
 use std::path::Path;
 use uuid::Uuid;
 
-const SCHEMA_VERSION: i32 = 3;
+const SCHEMA_VERSION: i32 = 4;
 
 pub fn open_database(path: &Path) -> Result<Connection, String> {
     Connection::open(path).map_err(|e| format!("Failed to open database: {}", e))
@@ -42,6 +42,12 @@ pub fn initialize_schema(conn: &Connection) -> Result<(), String> {
             file_mtime INTEGER NOT NULL,
             width INTEGER,
             height INTEGER,
+            captured_at TEXT,
+            camera_make TEXT,
+            camera_model TEXT,
+            lens_model TEXT,
+            gps_latitude REAL,
+            gps_longitude REAL,
             status TEXT NOT NULL,
             favorited_at TEXT,
             created_at TEXT NOT NULL,
@@ -83,6 +89,12 @@ pub fn migrate_schema(conn: &Connection) -> Result<(), String> {
     add_column_if_missing(conn, "photos", "favorited_at", "TEXT")?;
     add_column_if_missing(conn, "photos", "width", "INTEGER")?;
     add_column_if_missing(conn, "photos", "height", "INTEGER")?;
+    add_column_if_missing(conn, "photos", "captured_at", "TEXT")?;
+    add_column_if_missing(conn, "photos", "camera_make", "TEXT")?;
+    add_column_if_missing(conn, "photos", "camera_model", "TEXT")?;
+    add_column_if_missing(conn, "photos", "lens_model", "TEXT")?;
+    add_column_if_missing(conn, "photos", "gps_latitude", "REAL")?;
+    add_column_if_missing(conn, "photos", "gps_longitude", "REAL")?;
 
     if current_version < SCHEMA_VERSION {
         conn.execute(
@@ -468,6 +480,74 @@ pub fn update_photo_dimensions(
     Ok(())
 }
 
+pub fn update_photo_exif_metadata(
+    conn: &Connection,
+    photo_id: &str,
+    captured_at: Option<&str>,
+    camera_make: Option<&str>,
+    camera_model: Option<&str>,
+    lens_model: Option<&str>,
+    gps_latitude: Option<f64>,
+    gps_longitude: Option<f64>,
+) -> Result<(), String> {
+    let now = Utc::now().to_rfc3339();
+
+    conn.execute(
+        "UPDATE photos
+         SET captured_at = ?1,
+             camera_make = ?2,
+             camera_model = ?3,
+             lens_model = ?4,
+             gps_latitude = ?5,
+             gps_longitude = ?6,
+             updated_at = ?7
+         WHERE id = ?8",
+        params![
+            captured_at,
+            camera_make,
+            camera_model,
+            lens_model,
+            gps_latitude,
+            gps_longitude,
+            now,
+            photo_id
+        ],
+    )
+    .map_err(|e| format!("Failed to update photo EXIF metadata: {}", e))?;
+
+    Ok(())
+}
+
+fn timeline_photo_from_row(row: &Row<'_>) -> SqlResult<TimelinePhoto> {
+    let relative_path: String = row.get(2)?;
+    let file_mtime: i64 = row.get(3)?;
+    let captured_at: Option<String> = row.get(11)?;
+    let captured_at = captured_at
+        .or_else(|| DateTime::from_timestamp(file_mtime, 0).map(|date| date.to_rfc3339()));
+    let folder_path = folder_path_for_relative_path(&relative_path);
+    let favorited_at: Option<String> = row.get(8)?;
+
+    Ok(TimelinePhoto {
+        id: row.get(0)?,
+        file_name: row.get(1)?,
+        relative_path,
+        folder_path,
+        captured_at,
+        width: row.get(9)?,
+        height: row.get(10)?,
+        camera_make: row.get(12)?,
+        camera_model: row.get(13)?,
+        lens_model: row.get(14)?,
+        gps_latitude: row.get(15)?,
+        gps_longitude: row.get(16)?,
+        file_size: row.get(4)?,
+        source_name: row.get(5)?,
+        source_status: row.get(6)?,
+        thumbnail_path: row.get(7)?,
+        is_favorite: favorited_at.is_some(),
+    })
+}
+
 pub fn get_timeline_photos(
     conn: &Connection,
     limit: i64,
@@ -481,7 +561,7 @@ pub fn get_timeline_photos(
 
     let mut stmt = conn
         .prepare(
-            "SELECT p.id, p.file_name, p.relative_path, p.file_mtime, p.file_size, s.name, s.status, pa.thumbnail_medium_path, p.favorited_at, p.width, p.height
+            "SELECT p.id, p.file_name, p.relative_path, p.file_mtime, p.file_size, s.name, s.status, pa.thumbnail_medium_path, p.favorited_at, p.width, p.height, p.captured_at, p.camera_make, p.camera_model, p.lens_model, p.gps_latitude, p.gps_longitude
              FROM photos p
              INNER JOIN sources s ON p.source_id = s.id
              INNER JOIN photo_assets pa ON p.id = pa.photo_id
@@ -497,29 +577,7 @@ pub fn get_timeline_photos(
     let photos = stmt
         .query_map(
             params![limit, offset, source_id, normalized_folder_path],
-            |row| {
-                let relative_path: String = row.get(2)?;
-                let file_mtime: i64 = row.get(3)?;
-                let captured_at =
-                    DateTime::from_timestamp(file_mtime, 0).map(|date| date.to_rfc3339());
-                let folder_path = folder_path_for_relative_path(&relative_path);
-                let favorited_at: Option<String> = row.get(8)?;
-
-                Ok(TimelinePhoto {
-                    id: row.get(0)?,
-                    file_name: row.get(1)?,
-                    relative_path,
-                    folder_path,
-                    captured_at,
-                    width: row.get(9)?,
-                    height: row.get(10)?,
-                    file_size: row.get(4)?,
-                    source_name: row.get(5)?,
-                    source_status: row.get(6)?,
-                    thumbnail_path: row.get(7)?,
-                    is_favorite: favorited_at.is_some(),
-                })
-            },
+            timeline_photo_from_row,
         )
         .map_err(|e| format!("Failed to query photos: {}", e))?
         .collect::<Result<Vec<_>, _>>()
@@ -556,7 +614,7 @@ pub fn search_photos(
     let pattern = escaped_like_pattern(query);
     let mut stmt = conn
         .prepare(
-            "SELECT p.id, p.file_name, p.relative_path, p.file_mtime, p.file_size, s.name, s.status, pa.thumbnail_medium_path, p.favorited_at, p.width, p.height
+            "SELECT p.id, p.file_name, p.relative_path, p.file_mtime, p.file_size, s.name, s.status, pa.thumbnail_medium_path, p.favorited_at, p.width, p.height, p.captured_at, p.camera_make, p.camera_model, p.lens_model, p.gps_latitude, p.gps_longitude
              FROM photos p
              INNER JOIN sources s ON p.source_id = s.id
              INNER JOIN photo_assets pa ON p.id = pa.photo_id
@@ -568,6 +626,10 @@ pub fn search_photos(
                  OR s.name LIKE ?3 ESCAPE '\\'
                  OR date(p.file_mtime, 'unixepoch') LIKE ?3 ESCAPE '\\'
                  OR datetime(p.file_mtime, 'unixepoch') LIKE ?3 ESCAPE '\\'
+                 OR date(p.captured_at) LIKE ?3 ESCAPE '\\'
+                 OR p.camera_make LIKE ?3 ESCAPE '\\'
+                 OR p.camera_model LIKE ?3 ESCAPE '\\'
+                 OR p.lens_model LIKE ?3 ESCAPE '\\'
                )
              ORDER BY p.file_mtime DESC
              LIMIT ?1 OFFSET ?2",
@@ -575,28 +637,7 @@ pub fn search_photos(
         .map_err(|e| format!("Failed to prepare search photos query: {}", e))?;
 
     let photos = stmt
-        .query_map(params![limit, offset, pattern], |row| {
-            let relative_path: String = row.get(2)?;
-            let file_mtime: i64 = row.get(3)?;
-            let captured_at = DateTime::from_timestamp(file_mtime, 0).map(|date| date.to_rfc3339());
-            let folder_path = folder_path_for_relative_path(&relative_path);
-            let favorited_at: Option<String> = row.get(8)?;
-
-            Ok(TimelinePhoto {
-                id: row.get(0)?,
-                file_name: row.get(1)?,
-                relative_path,
-                folder_path,
-                captured_at,
-                width: row.get(9)?,
-                height: row.get(10)?,
-                file_size: row.get(4)?,
-                source_name: row.get(5)?,
-                source_status: row.get(6)?,
-                thumbnail_path: row.get(7)?,
-                is_favorite: favorited_at.is_some(),
-            })
-        })
+        .query_map(params![limit, offset, pattern], timeline_photo_from_row)
         .map_err(|e| format!("Failed to query searched photos: {}", e))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("Failed to collect searched photos: {}", e))?;
@@ -620,7 +661,7 @@ pub fn get_recently_added_photos(
 ) -> Result<Vec<TimelinePhoto>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT p.id, p.file_name, p.relative_path, p.file_mtime, p.file_size, s.name, s.status, pa.thumbnail_medium_path, p.favorited_at, p.width, p.height
+            "SELECT p.id, p.file_name, p.relative_path, p.file_mtime, p.file_size, s.name, s.status, pa.thumbnail_medium_path, p.favorited_at, p.width, p.height, p.captured_at, p.camera_make, p.camera_model, p.lens_model, p.gps_latitude, p.gps_longitude
              FROM photos p
              INNER JOIN sources s ON p.source_id = s.id
              INNER JOIN photo_assets pa ON p.id = pa.photo_id
@@ -633,28 +674,7 @@ pub fn get_recently_added_photos(
         .map_err(|e| format!("Failed to prepare recent photos query: {}", e))?;
 
     let photos = stmt
-        .query_map(params![limit, offset], |row| {
-            let relative_path: String = row.get(2)?;
-            let file_mtime: i64 = row.get(3)?;
-            let captured_at = DateTime::from_timestamp(file_mtime, 0).map(|date| date.to_rfc3339());
-            let folder_path = folder_path_for_relative_path(&relative_path);
-            let favorited_at: Option<String> = row.get(8)?;
-
-            Ok(TimelinePhoto {
-                id: row.get(0)?,
-                file_name: row.get(1)?,
-                relative_path,
-                folder_path,
-                captured_at,
-                width: row.get(9)?,
-                height: row.get(10)?,
-                file_size: row.get(4)?,
-                source_name: row.get(5)?,
-                source_status: row.get(6)?,
-                thumbnail_path: row.get(7)?,
-                is_favorite: favorited_at.is_some(),
-            })
-        })
+        .query_map(params![limit, offset], timeline_photo_from_row)
         .map_err(|e| format!("Failed to query recent photos: {}", e))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("Failed to collect recent photos: {}", e))?;
@@ -669,7 +689,7 @@ pub fn get_favorite_photos(
 ) -> Result<Vec<TimelinePhoto>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT p.id, p.file_name, p.relative_path, p.file_mtime, p.file_size, s.name, s.status, pa.thumbnail_medium_path, p.favorited_at, p.width, p.height
+            "SELECT p.id, p.file_name, p.relative_path, p.file_mtime, p.file_size, s.name, s.status, pa.thumbnail_medium_path, p.favorited_at, p.width, p.height, p.captured_at, p.camera_make, p.camera_model, p.lens_model, p.gps_latitude, p.gps_longitude
              FROM photos p
              INNER JOIN sources s ON p.source_id = s.id
              INNER JOIN photo_assets pa ON p.id = pa.photo_id
@@ -682,27 +702,7 @@ pub fn get_favorite_photos(
         .map_err(|e| format!("Failed to prepare favorite photos query: {}", e))?;
 
     let photos = stmt
-        .query_map(params![limit, offset], |row| {
-            let relative_path: String = row.get(2)?;
-            let file_mtime: i64 = row.get(3)?;
-            let captured_at = DateTime::from_timestamp(file_mtime, 0).map(|date| date.to_rfc3339());
-            let folder_path = folder_path_for_relative_path(&relative_path);
-
-            Ok(TimelinePhoto {
-                id: row.get(0)?,
-                file_name: row.get(1)?,
-                relative_path,
-                folder_path,
-                captured_at,
-                width: row.get(9)?,
-                height: row.get(10)?,
-                file_size: row.get(4)?,
-                source_name: row.get(5)?,
-                source_status: row.get(6)?,
-                thumbnail_path: row.get(7)?,
-                is_favorite: true,
-            })
-        })
+        .query_map(params![limit, offset], timeline_photo_from_row)
         .map_err(|e| format!("Failed to query favorite photos: {}", e))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("Failed to collect favorite photos: {}", e))?;

@@ -33,6 +33,25 @@ const formatDate = (value: string | null) => {
   }).format(new Date(value))
 }
 
+const formatCamera = (photo: TimelinePhoto) => {
+  const make = photo.cameraMake?.trim()
+  const model = photo.cameraModel?.trim()
+
+  if (make && model) {
+    return model.toLowerCase().startsWith(make.toLowerCase()) ? model : `${make} ${model}`
+  }
+
+  return make || model || 'Pending'
+}
+
+const formatGps = (latitude: number | null, longitude: number | null) => {
+  if (latitude === null || longitude === null) {
+    return 'Pending'
+  }
+
+  return `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`
+}
+
 export function ContextPanel({ desktopEnvironment, librarySummary, selectedPhoto, onToggleFavorite }: ContextPanelProps) {
   return (
     <aside className="context-panel" aria-label="View context">
@@ -109,6 +128,18 @@ export function ContextPanel({ desktopEnvironment, librarySummary, selectedPhoto
                     ? `${selectedPhoto.width} x ${selectedPhoto.height}`
                     : 'Pending'}
                 </dd>
+              </div>
+              <div>
+                <dt>Camera</dt>
+                <dd>{formatCamera(selectedPhoto)}</dd>
+              </div>
+              <div>
+                <dt>Lens</dt>
+                <dd>{selectedPhoto.lensModel || 'Pending'}</dd>
+              </div>
+              <div>
+                <dt>GPS</dt>
+                <dd>{formatGps(selectedPhoto.gpsLatitude, selectedPhoto.gpsLongitude)}</dd>
               </div>
             </dl>
           </>

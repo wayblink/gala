@@ -16,6 +16,7 @@ This document separates shipped MVP behavior from visible placeholders in the de
 - Mark photos as favorites and browse the Favorites view.
 - Show selected photo metadata, including size, dimensions, source, folder, and relative path.
 - Search indexed photos by filename, folder path, source name, and file date.
+- Enrich indexed photos with basic EXIF metadata: capture time, camera, lens, and GPS when available.
 
 ## Visible TODO Items
 
@@ -32,6 +33,6 @@ These entries may appear in the left navigation with a `[todo]` marker until the
 ## Next MVP Candidates
 
 1. Folder count polish, including empty-folder visibility if we choose to index directories explicitly.
-2. Basic EXIF enrichment, especially capture time, camera, lens, and GPS when available.
+2. EXIF polish, including timezone offsets, map/place grouping, and camera/lens filters.
 3. Hidden photo state and review flow.
 4. Search result polish, including scoped search within the active folder and highlighted matches.
