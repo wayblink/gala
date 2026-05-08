@@ -1,13 +1,21 @@
-use crate::library::models::{LibrarySummary, ScanSummary, TimelinePhoto};
-use crate::library::scanner::discover_photos;
+use crate::library::models::{
+    LibrarySummary, ScanProgress, ScanSummary, SourceFolder, TimelinePhoto,
+};
+use crate::library::scanner::discover_photos_with_progress;
 use crate::library::storage::{
-    get_library_summary as get_summary, get_timeline_photos, initialize_schema,
-    mark_photo_assets_failed, open_database, replace_source_photos, upsert_photo_assets,
-    upsert_source,
+    get_favorite_photos, get_library_summary as get_summary, get_photo_original_path,
+    get_recently_added_photos, get_source_folders, get_timeline_photos, initialize_schema,
+    mark_photo_assets_failed, migrate_schema, open_database, replace_source_photos, search_photos,
+    set_photo_favorite, update_photo_dimensions, upsert_photo_assets, upsert_source,
 };
 use crate::library::thumbnails::ThumbnailGenerator;
+use base64::{engine::general_purpose, Engine as _};
+use rusqlite::params;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
+
+const MAX_VIEWER_ORIGINAL_BYTES: u64 = 50 * 1024 * 1024;
+const SCAN_PROGRESS_EVENT: &str = "gala://scan-progress";
 
 fn get_db_path(app: &AppHandle) -> Result<PathBuf, String> {
     let app_data_dir = app
@@ -34,17 +42,16 @@ fn get_thumbnail_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
 pub async fn pick_photo_folder(app: AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
 
-    let folder = app
-        .dialog()
-        .file()
-        .blocking_pick_folder();
+    let folder = app.dialog().file().blocking_pick_folder();
 
     match folder {
         Some(path) => {
-            let path_buf = path.as_path()
+            let path_buf = path
+                .as_path()
                 .ok_or_else(|| "Failed to convert path".to_string())?;
             Ok(Some(
-                path_buf.to_str()
+                path_buf
+                    .to_str()
                     .ok_or_else(|| "Invalid folder path".to_string())?
                     .to_string(),
             ))
@@ -55,9 +62,49 @@ pub async fn pick_photo_folder(app: AppHandle) -> Result<Option<String>, String>
 
 #[tauri::command]
 pub fn scan_photo_source(app: AppHandle, root_path: String) -> Result<ScanSummary, String> {
+    let result = scan_photo_source_inner(&app, root_path.clone());
+
+    if let Err(error) = &result {
+        emit_scan_progress(
+            &app,
+            ScanProgress {
+                status: "failed".to_string(),
+                root_path: Some(root_path),
+                source_id: None,
+                discovered_count: 0,
+                indexed_count: 0,
+                thumbnail_ready_count: 0,
+                thumbnail_failed_count: 0,
+                skipped_count: 0,
+                current_file: None,
+                error_message: Some(error.clone()),
+            },
+        );
+    }
+
+    result
+}
+
+fn scan_photo_source_inner(app: &AppHandle, root_path: String) -> Result<ScanSummary, String> {
     eprintln!("[scan_photo_source] Starting scan for: {}", root_path);
 
-    let db_path = get_db_path(&app)?;
+    emit_scan_progress(
+        app,
+        ScanProgress {
+            status: "scanning".to_string(),
+            root_path: Some(root_path.clone()),
+            source_id: None,
+            discovered_count: 0,
+            indexed_count: 0,
+            thumbnail_ready_count: 0,
+            thumbnail_failed_count: 0,
+            skipped_count: 0,
+            current_file: None,
+            error_message: None,
+        },
+    );
+
+    let db_path = get_db_path(app)?;
     eprintln!("[scan_photo_source] Database path: {:?}", db_path);
 
     let mut conn = open_database(&db_path)?;
@@ -67,14 +114,62 @@ pub fn scan_photo_source(app: AppHandle, root_path: String) -> Result<ScanSummar
     let source = upsert_source(&conn, &source_path)?;
     eprintln!("[scan_photo_source] Source ID: {}", source.id);
 
-    let photos = discover_photos(&source_path)?;
+    let photos = discover_photos_with_progress(&source_path, |count, file_name| {
+        emit_scan_progress(
+            app,
+            ScanProgress {
+                status: "scanning".to_string(),
+                root_path: Some(root_path.clone()),
+                source_id: Some(source.id.clone()),
+                discovered_count: count as i64,
+                indexed_count: 0,
+                thumbnail_ready_count: 0,
+                thumbnail_failed_count: 0,
+                skipped_count: 0,
+                current_file: Some(file_name.to_string()),
+                error_message: None,
+            },
+        );
+    })?;
     let indexed_count = photos.len() as i64;
     eprintln!("[scan_photo_source] Discovered {} photos", indexed_count);
 
+    emit_scan_progress(
+        app,
+        ScanProgress {
+            status: "indexing".to_string(),
+            root_path: Some(root_path.clone()),
+            source_id: Some(source.id.clone()),
+            discovered_count: indexed_count,
+            indexed_count: 0,
+            thumbnail_ready_count: 0,
+            thumbnail_failed_count: 0,
+            skipped_count: 0,
+            current_file: None,
+            error_message: None,
+        },
+    );
+
     replace_source_photos(&mut conn, &source.id, &source_path, &photos)?;
 
+    emit_scan_progress(
+        app,
+        ScanProgress {
+            status: "thumbnailing".to_string(),
+            root_path: Some(root_path.clone()),
+            source_id: Some(source.id.clone()),
+            discovered_count: indexed_count,
+            indexed_count,
+            thumbnail_ready_count: 0,
+            thumbnail_failed_count: 0,
+            skipped_count: 0,
+            current_file: None,
+            error_message: None,
+        },
+    );
+
     // Generate thumbnails for all photos
-    let thumbnail_cache = get_thumbnail_cache_dir(&app)?;
+    let thumbnail_cache = get_thumbnail_cache_dir(app)?;
     eprintln!("[scan_photo_source] Thumbnail cache: {:?}", thumbnail_cache);
 
     let thumbnail_gen = ThumbnailGenerator::new(thumbnail_cache)?;
@@ -90,39 +185,99 @@ pub fn scan_photo_source(app: AppHandle, root_path: String) -> Result<ScanSummar
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("Failed to collect photos: {}", e))?;
 
+    let mut thumbnail_ready_count = 0_i64;
+    let mut thumbnail_failed_count = 0_i64;
+
     for (photo_id, photo_path) in photo_rows {
-        eprintln!("[scan_photo_source] Generating thumbnails for: {}", photo_path);
+        eprintln!(
+            "[scan_photo_source] Generating thumbnails for: {}",
+            photo_path
+        );
+        let current_file = PathBuf::from(&photo_path)
+            .file_name()
+            .and_then(|file_name| file_name.to_str())
+            .map(|file_name| file_name.to_string());
+
         match thumbnail_gen.generate_all(&photo_id, &PathBuf::from(&photo_path)) {
             Ok(paths) => {
-                eprintln!("[scan_photo_source] Generated thumbnails: small={}, medium={}, large={}",
-                    paths.small, paths.medium, paths.large);
-                if let Err(e) = upsert_photo_assets(
+                thumbnail_ready_count += 1;
+                eprintln!(
+                    "[scan_photo_source] Generated thumbnails: small={}, medium={}, large={}",
+                    paths.small, paths.medium, paths.large
+                );
+                if let Err(e) =
+                    upsert_photo_assets(&conn, &photo_id, &paths.small, &paths.medium, &paths.large)
+                {
+                    eprintln!("Failed to save thumbnail paths for {}: {}", photo_id, e);
+                }
+                if let Err(e) = update_photo_dimensions(
                     &conn,
                     &photo_id,
-                    &paths.small,
-                    &paths.medium,
-                    &paths.large,
+                    paths.original_width,
+                    paths.original_height,
                 ) {
-                    eprintln!("Failed to save thumbnail paths for {}: {}", photo_id, e);
+                    eprintln!("Failed to save dimensions for {}: {}", photo_id, e);
                 }
             }
             Err(e) => {
+                thumbnail_failed_count += 1;
                 eprintln!("Failed to generate thumbnails for {}: {}", photo_id, e);
                 if let Err(e) = mark_photo_assets_failed(&conn, &photo_id) {
                     eprintln!("Failed to mark assets as failed for {}: {}", photo_id, e);
                 }
             }
         }
+
+        emit_scan_progress(
+            app,
+            ScanProgress {
+                status: "thumbnailing".to_string(),
+                root_path: Some(root_path.clone()),
+                source_id: Some(source.id.clone()),
+                discovered_count: indexed_count,
+                indexed_count,
+                thumbnail_ready_count,
+                thumbnail_failed_count,
+                skipped_count: 0,
+                current_file,
+                error_message: None,
+            },
+        );
     }
 
     let updated_source = upsert_source(&conn, &source_path)?;
     eprintln!("[scan_photo_source] Scan complete!");
+
+    emit_scan_progress(
+        app,
+        ScanProgress {
+            status: "completed".to_string(),
+            root_path: Some(root_path),
+            source_id: Some(source.id),
+            discovered_count: indexed_count,
+            indexed_count,
+            thumbnail_ready_count,
+            thumbnail_failed_count,
+            skipped_count: 0,
+            current_file: None,
+            error_message: None,
+        },
+    );
 
     Ok(ScanSummary {
         source: updated_source,
         indexed_count,
         skipped_count: 0,
     })
+}
+
+fn emit_scan_progress(app: &AppHandle, progress: ScanProgress) {
+    if let Err(error) = app.emit(SCAN_PROGRESS_EVENT, progress) {
+        eprintln!(
+            "[scan_photo_source] Failed to emit scan progress: {}",
+            error
+        );
+    }
 }
 
 #[tauri::command]
@@ -133,11 +288,14 @@ pub fn get_library_summary(app: AppHandle) -> Result<LibrarySummary, String> {
         return Ok(LibrarySummary {
             sources: vec![],
             total_photos: 0,
+            recently_added_count: 0,
+            favorites_count: 0,
         });
     }
 
     let conn = open_database(&db_path)?;
     initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
     get_summary(&conn)
 }
 
@@ -146,6 +304,8 @@ pub fn get_timeline_photos_cmd(
     app: AppHandle,
     limit: i64,
     offset: i64,
+    source_id: Option<String>,
+    folder_path: Option<String>,
 ) -> Result<Vec<TimelinePhoto>, String> {
     let db_path = get_db_path(&app)?;
 
@@ -155,7 +315,28 @@ pub fn get_timeline_photos_cmd(
 
     let conn = open_database(&db_path)?;
     initialize_schema(&conn)?;
-    get_timeline_photos(&conn, limit, offset)
+    migrate_schema(&conn)?;
+    get_timeline_photos(
+        &conn,
+        limit,
+        offset,
+        source_id.as_deref(),
+        folder_path.as_deref(),
+    )
+}
+
+#[tauri::command]
+pub fn get_source_folders_cmd(app: AppHandle) -> Result<Vec<SourceFolder>, String> {
+    let db_path = get_db_path(&app)?;
+
+    if !db_path.exists() {
+        return Ok(vec![]);
+    }
+
+    let conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+    get_source_folders(&conn)
 }
 
 #[tauri::command]
@@ -187,3 +368,130 @@ pub fn get_thumbnail_file(
         .map(|s| s.to_string())
 }
 
+#[tauri::command]
+pub fn get_photo_data_url(app: AppHandle, photo_id: String) -> Result<String, String> {
+    let db_path = get_db_path(&app)?;
+
+    if !db_path.exists() {
+        return Err("Photo library is not initialized".to_string());
+    }
+
+    let conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+
+    let photo_path = PathBuf::from(get_photo_original_path(&conn, &photo_id)?);
+    let metadata = std::fs::metadata(&photo_path)
+        .map_err(|e| format!("Failed to read photo metadata: {}", e))?;
+
+    if metadata.len() > MAX_VIEWER_ORIGINAL_BYTES {
+        return Err(format!(
+            "Original photo is too large for inline preview: {} bytes",
+            metadata.len()
+        ));
+    }
+
+    let bytes =
+        std::fs::read(&photo_path).map_err(|e| format!("Failed to read photo file: {}", e))?;
+    let mime_type = mime_type_for_path(&photo_path);
+    let encoded = general_purpose::STANDARD.encode(bytes);
+
+    Ok(format!("data:{};base64,{}", mime_type, encoded))
+}
+
+fn mime_type_for_path(path: &PathBuf) -> &'static str {
+    match path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "tif" | "tiff" => "image/tiff",
+        "heic" => "image/heic",
+        _ => "application/octet-stream",
+    }
+}
+
+#[tauri::command]
+pub fn get_recently_added_photos_cmd(
+    app: AppHandle,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<TimelinePhoto>, String> {
+    let db_path = get_db_path(&app)?;
+
+    if !db_path.exists() {
+        return Ok(vec![]);
+    }
+
+    let conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+    get_recently_added_photos(&conn, limit, offset)
+}
+
+#[tauri::command]
+pub fn get_favorite_photos_cmd(
+    app: AppHandle,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<TimelinePhoto>, String> {
+    let db_path = get_db_path(&app)?;
+
+    if !db_path.exists() {
+        return Ok(vec![]);
+    }
+
+    let conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+    get_favorite_photos(&conn, limit, offset)
+}
+
+#[tauri::command]
+pub fn search_photos_cmd(
+    app: AppHandle,
+    query: String,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<TimelinePhoto>, String> {
+    let db_path = get_db_path(&app)?;
+
+    if !db_path.exists() {
+        return Ok(vec![]);
+    }
+
+    let conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+    search_photos(&conn, limit, offset, &query)
+}
+
+#[tauri::command]
+pub fn toggle_photo_favorite_cmd(app: AppHandle, photo_id: String) -> Result<bool, String> {
+    let db_path = get_db_path(&app)?;
+
+    if !db_path.exists() {
+        return Err("Photo library is not initialized".to_string());
+    }
+
+    let conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+
+    let current: Option<String> = conn
+        .query_row(
+            "SELECT favorited_at FROM photos WHERE id = ?1",
+            params![photo_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to query photo: {}", e))?;
+
+    let new_state = current.is_none();
+    set_photo_favorite(&conn, &photo_id, new_state)?;
+    Ok(new_state)
+}

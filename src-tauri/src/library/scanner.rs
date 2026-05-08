@@ -13,6 +13,16 @@ pub struct DiscoveredPhoto {
 const SUPPORTED_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "heic", "webp", "tif", "tiff"];
 
 pub fn discover_photos(root_path: &Path) -> Result<Vec<DiscoveredPhoto>, String> {
+    discover_photos_with_progress(root_path, |_, _| {})
+}
+
+pub fn discover_photos_with_progress<F>(
+    root_path: &Path,
+    mut on_photo_discovered: F,
+) -> Result<Vec<DiscoveredPhoto>, String>
+where
+    F: FnMut(usize, &str),
+{
     let mut photos = Vec::new();
 
     for entry in WalkDir::new(root_path)
@@ -51,7 +61,7 @@ pub fn discover_photos(root_path: &Path) -> Result<Vec<DiscoveredPhoto>, String>
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        photos.push(DiscoveredPhoto {
+        let discovered_photo = DiscoveredPhoto {
             absolute_path: path.to_path_buf(),
             file_name: path
                 .file_name()
@@ -61,7 +71,10 @@ pub fn discover_photos(root_path: &Path) -> Result<Vec<DiscoveredPhoto>, String>
             extension,
             file_size: metadata.len(),
             file_mtime,
-        });
+        };
+
+        on_photo_discovered(photos.len() + 1, &discovered_photo.file_name);
+        photos.push(discovered_photo);
     }
 
     photos.sort_by(|a, b| a.absolute_path.cmp(&b.absolute_path));

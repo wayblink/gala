@@ -8,10 +8,11 @@ describe('App', () => {
 
     expect(screen.getByText('Memory Table')).toBeInTheDocument()
     expect(screen.getByText('Timeline: All Photos')).toBeInTheDocument()
-    expect(screen.getByText(/18,426 photos/)).toBeInTheDocument()
+    expect(screen.getByText('0 photos · 0 sources · 0 online')).toBeInTheDocument()
     expect(screen.getByText('View Context')).toBeInTheDocument()
     expect(screen.getByText('Library Index')).toBeInTheDocument()
     expect(await screen.findByText('Desktop Runtime')).toBeInTheDocument()
-    expect(screen.getByText('web · browser · mock')).toBeInTheDocument()
+    expect(screen.getByText('No sources')).toBeInTheDocument()
+    expect(screen.getByText('No photo selected')).toBeInTheDocument()
   })
 })

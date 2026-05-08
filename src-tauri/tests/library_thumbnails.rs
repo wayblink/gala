@@ -59,7 +59,9 @@ fn test_maintains_aspect_ratio() {
     test_image.save(&test_path).unwrap();
 
     let generator = ThumbnailGenerator::new(cache_dir.clone()).unwrap();
-    let thumbnail_path = generator.generate("photo-3", &test_path, ThumbnailSize::Small).unwrap();
+    let thumbnail_path = generator
+        .generate("photo-3", &test_path, ThumbnailSize::Small)
+        .unwrap();
 
     let thumbnail = image::open(&thumbnail_path).unwrap();
     let (width, height) = thumbnail.dimensions();

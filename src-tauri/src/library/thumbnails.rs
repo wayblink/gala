@@ -35,7 +35,11 @@ impl ThumbnailGenerator {
         std::fs::create_dir_all(&cache_dir)
             .map_err(|e| format!("Failed to create thumbnail cache dir: {}", e))?;
 
-        for size in [ThumbnailSize::Small, ThumbnailSize::Medium, ThumbnailSize::Large] {
+        for size in [
+            ThumbnailSize::Small,
+            ThumbnailSize::Medium,
+            ThumbnailSize::Large,
+        ] {
             let size_dir = cache_dir.join(size.dir_name());
             std::fs::create_dir_all(&size_dir)
                 .map_err(|e| format!("Failed to create thumbnail size dir: {}", e))?;
@@ -50,12 +54,12 @@ impl ThumbnailGenerator {
         source_path: &Path,
         size: ThumbnailSize,
     ) -> Result<PathBuf, String> {
-        let img = image::open(source_path)
-            .map_err(|e| format!("Failed to open image: {}", e))?;
+        let img = image::open(source_path).map_err(|e| format!("Failed to open image: {}", e))?;
 
         let thumbnail = self.resize_image(&img, size);
 
-        let output_path = self.cache_dir
+        let output_path = self
+            .cache_dir
             .join(size.dir_name())
             .join(format!("{}.jpg", photo_id));
 
@@ -71,15 +75,37 @@ impl ThumbnailGenerator {
         photo_id: &str,
         source_path: &Path,
     ) -> Result<ThumbnailPaths, String> {
-        let small = self.generate(photo_id, source_path, ThumbnailSize::Small)?;
-        let medium = self.generate(photo_id, source_path, ThumbnailSize::Medium)?;
-        let large = self.generate(photo_id, source_path, ThumbnailSize::Large)?;
+        let img = image::open(source_path).map_err(|e| format!("Failed to open image: {}", e))?;
+
+        let small = self.save_resized_image(photo_id, &img, ThumbnailSize::Small)?;
+        let medium = self.save_resized_image(photo_id, &img, ThumbnailSize::Medium)?;
+        let large = self.save_resized_image(photo_id, &img, ThumbnailSize::Large)?;
+        let (original_width, original_height) = img.dimensions();
 
         Ok(ThumbnailPaths {
             small: small.to_string_lossy().to_string(),
             medium: medium.to_string_lossy().to_string(),
             large: large.to_string_lossy().to_string(),
+            original_width,
+            original_height,
         })
+    }
+
+    fn save_resized_image(
+        &self,
+        photo_id: &str,
+        img: &DynamicImage,
+        size: ThumbnailSize,
+    ) -> Result<PathBuf, String> {
+        let thumbnail = self.resize_image(img, size);
+
+        let output_path = self.get_thumbnail_path(photo_id, size);
+
+        thumbnail
+            .save_with_format(&output_path, ImageFormat::Jpeg)
+            .map_err(|e| format!("Failed to save thumbnail: {}", e))?;
+
+        Ok(output_path)
     }
 
     fn resize_image(&self, img: &DynamicImage, size: ThumbnailSize) -> DynamicImage {
@@ -111,4 +137,6 @@ pub struct ThumbnailPaths {
     pub small: String,
     pub medium: String,
     pub large: String,
+    pub original_width: u32,
+    pub original_height: u32,
 }

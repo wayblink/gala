@@ -6,4 +6,7 @@ interface Window {
       invoke: <T>(command: string, args?: Record<string, unknown>) => Promise<T>
     }
   }
+  __TAURI_INTERNALS__?: {
+    invoke: <T>(command: string, args?: Record<string, unknown>) => Promise<T>
+  }
 }

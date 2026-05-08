@@ -1,4 +1,4 @@
-export type SourceStatus = 'online' | 'offline' | 'missing'
+export type SourceStatus = 'online' | 'offline' | 'missing' | 'error'
 export type PhotoStatus = 'indexed' | 'missing' | 'offline'
 
 export type NavItem = {

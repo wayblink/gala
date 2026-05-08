@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { isTauriAvailable } from './tauri'
 
 export type DesktopEnvironment = {
   runtime: 'desktop' | 'web'
@@ -7,6 +8,14 @@ export type DesktopEnvironment = {
 }
 
 export async function getDesktopEnvironment(): Promise<DesktopEnvironment> {
+  if (!isTauriAvailable()) {
+    return {
+      runtime: 'web',
+      platform: 'browser',
+      engine: 'mock',
+    }
+  }
+
   try {
     return await invoke<DesktopEnvironment>('get_app_environment')
   } catch (error) {

@@ -1,16 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getDesktopEnvironment } from './environment'
 
-const originalTauri = window.__TAURI__
+const originalTauriInternals = window.__TAURI_INTERNALS__
 
 describe('getDesktopEnvironment', () => {
   afterEach(() => {
-    window.__TAURI__ = originalTauri
+    window.__TAURI_INTERNALS__ = originalTauriInternals
     vi.restoreAllMocks()
   })
 
   it('returns a web fallback when the app is not running inside Tauri', async () => {
-    window.__TAURI__ = undefined
+    window.__TAURI_INTERNALS__ = undefined
 
     await expect(getDesktopEnvironment()).resolves.toEqual({
       runtime: 'web',
@@ -26,15 +26,13 @@ describe('getDesktopEnvironment', () => {
       engine: 'rust',
     })
 
-    window.__TAURI__ = {
-      core: { invoke },
-    }
+    window.__TAURI_INTERNALS__ = { invoke }
 
     await expect(getDesktopEnvironment()).resolves.toEqual({
       runtime: 'desktop',
       platform: 'macos',
       engine: 'rust',
     })
-    expect(invoke).toHaveBeenCalledWith('get_app_environment')
+    expect(invoke).toHaveBeenCalledWith('get_app_environment', {}, undefined)
   })
 })

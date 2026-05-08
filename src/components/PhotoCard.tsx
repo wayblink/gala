@@ -5,10 +5,11 @@ import type { TimelinePhoto } from '../types/photos'
 
 type PhotoCardProps = {
   photo: TimelinePhoto
+  selected?: boolean
   onClick?: () => void
 }
 
-export function PhotoCard({ photo, onClick }: PhotoCardProps) {
+export function PhotoCard({ photo, selected = false, onClick }: PhotoCardProps) {
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(false)
@@ -40,7 +41,13 @@ export function PhotoCard({ photo, onClick }: PhotoCardProps) {
   }, [photo])
 
   return (
-    <div className="photo-card" onClick={onClick} role="button" tabIndex={0}>
+    <button
+      type="button"
+      className={`photo-card${selected ? ' photo-card--selected' : ''}`}
+      onClick={onClick}
+      aria-label={`Open ${photo.fileName}`}
+      aria-pressed={selected}
+    >
       {isLoading && <div className="photo-card__skeleton" />}
       {thumbnailUrl && !error && (
         <img
@@ -51,6 +58,6 @@ export function PhotoCard({ photo, onClick }: PhotoCardProps) {
         />
       )}
       {error && <div className="photo-card__error">Failed to load</div>}
-    </div>
+    </button>
   )
 }

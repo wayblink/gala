@@ -1,4 +1,4 @@
-use gala_lib::library::scanner::discover_photos;
+use gala_lib::library::scanner::{discover_photos, discover_photos_with_progress};
 use std::fs;
 use tempfile::TempDir;
 
@@ -82,4 +82,31 @@ fn test_extracts_file_metadata() {
     assert_eq!(photo.file_size, content.len() as u64);
     assert!(photo.file_mtime > 0);
     assert_eq!(photo.extension, "jpg");
+}
+
+#[test]
+fn test_reports_discovery_progress_for_supported_files() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    fs::write(root.join("photo1.jpg"), b"fake").unwrap();
+    fs::write(root.join("photo2.png"), b"fake").unwrap();
+    fs::write(root.join("notes.txt"), b"ignore").unwrap();
+
+    let mut progress = Vec::new();
+    let photos = discover_photos_with_progress(root, |count, file_name| {
+        progress.push((count, file_name.to_string()));
+    })
+    .unwrap();
+
+    assert_eq!(photos.len(), 2);
+    assert_eq!(progress.len(), 2);
+    assert_eq!(progress[0].0, 1);
+    assert_eq!(progress[1].0, 2);
+    assert!(progress
+        .iter()
+        .any(|(_, file_name)| file_name == "photo1.jpg"));
+    assert!(progress
+        .iter()
+        .any(|(_, file_name)| file_name == "photo2.png"));
 }

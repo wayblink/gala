@@ -1,7 +1,15 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { LibrarySummary, ScanSummary } from '../types/library'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import type { LibrarySummary, ScanProgress, ScanSummary } from '../types/library'
+import { isTauriAvailable } from './tauri'
+
+export const SCAN_PROGRESS_EVENT = 'gala://scan-progress'
 
 export async function pickPhotoFolder(): Promise<string | null> {
+  if (!isTauriAvailable()) {
+    return null
+  }
+
   try {
     console.log('[pickPhotoFolder] Calling pick_photo_folder command')
     const result = await invoke<string | null>('pick_photo_folder')
@@ -14,6 +22,10 @@ export async function pickPhotoFolder(): Promise<string | null> {
 }
 
 export async function scanPhotoSource(rootPath: string): Promise<ScanSummary | null> {
+  if (!isTauriAvailable()) {
+    return null
+  }
+
   try {
     console.log('[scanPhotoSource] Calling scan_photo_source with:', rootPath)
     const result = await invoke<ScanSummary>('scan_photo_source', { rootPath })
@@ -25,7 +37,23 @@ export async function scanPhotoSource(rootPath: string): Promise<ScanSummary | n
   }
 }
 
+export async function listenToScanProgress(
+  onProgress: (progress: ScanProgress) => void,
+): Promise<UnlistenFn | null> {
+  if (!isTauriAvailable()) {
+    return null
+  }
+
+  return listen<ScanProgress>(SCAN_PROGRESS_EVENT, (event) => {
+    onProgress(event.payload)
+  })
+}
+
 export async function getLibrarySummary(): Promise<LibrarySummary> {
+  if (!isTauriAvailable()) {
+    return { sources: [], totalPhotos: 0, recentlyAddedCount: 0, favoritesCount: 0 }
+  }
+
   try {
     console.log('[getLibrarySummary] Calling get_library_summary')
     const result = await invoke<LibrarySummary>('get_library_summary')
@@ -33,7 +61,7 @@ export async function getLibrarySummary(): Promise<LibrarySummary> {
     return result
   } catch (error) {
     console.error('[getLibrarySummary] Error:', error)
-    return { sources: [], totalPhotos: 0 }
+    return { sources: [], totalPhotos: 0, recentlyAddedCount: 0, favoritesCount: 0 }
   }
 }
 

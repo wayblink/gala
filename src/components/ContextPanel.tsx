@@ -1,13 +1,39 @@
-import { selectedPhoto } from '../data/mockLibrary'
 import type { DesktopEnvironment } from '../desktop/environment'
 import type { LibrarySummary } from '../types/library'
+import type { TimelinePhoto } from '../types/photos'
 
 type ContextPanelProps = {
   desktopEnvironment: DesktopEnvironment
   librarySummary: LibrarySummary
+  selectedPhoto: TimelinePhoto | null
+  onToggleFavorite?: (photoId: string) => void
 }
 
-export function ContextPanel({ desktopEnvironment, librarySummary }: ContextPanelProps) {
+const formatFileSize = (bytes: number) => {
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  }
+
+  if (bytes >= 1024) {
+    return `${Math.round(bytes / 1024)} KB`
+  }
+
+  return `${bytes} B`
+}
+
+const formatDate = (value: string | null) => {
+  if (!value) {
+    return 'No date'
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(value))
+}
+
+export function ContextPanel({ desktopEnvironment, librarySummary, selectedPhoto, onToggleFavorite }: ContextPanelProps) {
   return (
     <aside className="context-panel" aria-label="View context">
       <section>
@@ -44,26 +70,55 @@ export function ContextPanel({ desktopEnvironment, librarySummary }: ContextPane
       </section>
       <section>
         <p className="eyebrow">Selected Photo</p>
-        <h3>{selectedPhoto.fileName}</h3>
-        <p className="mono-muted">May 7, 2026 · {selectedPhoto.camera}</p>
-        <dl className="metadata-list">
-          <div>
-            <dt>Source</dt>
-            <dd>{selectedPhoto.sourceName}</dd>
-          </div>
-          <div>
-            <dt>Lens</dt>
-            <dd>{selectedPhoto.lens}</dd>
-          </div>
-          <div>
-            <dt>Size</dt>
-            <dd>{selectedPhoto.dimensions}</dd>
-          </div>
-        </dl>
+        {selectedPhoto ? (
+          <>
+            <h3>{selectedPhoto.fileName}</h3>
+            <p className="mono-muted">{formatDate(selectedPhoto.capturedAt)}</p>
+            <button
+              className={`fav-toggle${selectedPhoto.isFavorite ? ' fav-toggle--active' : ''}`}
+              type="button"
+              onClick={() => onToggleFavorite?.(selectedPhoto.id)}
+            >
+              {selectedPhoto.isFavorite ? '★ Unfavorite' : '☆ Favorite'}
+            </button>
+            <dl className="metadata-list">
+              <div>
+                <dt>Source</dt>
+                <dd>{selectedPhoto.sourceName}</dd>
+              </div>
+              <div>
+                <dt>Status</dt>
+                <dd>{selectedPhoto.sourceStatus}</dd>
+              </div>
+              <div>
+                <dt>File Size</dt>
+                <dd>{formatFileSize(selectedPhoto.fileSize)}</dd>
+              </div>
+              <div>
+                <dt>Folder</dt>
+                <dd>{selectedPhoto.folderPath || 'Source root'}</dd>
+              </div>
+              <div>
+                <dt>Relative Path</dt>
+                <dd>{selectedPhoto.relativePath}</dd>
+              </div>
+              <div>
+                <dt>Dimensions</dt>
+                <dd>
+                  {selectedPhoto.width && selectedPhoto.height
+                    ? `${selectedPhoto.width} x ${selectedPhoto.height}`
+                    : 'Pending'}
+                </dd>
+              </div>
+            </dl>
+          </>
+        ) : (
+          <p className="mono-muted">No photo selected</p>
+        )}
       </section>
       <div className="context-panel__actions">
-        <button className="primary-button">Save View</button>
-        <button className="secondary-button">Explain</button>
+        <button className="primary-button" type="button">Save View</button>
+        <button className="secondary-button" type="button">Explain</button>
       </div>
     </aside>
   )

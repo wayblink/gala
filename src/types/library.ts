@@ -12,7 +12,29 @@ export type ScanSummary = {
   skippedCount: number
 }
 
+export type ScanProgressStatus =
+  | 'scanning'
+  | 'indexing'
+  | 'thumbnailing'
+  | 'completed'
+  | 'failed'
+
+export type ScanProgress = {
+  status: ScanProgressStatus
+  rootPath: string | null
+  sourceId: string | null
+  discoveredCount: number
+  indexedCount: number
+  thumbnailReadyCount: number
+  thumbnailFailedCount: number
+  skippedCount: number
+  currentFile: string | null
+  errorMessage: string | null
+}
+
 export type LibrarySummary = {
   sources: LibrarySource[]
   totalPhotos: number
+  recentlyAddedCount: number
+  favoritesCount: number
 }
