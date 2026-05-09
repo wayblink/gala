@@ -40,6 +40,7 @@ pub struct LibrarySummary {
     pub total_photos: i64,
     pub recently_added_count: i64,
     pub favorites_count: i64,
+    pub hidden_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,4 +74,31 @@ pub struct TimelinePhoto {
     pub source_status: String,
     pub thumbnail_path: Option<String>,
     pub is_favorite: bool,
+    pub is_hidden: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertedPhoto {
+    pub id: String,
+    pub absolute_path: String,
+    pub needs_thumbnail: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Album {
+    pub id: String,
+    pub name: String,
+    pub photo_count: i64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilterOptions {
+    pub cameras: Vec<String>,
+    pub extensions: Vec<String>,
+    pub date_min: Option<String>,
+    pub date_max: Option<String>,
 }

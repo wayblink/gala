@@ -1,37 +1,40 @@
-import { Filter, FolderPlus, Grid3X3, Search } from 'lucide-react'
-import type { LibrarySummary } from '../types/library'
+import { Filter, FolderPlus, GalleryHorizontal, Grid3X3, Rows3, Search } from 'lucide-react'
+import type { PhotoDisplayMode } from '../types/photos'
 
 type TopBarProps = {
   onAddFolder: () => void
   isScanning: boolean
-  librarySummary: LibrarySummary
   searchQuery: string
   onSearchChange: (query: string) => void
-  viewTitle?: string
+  displayMode: PhotoDisplayMode
+  onDisplayModeChange: (mode: PhotoDisplayMode) => void
+  filterActive?: boolean
+  onToggleFilter?: () => void
 }
 
-const formatCount = (count: number) => new Intl.NumberFormat().format(count)
+const displayModes: Array<{
+  mode: PhotoDisplayMode
+  label: string
+  icon: typeof Grid3X3
+}> = [
+  { mode: 'thumbnail', label: 'Thumbnail table', icon: Grid3X3 },
+  { mode: 'list', label: 'List', icon: Rows3 },
+  { mode: 'gallery', label: 'Gallery', icon: GalleryHorizontal },
+]
 
 export function TopBar({
   onAddFolder,
   isScanning,
-  librarySummary,
   searchQuery,
   onSearchChange,
-  viewTitle = 'Timeline: All Photos',
+  displayMode,
+  onDisplayModeChange,
+  filterActive = false,
+  onToggleFilter,
 }: TopBarProps) {
-  const onlineSources = librarySummary.sources.filter((source) => source.status === 'online').length
-  const sourceLabel = `${librarySummary.sources.length} source${librarySummary.sources.length === 1 ? '' : 's'}`
-
   return (
     <header className="top-bar">
       <div className="top-bar__brand">Memory Table</div>
-      <div className="top-bar__view">
-        <h1>{viewTitle}</h1>
-        <p>
-          {formatCount(librarySummary.totalPhotos)} photos · {sourceLabel} · {onlineSources} online
-        </p>
-      </div>
       <div className="top-bar__actions">
         <label className="search-field">
           <Search size={15} aria-hidden="true" />
@@ -42,10 +45,28 @@ export function TopBar({
             onChange={(event) => onSearchChange(event.target.value)}
           />
         </label>
-        <button className="icon-button" aria-label="Change density">
-          <Grid3X3 size={16} />
-        </button>
-        <button className="icon-button" aria-label="Open filters">
+        <div className="view-mode-switcher" aria-label="Display mode">
+          {displayModes.map(({ mode, label, icon: Icon }) => (
+            <button
+              key={mode}
+              className={`icon-button${displayMode === mode ? ' icon-button--active' : ''}`}
+              type="button"
+              aria-label={label}
+              aria-pressed={displayMode === mode}
+              title={label}
+              onClick={() => onDisplayModeChange(mode)}
+            >
+              <Icon size={16} />
+            </button>
+          ))}
+        </div>
+        <button
+          className={`icon-button${filterActive ? ' icon-button--active' : ''}`}
+          aria-label="Open filters"
+          aria-pressed={filterActive}
+          title="Smart filters"
+          onClick={onToggleFilter}
+        >
           <Filter size={16} />
         </button>
         <button className="primary-button" onClick={onAddFolder} disabled={isScanning}>

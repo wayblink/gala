@@ -418,6 +418,75 @@ fn test_timeline_photos_include_persisted_exif_metadata() {
 }
 
 #[test]
+fn test_timeline_photos_sort_by_captured_at_before_file_mtime() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let source_path = temp_dir.path().join("photos");
+    fs::create_dir(&source_path).unwrap();
+    fs::write(source_path.join("new-file-old-capture.jpg"), b"fake").unwrap();
+    fs::write(source_path.join("old-file-new-capture.jpg"), b"fake").unwrap();
+
+    let mut conn = open_database(&db_path).unwrap();
+    initialize_schema(&conn).unwrap();
+    migrate_schema(&conn).unwrap();
+
+    let source = upsert_source(&conn, &source_path).unwrap();
+    let photos = discover_photos(&source_path).unwrap();
+    replace_source_photos(&mut conn, &source.id, &source_path, &photos).unwrap();
+
+    let photo_ids: Vec<(String, String)> = conn
+        .prepare("SELECT id, file_name FROM photos")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    for (photo_id, file_name) in photo_ids {
+        let captured_at = if file_name == "old-file-new-capture.jpg" {
+            "2026-05-07T10:30:00+00:00"
+        } else {
+            "2024-01-01T10:30:00+00:00"
+        };
+        update_photo_exif_metadata(
+            &conn,
+            &photo_id,
+            Some(captured_at),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        upsert_photo_assets(
+            &conn,
+            &photo_id,
+            "/tmp/small.jpg",
+            "/tmp/medium.jpg",
+            "/tmp/large.jpg",
+        )
+        .unwrap();
+    }
+
+    conn.execute(
+        "UPDATE photos SET file_mtime = 1893456000 WHERE file_name = 'new-file-old-capture.jpg'",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "UPDATE photos SET file_mtime = 1704067200 WHERE file_name = 'old-file-new-capture.jpg'",
+        [],
+    )
+    .unwrap();
+
+    let photos = get_timeline_photos(&conn, 20, 0, None, None).unwrap();
+
+    assert_eq!(photos[0].file_name, "old-file-new-capture.jpg");
+    assert_eq!(photos[1].file_name, "new-file-old-capture.jpg");
+}
+
+#[test]
 fn test_search_photos_matches_name_path_source_and_date() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("test.db");

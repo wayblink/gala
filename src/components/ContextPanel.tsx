@@ -1,12 +1,18 @@
+import { useState } from 'react'
 import type { DesktopEnvironment } from '../desktop/environment'
 import type { LibrarySummary } from '../types/library'
-import type { TimelinePhoto } from '../types/photos'
+import type { Album, TimelinePhoto } from '../types/photos'
 
 type ContextPanelProps = {
   desktopEnvironment: DesktopEnvironment
   librarySummary: LibrarySummary
   selectedPhoto: TimelinePhoto | null
   onToggleFavorite?: (photoId: string) => void
+  onToggleHidden?: (photoId: string) => void
+  albums?: Album[]
+  currentAlbumId?: string
+  onAddToAlbum?: (albumId: string, photoId: string) => void
+  onRemoveFromAlbum?: (albumId: string, photoId: string) => void
 }
 
 const formatFileSize = (bytes: number) => {
@@ -52,20 +58,20 @@ const formatGps = (latitude: number | null, longitude: number | null) => {
   return `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`
 }
 
-export function ContextPanel({ desktopEnvironment, librarySummary, selectedPhoto, onToggleFavorite }: ContextPanelProps) {
+export function ContextPanel({
+  desktopEnvironment,
+  librarySummary,
+  selectedPhoto,
+  onToggleFavorite,
+  onToggleHidden,
+  albums = [],
+  currentAlbumId,
+  onAddToAlbum,
+  onRemoveFromAlbum,
+}: ContextPanelProps) {
+  const [albumPickerOpen, setAlbumPickerOpen] = useState(false)
   return (
     <aside className="context-panel" aria-label="View context">
-      <section>
-        <p className="eyebrow">View Context</p>
-        <h2>Timeline</h2>
-        <p className="mono-muted">Built-in strategy</p>
-      </section>
-      <section>
-        <p className="eyebrow">Why Visible</p>
-        <p>
-          Photos are grouped by captured date. Items without capture dates use import time and remain marked in the grid.
-        </p>
-      </section>
       <section>
         <p className="eyebrow">Library Index</p>
         <p className="mono-muted">
@@ -100,6 +106,45 @@ export function ContextPanel({ desktopEnvironment, librarySummary, selectedPhoto
             >
               {selectedPhoto.isFavorite ? '★ Unfavorite' : '☆ Favorite'}
             </button>
+            <button
+              className={`fav-toggle${selectedPhoto.isHidden ? ' fav-toggle--hidden' : ''}`}
+              type="button"
+              onClick={() => onToggleHidden?.(selectedPhoto.id)}
+            >
+              {selectedPhoto.isHidden ? '👁 Unhide' : '🫣 Hide'}
+            </button>
+            {albums.length > 0 && (
+              <div className="album-picker">
+                <button
+                  className="fav-toggle"
+                  type="button"
+                  onClick={() => setAlbumPickerOpen((p) => !p)}
+                >
+                  + Add to Album
+                </button>
+                {albumPickerOpen && (
+                  <div className="album-picker__list">
+                    {albums.map((album) => (
+                      <button
+                        className="album-picker__item"
+                        key={album.id}
+                        type="button"
+                        onClick={() => {
+                          if (currentAlbumId === album.id) {
+                            onRemoveFromAlbum?.(album.id, selectedPhoto.id)
+                          } else {
+                            onAddToAlbum?.(album.id, selectedPhoto.id)
+                          }
+                          setAlbumPickerOpen(false)
+                        }}
+                      >
+                        {currentAlbumId === album.id ? '✓ ' : ''}{album.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <dl className="metadata-list">
               <div>
                 <dt>Source</dt>
@@ -147,10 +192,6 @@ export function ContextPanel({ desktopEnvironment, librarySummary, selectedPhoto
           <p className="mono-muted">No photo selected</p>
         )}
       </section>
-      <div className="context-panel__actions">
-        <button className="primary-button" type="button">Save View</button>
-        <button className="secondary-button" type="button">Explain</button>
-      </div>
     </aside>
   )
 }

@@ -2,24 +2,19 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { TopBar } from '../TopBar'
 
-const librarySummary = {
-  sources: [],
-  totalPhotos: 0,
-  recentlyAddedCount: 0,
-  favoritesCount: 0,
-}
-
 describe('TopBar', () => {
   it('reports search query changes from the search field', () => {
     const onSearchChange = vi.fn()
+    const onDisplayModeChange = vi.fn()
 
     render(
       <TopBar
         onAddFolder={() => undefined}
         isScanning={false}
-        librarySummary={librarySummary}
         searchQuery=""
         onSearchChange={onSearchChange}
+        displayMode="thumbnail"
+        onDisplayModeChange={onDisplayModeChange}
       />,
     )
 
@@ -28,5 +23,24 @@ describe('TopBar', () => {
     })
 
     expect(onSearchChange).toHaveBeenCalledWith('Kyoto')
+  })
+
+  it('reports display mode changes from the mode switcher', () => {
+    const onDisplayModeChange = vi.fn()
+
+    render(
+      <TopBar
+        onAddFolder={() => undefined}
+        isScanning={false}
+        searchQuery=""
+        onSearchChange={() => undefined}
+        displayMode="thumbnail"
+        onDisplayModeChange={onDisplayModeChange}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'List' }))
+
+    expect(onDisplayModeChange).toHaveBeenCalledWith('list')
   })
 })

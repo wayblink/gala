@@ -51,7 +51,7 @@ export async function listenToScanProgress(
 
 export async function getLibrarySummary(): Promise<LibrarySummary> {
   if (!isTauriAvailable()) {
-    return { sources: [], totalPhotos: 0, recentlyAddedCount: 0, favoritesCount: 0 }
+    return { sources: [], totalPhotos: 0, recentlyAddedCount: 0, favoritesCount: 0, hiddenCount: 0 }
   }
 
   try {
@@ -61,7 +61,7 @@ export async function getLibrarySummary(): Promise<LibrarySummary> {
     return result
   } catch (error) {
     console.error('[getLibrarySummary] Error:', error)
-    return { sources: [], totalPhotos: 0, recentlyAddedCount: 0, favoritesCount: 0 }
+    return { sources: [], totalPhotos: 0, recentlyAddedCount: 0, favoritesCount: 0, hiddenCount: 0 }
   }
 }
 

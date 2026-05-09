@@ -5,9 +5,20 @@ import { PhotoSurface } from './components/PhotoSurface'
 import { TopBar } from './components/TopBar'
 import { type DesktopEnvironment, getDesktopEnvironment } from './desktop/environment'
 import { getLibrarySummary, listenToScanProgress, pickPhotoFolder, scanPhotoSource } from './desktop/library'
-import { getSourceFolders, togglePhotoFavorite } from './desktop/photos'
+import {
+  addPhotoToAlbum,
+  createAlbum,
+  deleteAlbum,
+  getAlbums,
+  getFilterOptions,
+  getSourceFolders,
+  removePhotoFromAlbum,
+  renameAlbum,
+  togglePhotoFavorite,
+  togglePhotoHidden,
+} from './desktop/photos'
 import type { LibrarySummary, ScanProgress } from './types/library'
-import type { PhotoFilter, SourceFolder, TimelinePhoto } from './types/photos'
+import type { Album, FilterOptions, PhotoDisplayMode, PhotoFilter, SmartFilter, SourceFolder, TimelinePhoto } from './types/photos'
 
 export default function App() {
   const [desktopEnvironment, setDesktopEnvironment] = useState<DesktopEnvironment>({
@@ -20,6 +31,7 @@ export default function App() {
     totalPhotos: 0,
     recentlyAddedCount: 0,
     favoritesCount: 0,
+    hiddenCount: 0,
   })
   const [isScanning, setIsScanning] = useState(false)
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null)
@@ -28,11 +40,18 @@ export default function App() {
   const [sourceFolders, setSourceFolders] = useState<SourceFolder[]>([])
   const [photoFilter, setPhotoFilter] = useState<PhotoFilter | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [displayMode, setDisplayMode] = useState<PhotoDisplayMode>('thumbnail')
+  const [albums, setAlbums] = useState<Album[]>([])
+  const [smartFilter, setSmartFilter] = useState<SmartFilter>({})
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false)
+  const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(null)
 
   useEffect(() => {
     void getDesktopEnvironment().then(setDesktopEnvironment)
     void getLibrarySummary().then(setLibrarySummary)
     void getSourceFolders().then(setSourceFolders)
+    void getAlbums().then(setAlbums)
+    void getFilterOptions().then(setFilterOptions)
   }, [])
 
   useEffect(() => {
@@ -89,6 +108,8 @@ export default function App() {
       if (result) {
         setLibrarySummary(await getLibrarySummary())
         setSourceFolders(await getSourceFolders())
+        setAlbums(await getAlbums())
+        setFilterOptions(await getFilterOptions())
         setPhotoFilter(null)
         setSelectedPhoto(null)
         setRefreshKey((prev) => prev + 1)
@@ -118,6 +139,36 @@ export default function App() {
     setSelectedPhoto(null)
   }
 
+  const handleSelectHidden = () => {
+    setPhotoFilter({ type: 'hidden' })
+    setSearchQuery('')
+    setSelectedPhoto(null)
+  }
+
+  const handleSelectAlbum = (albumId: string) => {
+    setPhotoFilter({ type: 'album', albumId })
+    setSearchQuery('')
+    setSelectedPhoto(null)
+  }
+
+  const handleCreateAlbum = async (name: string) => {
+    const album = await createAlbum(name)
+    if (album) setAlbums(await getAlbums())
+  }
+
+  const handleDeleteAlbum = async (albumId: string) => {
+    await deleteAlbum(albumId)
+    if (photoFilter?.type === 'album' && photoFilter.albumId === albumId) {
+      setPhotoFilter(null)
+    }
+    setAlbums(await getAlbums())
+  }
+
+  const handleRenameAlbum = async (albumId: string, newName: string) => {
+    await renameAlbum(albumId, newName)
+    setAlbums(await getAlbums())
+  }
+
   const handleSelectFolder = (filter: PhotoFilter) => {
     setPhotoFilter(filter)
     setSearchQuery('')
@@ -138,6 +189,27 @@ export default function App() {
     setRefreshKey((prev) => prev + 1)
   }
 
+  const handleToggleHidden = async (photoId: string) => {
+    const newState = await togglePhotoHidden(photoId)
+    if (selectedPhoto && selectedPhoto.id === photoId) {
+      setSelectedPhoto({ ...selectedPhoto, isHidden: newState })
+    }
+    setLibrarySummary(await getLibrarySummary())
+    setRefreshKey((prev) => prev + 1)
+  }
+
+  const handleAddToAlbum = async (albumId: string, photoId: string) => {
+    await addPhotoToAlbum(albumId, photoId)
+    setAlbums(await getAlbums())
+    setRefreshKey((prev) => prev + 1)
+  }
+
+  const handleRemoveFromAlbum = async (albumId: string, photoId: string) => {
+    await removePhotoFromAlbum(albumId, photoId)
+    setAlbums(await getAlbums())
+    setRefreshKey((prev) => prev + 1)
+  }
+
   const activeFolder = photoFilter?.type === 'folder'
     ? sourceFolders.find(
         (folder) =>
@@ -154,20 +226,24 @@ export default function App() {
       ? 'Recently Added'
       : photoFilter?.type === 'favorites'
         ? 'Favorites'
-        : activeFolder?.folderPath
-          ? activeFolder.folderPath
-          : activeSource?.name ?? 'All Photos'
-  const topBarViewTitle = trimmedSearchQuery ? 'Search Results' : 'Timeline: All Photos'
-
+        : photoFilter?.type === 'hidden'
+          ? 'Hidden'
+          : photoFilter?.type === 'album'
+            ? (albums.find((a) => a.id === photoFilter.albumId)?.name ?? 'Album')
+            : activeFolder?.folderPath
+              ? activeFolder.folderPath
+              : activeSource?.name ?? 'All Photos'
   return (
     <div className="app-shell">
       <TopBar
         onAddFolder={handleAddFolder}
         isScanning={isScanning}
-        librarySummary={librarySummary}
         searchQuery={searchQuery}
         onSearchChange={handleSearchChange}
-        viewTitle={topBarViewTitle}
+        displayMode={displayMode}
+        onDisplayModeChange={setDisplayMode}
+        filterActive={Object.keys(smartFilter).length > 0}
+        onToggleFilter={() => setFilterPanelOpen((prev) => !prev)}
       />
       <div className="workspace-grid">
         <LeftRail
@@ -180,13 +256,25 @@ export default function App() {
           onSelectRecent={handleSelectRecent}
           onSelectFavorites={handleSelectFavorites}
           onSelectFolder={handleSelectFolder}
+          onSelectHidden={handleSelectHidden}
+          albums={albums}
+          onSelectAlbum={handleSelectAlbum}
+          onCreateAlbum={handleCreateAlbum}
+          onDeleteAlbum={handleDeleteAlbum}
+          onRenameAlbum={handleRenameAlbum}
         />
         <PhotoSurface
           key={refreshKey}
           filter={photoFilter}
           title={photoViewTitle}
+          displayMode={displayMode}
           selectedPhotoId={selectedPhoto?.id ?? null}
           searchQuery={searchQuery}
+          smartFilter={smartFilter}
+          filterPanelOpen={filterPanelOpen}
+          filterOptions={filterOptions}
+          onSmartFilterChange={setSmartFilter}
+          onCloseFilterPanel={() => setFilterPanelOpen(false)}
           onSelectPhoto={setSelectedPhoto}
         />
         <ContextPanel
@@ -194,6 +282,11 @@ export default function App() {
           librarySummary={librarySummary}
           selectedPhoto={selectedPhoto}
           onToggleFavorite={handleToggleFavorite}
+          onToggleHidden={handleToggleHidden}
+          albums={albums}
+          currentAlbumId={photoFilter?.type === 'album' ? photoFilter.albumId : undefined}
+          onAddToAlbum={handleAddToAlbum}
+          onRemoveFromAlbum={handleRemoveFromAlbum}
         />
       </div>
     </div>

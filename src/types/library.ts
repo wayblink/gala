@@ -37,4 +37,5 @@ export type LibrarySummary = {
   totalPhotos: number
   recentlyAddedCount: number
   favoritesCount: number
+  hiddenCount: number
 }

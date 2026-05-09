@@ -1,14 +1,16 @@
 use crate::library::exif::extract_exif_metadata;
 use crate::library::models::{
-    LibrarySummary, ScanProgress, ScanSummary, SourceFolder, TimelinePhoto,
+    Album, FilterOptions, LibrarySummary, ScanProgress, ScanSummary, SourceFolder, TimelinePhoto,
 };
 use crate::library::scanner::discover_photos_with_progress;
 use crate::library::storage::{
-    get_favorite_photos, get_library_summary as get_summary, get_photo_original_path,
-    get_recently_added_photos, get_source_folders, get_timeline_photos, initialize_schema,
-    mark_photo_assets_failed, migrate_schema, open_database, replace_source_photos, search_photos,
-    set_photo_favorite, update_photo_dimensions, update_photo_exif_metadata, upsert_photo_assets,
-    upsert_source,
+    add_photo_to_album, create_album, delete_album, get_album_photos, get_albums,
+    get_favorite_photos, get_filter_options, get_filtered_photos, get_hidden_photos,
+    get_library_summary as get_summary, get_photo_original_path, get_recently_added_photos,
+    get_source_folders, get_timeline_photos, initialize_schema, mark_photo_assets_failed,
+    migrate_schema, open_database, remove_photo_from_album, rename_album, search_photos,
+    set_photo_favorite, set_photo_hidden, update_photo_dimensions, update_photo_exif_metadata,
+    upsert_photo_assets, upsert_source, upsert_source_photos,
 };
 use crate::library::thumbnails::ThumbnailGenerator;
 use base64::{engine::general_purpose, Engine as _};
@@ -152,7 +154,11 @@ fn scan_photo_source_inner(app: &AppHandle, root_path: String) -> Result<ScanSum
         },
     );
 
-    replace_source_photos(&mut conn, &source.id, &source_path, &photos)?;
+    // Incremental upsert — only reprocesses changed/new files, preserves user data
+    let upserted = upsert_source_photos(&mut conn, &source.id, &source_path, &photos)?;
+    let total_upserted = upserted.len() as i64;
+    let needs_work: Vec<_> = upserted.iter().filter(|p| p.needs_thumbnail).collect();
+    let skipped_count = total_upserted - needs_work.len() as i64;
 
     emit_scan_progress(
         app,
@@ -164,90 +170,61 @@ fn scan_photo_source_inner(app: &AppHandle, root_path: String) -> Result<ScanSum
             indexed_count,
             thumbnail_ready_count: 0,
             thumbnail_failed_count: 0,
-            skipped_count: 0,
+            skipped_count,
             current_file: None,
             error_message: None,
         },
     );
 
-    // Generate thumbnails for all photos
     let thumbnail_cache = get_thumbnail_cache_dir(app)?;
     eprintln!("[scan_photo_source] Thumbnail cache: {:?}", thumbnail_cache);
-
     let thumbnail_gen = ThumbnailGenerator::new(thumbnail_cache)?;
-
-    // Get photo IDs from database
-    let mut stmt = conn
-        .prepare("SELECT id, absolute_path_snapshot FROM photos WHERE source_id = ?1")
-        .map_err(|e| format!("Failed to prepare query: {}", e))?;
-
-    let photo_rows: Vec<(String, String)> = stmt
-        .query_map([&source.id], |row| Ok((row.get(0)?, row.get(1)?)))
-        .map_err(|e| format!("Failed to query photos: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("Failed to collect photos: {}", e))?;
 
     let mut thumbnail_ready_count = 0_i64;
     let mut thumbnail_failed_count = 0_i64;
 
-    for (photo_id, photo_path) in photo_rows {
-        eprintln!(
-            "[scan_photo_source] Generating thumbnails for: {}",
-            photo_path
-        );
-        let current_file = PathBuf::from(&photo_path)
+    for upserted_photo in needs_work {
+        let photo_id = &upserted_photo.id;
+        let photo_path = &upserted_photo.absolute_path;
+        eprintln!("[scan_photo_source] Generating thumbnails for: {}", photo_path);
+        let current_file = PathBuf::from(photo_path)
             .file_name()
-            .and_then(|file_name| file_name.to_str())
-            .map(|file_name| file_name.to_string());
+            .and_then(|f| f.to_str())
+            .map(|f| f.to_string());
 
-        match thumbnail_gen.generate_all(&photo_id, &PathBuf::from(&photo_path)) {
+        match thumbnail_gen.generate_all(photo_id, &PathBuf::from(photo_path)) {
             Ok(paths) => {
                 thumbnail_ready_count += 1;
-                eprintln!(
-                    "[scan_photo_source] Generated thumbnails: small={}, medium={}, large={}",
-                    paths.small, paths.medium, paths.large
-                );
-                if let Err(e) =
-                    upsert_photo_assets(&conn, &photo_id, &paths.small, &paths.medium, &paths.large)
-                {
+                eprintln!("[scan_photo_source] Generated thumbnails: small={}, medium={}, large={}",
+                    paths.small, paths.medium, paths.large);
+                if let Err(e) = upsert_photo_assets(&conn, photo_id, &paths.small, &paths.medium, &paths.large) {
                     eprintln!("Failed to save thumbnail paths for {}: {}", photo_id, e);
                 }
-                if let Err(e) = update_photo_dimensions(
-                    &conn,
-                    &photo_id,
-                    paths.original_width,
-                    paths.original_height,
-                ) {
+                if let Err(e) = update_photo_dimensions(&conn, photo_id, paths.original_width, paths.original_height) {
                     eprintln!("Failed to save dimensions for {}: {}", photo_id, e);
                 }
             }
             Err(e) => {
                 thumbnail_failed_count += 1;
                 eprintln!("Failed to generate thumbnails for {}: {}", photo_id, e);
-                if let Err(e) = mark_photo_assets_failed(&conn, &photo_id) {
+                if let Err(e) = mark_photo_assets_failed(&conn, photo_id) {
                     eprintln!("Failed to mark assets as failed for {}: {}", photo_id, e);
                 }
             }
         }
 
-        match extract_exif_metadata(&PathBuf::from(&photo_path)) {
+        match extract_exif_metadata(&PathBuf::from(photo_path)) {
             Ok(metadata) => {
                 if let Err(e) = update_photo_exif_metadata(
-                    &conn,
-                    &photo_id,
-                    metadata.captured_at.as_deref(),
-                    metadata.camera_make.as_deref(),
-                    metadata.camera_model.as_deref(),
-                    metadata.lens_model.as_deref(),
-                    metadata.gps_latitude,
-                    metadata.gps_longitude,
+                    &conn, photo_id,
+                    metadata.captured_at.as_deref(), metadata.camera_make.as_deref(),
+                    metadata.camera_model.as_deref(), metadata.lens_model.as_deref(),
+                    metadata.gps_latitude, metadata.gps_longitude,
                 ) {
                     eprintln!("Failed to save EXIF metadata for {}: {}", photo_id, e);
                 }
             }
-            Err(e) => {
-                eprintln!("Skipping EXIF metadata for {}: {}", photo_id, e);
-            }
+            Err(e) => eprintln!("Skipping EXIF for {}: {}", photo_id, e),
         }
 
         emit_scan_progress(
@@ -260,7 +237,7 @@ fn scan_photo_source_inner(app: &AppHandle, root_path: String) -> Result<ScanSum
                 indexed_count,
                 thumbnail_ready_count,
                 thumbnail_failed_count,
-                skipped_count: 0,
+                skipped_count,
                 current_file,
                 error_message: None,
             },
@@ -280,7 +257,7 @@ fn scan_photo_source_inner(app: &AppHandle, root_path: String) -> Result<ScanSum
             indexed_count,
             thumbnail_ready_count,
             thumbnail_failed_count,
-            skipped_count: 0,
+            skipped_count,
             current_file: None,
             error_message: None,
         },
@@ -289,7 +266,7 @@ fn scan_photo_source_inner(app: &AppHandle, root_path: String) -> Result<ScanSum
     Ok(ScanSummary {
         source: updated_source,
         indexed_count,
-        skipped_count: 0,
+        skipped_count,
     })
 }
 
@@ -312,6 +289,7 @@ pub fn get_library_summary(app: AppHandle) -> Result<LibrarySummary, String> {
             total_photos: 0,
             recently_added_count: 0,
             favorites_count: 0,
+            hidden_count: 0,
         });
     }
 
@@ -516,4 +494,121 @@ pub fn toggle_photo_favorite_cmd(app: AppHandle, photo_id: String) -> Result<boo
     let new_state = current.is_none();
     set_photo_favorite(&conn, &photo_id, new_state)?;
     Ok(new_state)
+}
+
+fn open_conn(app: &AppHandle) -> Result<rusqlite::Connection, String> {
+    let db_path = get_db_path(app)?;
+    if !db_path.exists() {
+        return Err("Photo library not initialized".to_string());
+    }
+    let conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+    Ok(conn)
+}
+
+#[tauri::command]
+pub fn toggle_photo_hidden_cmd(app: AppHandle, photo_id: String) -> Result<bool, String> {
+    let conn = open_conn(&app)?;
+    let current: Option<String> = conn
+        .query_row("SELECT hidden_at FROM photos WHERE id = ?1", params![photo_id], |row| row.get(0))
+        .map_err(|e| format!("Failed to query photo: {}", e))?;
+    let new_state = current.is_none();
+    set_photo_hidden(&conn, &photo_id, new_state)?;
+    Ok(new_state)
+}
+
+#[tauri::command]
+pub fn get_hidden_photos_cmd(app: AppHandle, limit: i64, offset: i64) -> Result<Vec<TimelinePhoto>, String> {
+    let db_path = get_db_path(&app)?;
+    if !db_path.exists() { return Ok(vec![]); }
+    let conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+    get_hidden_photos(&conn, limit, offset)
+}
+
+#[tauri::command]
+pub fn get_filter_options_cmd(app: AppHandle) -> Result<FilterOptions, String> {
+    let conn = open_conn(&app)?;
+    get_filter_options(&conn)
+}
+
+#[tauri::command]
+pub fn get_filtered_photos_cmd(
+    app: AppHandle,
+    limit: i64,
+    offset: i64,
+    source_id: Option<String>,
+    folder_path: Option<String>,
+    cameras: Vec<String>,
+    date_from: Option<String>,
+    date_to: Option<String>,
+    extensions: Vec<String>,
+) -> Result<Vec<TimelinePhoto>, String> {
+    let db_path = get_db_path(&app)?;
+    if !db_path.exists() { return Ok(vec![]); }
+    let conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+    get_filtered_photos(
+        &conn, limit, offset,
+        source_id.as_deref(), folder_path.as_deref(),
+        &cameras, date_from.as_deref(), date_to.as_deref(), &extensions,
+    )
+}
+
+#[tauri::command]
+pub fn get_albums_cmd(app: AppHandle) -> Result<Vec<Album>, String> {
+    let db_path = get_db_path(&app)?;
+    if !db_path.exists() { return Ok(vec![]); }
+    let conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+    get_albums(&conn)
+}
+
+#[tauri::command]
+pub fn create_album_cmd(app: AppHandle, name: String) -> Result<Album, String> {
+    let conn = open_conn(&app)?;
+    create_album(&conn, &name)
+}
+
+#[tauri::command]
+pub fn delete_album_cmd(app: AppHandle, album_id: String) -> Result<(), String> {
+    let conn = open_conn(&app)?;
+    delete_album(&conn, &album_id)
+}
+
+#[tauri::command]
+pub fn rename_album_cmd(app: AppHandle, album_id: String, new_name: String) -> Result<(), String> {
+    let conn = open_conn(&app)?;
+    rename_album(&conn, &album_id, &new_name)
+}
+
+#[tauri::command]
+pub fn add_photo_to_album_cmd(app: AppHandle, album_id: String, photo_id: String) -> Result<(), String> {
+    let conn = open_conn(&app)?;
+    add_photo_to_album(&conn, &album_id, &photo_id)
+}
+
+#[tauri::command]
+pub fn remove_photo_from_album_cmd(app: AppHandle, album_id: String, photo_id: String) -> Result<(), String> {
+    let conn = open_conn(&app)?;
+    remove_photo_from_album(&conn, &album_id, &photo_id)
+}
+
+#[tauri::command]
+pub fn get_album_photos_cmd(
+    app: AppHandle,
+    album_id: String,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<TimelinePhoto>, String> {
+    let db_path = get_db_path(&app)?;
+    if !db_path.exists() { return Ok(vec![]); }
+    let conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+    get_album_photos(&conn, &album_id, limit, offset)
 }

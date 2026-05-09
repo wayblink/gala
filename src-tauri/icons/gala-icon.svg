@@ -1,41 +1,29 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="bg" x1="162" y1="118" x2="866" y2="900" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#F1E6D2"/>
-      <stop offset="0.52" stop-color="#D4B17A"/>
-      <stop offset="1" stop-color="#8F5F30"/>
+    <!-- gradient coords are in the inner 820×820 space (offset 102, ~10% padding) -->
+    <linearGradient id="bg" x1="102" y1="102" x2="922" y2="922" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F0DEB8"/>
+      <stop offset="55%" stop-color="#C9953F"/>
+      <stop offset="100%" stop-color="#8B5E28"/>
     </linearGradient>
-    <linearGradient id="plate" x1="286" y1="224" x2="738" y2="804" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#332D25"/>
-      <stop offset="1" stop-color="#171615"/>
-    </linearGradient>
-    <linearGradient id="photo" x1="360" y1="302" x2="634" y2="658" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#F5EBDC"/>
-      <stop offset="0.56" stop-color="#C9974D"/>
-      <stop offset="1" stop-color="#527C8E"/>
-    </linearGradient>
-    <filter id="shadow" x="136" y="156" width="752" height="752" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="28" stdDeviation="38" flood-color="#171615" flood-opacity="0.42"/>
-    </filter>
+    <clipPath id="shape">
+      <!-- inner rounded rect: 820×820 at (102,102), ~10% transparent border each side -->
+      <rect x="102" y="102" width="820" height="820" rx="180" ry="180"/>
+    </clipPath>
   </defs>
 
-  <rect width="1024" height="1024" rx="232" fill="url(#bg)"/>
-  <path d="M172 204C172 164.235 204.235 132 244 132H780C819.765 132 852 164.235 852 204V820C852 859.765 819.765 892 780 892H244C204.235 892 172 859.765 172 820V204Z" fill="#201F1D" fill-opacity="0.16"/>
+  <!-- Background rounded square with ~10% transparent border on each side -->
+  <rect x="102" y="102" width="820" height="820" rx="180" fill="url(#bg)"/>
 
-  <g filter="url(#shadow)">
-    <rect x="236" y="224" width="552" height="552" rx="112" fill="url(#plate)"/>
-    <rect x="300" y="288" width="424" height="424" rx="58" fill="#EEE6D8"/>
-    <rect x="338" y="326" width="348" height="348" rx="34" fill="url(#photo)"/>
-    <path d="M338 611L443 506C462.882 486.118 495.118 486.118 515 506L555 546L586 515C604.225 496.775 633.775 496.775 652 515L686 549V640C686 658.778 670.778 674 652 674H372C353.222 674 338 658.778 338 640V611Z" fill="#171615" fill-opacity="0.46"/>
-    <circle cx="590" cy="422" r="46" fill="#F1E6D2" fill-opacity="0.92"/>
+  <!-- Landscape silhouette scaled into inner 820×820 space -->
+  <g clip-path="url(#shape)" fill="#1E140A" transform="translate(102,102) scale(0.80078125)">
+    <!-- Sun -->
+    <circle cx="512" cy="345" r="92"/>
+    <!-- Left mountain peak -->
+    <polygon points="64,780 360,318 552,780"/>
+    <!-- Right mountain peak -->
+    <polygon points="468,780 700,376 900,780"/>
+    <!-- Ground fill to bottom edge -->
+    <rect x="0" y="778" width="1024" height="246"/>
   </g>
-
-  <path d="M247 224H324V776H247C208.34 776 177 744.66 177 706V294C177 255.34 208.34 224 247 224Z" fill="#EEE6D8" fill-opacity="0.18"/>
-  <path d="M700 224H777C815.66 224 847 255.34 847 294V706C847 744.66 815.66 776 777 776H700V224Z" fill="#171615" fill-opacity="0.2"/>
-
-  <path d="M285 448C285 424.804 303.804 406 327 406H383V470H327C303.804 470 285 451.196 285 428V448Z" fill="#C9974D"/>
-  <path d="M641 604H697C720.196 604 739 622.804 739 646V626C739 649.196 720.196 668 697 668H641V604Z" fill="#EEE6D8" fill-opacity="0.72"/>
-
-  <path d="M438 782C438 763.222 453.222 748 472 748H552C570.778 748 586 763.222 586 782V782C586 800.778 570.778 816 552 816H472C453.222 816 438 800.778 438 782V782Z" fill="#171615" fill-opacity="0.32"/>
-  <path d="M391 234C391 214.67 406.67 199 426 199H598C617.33 199 633 214.67 633 234V234C633 253.33 617.33 269 598 269H426C406.67 269 391 253.33 391 234V234Z" fill="#F5EBDC" fill-opacity="0.22"/>
 </svg>

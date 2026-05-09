@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import type { LibrarySummary, ScanProgress } from '../types/library'
-import type { PhotoFilter, SourceFolder } from '../types/photos'
+import type { Album, PhotoFilter, SourceFolder } from '../types/photos'
 import { StatusDot } from './StatusDot'
 
 type RailItem = {
@@ -52,6 +53,12 @@ type LeftRailProps = {
   onSelectRecent?: () => void
   onSelectFavorites?: () => void
   onSelectFolder?: (filter: PhotoFilter) => void
+  onSelectHidden?: () => void
+  albums?: Album[]
+  onSelectAlbum?: (albumId: string) => void
+  onCreateAlbum?: (name: string) => void
+  onDeleteAlbum?: (albumId: string) => void
+  onRenameAlbum?: (albumId: string, newName: string) => void
 }
 
 const scanProcessedCount = (scanProgress: ScanProgress) =>
@@ -120,9 +127,19 @@ export function LeftRail({
   onSelectRecent = () => undefined,
   onSelectFavorites = () => undefined,
   onSelectFolder = () => undefined,
+  onSelectHidden = () => undefined,
+  albums = [],
+  onSelectAlbum = () => undefined,
+  onCreateAlbum = () => undefined,
+  onDeleteAlbum = () => undefined,
+  onRenameAlbum = () => undefined,
 }: LeftRailProps) {
   const activeSourceId = activeFilter?.type === 'folder' ? activeFilter.sourceId : null
   const activeFolderPath = activeFilter?.type === 'folder' ? activeFilter.folderPath : null
+  const [newAlbumName, setNewAlbumName] = useState('')
+  const [showNewAlbumInput, setShowNewAlbumInput] = useState(false)
+  const [renamingAlbumId, setRenamingAlbumId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
 
   const libraryItems: RailItem[] = [
     {
@@ -143,20 +160,102 @@ export function LeftRail({
       active: activeFilter?.type === 'favorites',
       onClick: onSelectFavorites,
     },
-    { label: 'Hidden', todo: true },
+    {
+      label: 'Hidden',
+      count: librarySummary.hiddenCount > 0 ? compactCount(librarySummary.hiddenCount) : undefined,
+      active: activeFilter?.type === 'hidden',
+      onClick: onSelectHidden,
+    },
   ]
   const viewItems: RailItem[] = [
     { label: 'People', todo: true },
     { label: 'Places', todo: true },
     { label: 'Memories', todo: true },
     { label: 'Similar', todo: true },
-    { label: 'Albums', todo: true },
   ]
 
   return (
     <aside className="left-rail" aria-label="Photo navigation">
       <NavGroup title="Library" items={libraryItems} />
       <NavGroup title="Views" items={viewItems} />
+      <section className="rail-group">
+        <h2 className="rail-group__header-row">
+          Albums
+          <button
+            className="rail-header-btn"
+            title="New album"
+            type="button"
+            onClick={() => setShowNewAlbumInput(true)}
+          >+</button>
+        </h2>
+        <div className="rail-list">
+          {showNewAlbumInput && (
+            <form
+              className="rail-new-album"
+              onSubmit={(e) => {
+                e.preventDefault()
+                const name = newAlbumName.trim()
+                if (name) { onCreateAlbum(name); setNewAlbumName(''); setShowNewAlbumInput(false) }
+              }}
+            >
+              <input
+                autoFocus
+                className="rail-album-input"
+                placeholder="Album name"
+                type="text"
+                value={newAlbumName}
+                onChange={(e) => setNewAlbumName(e.target.value)}
+                onBlur={() => { if (!newAlbumName.trim()) setShowNewAlbumInput(false) }}
+                onKeyDown={(e) => { if (e.key === 'Escape') { setShowNewAlbumInput(false); setNewAlbumName('') } }}
+              />
+            </form>
+          )}
+          {albums.map((album) => (
+            renamingAlbumId === album.id ? (
+              <form
+                className="rail-new-album"
+                key={album.id}
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  const name = renameValue.trim()
+                  if (name) { onRenameAlbum(album.id, name) }
+                  setRenamingAlbumId(null)
+                }}
+              >
+                <input
+                  autoFocus
+                  className="rail-album-input"
+                  type="text"
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onBlur={() => setRenamingAlbumId(null)}
+                  onKeyDown={(e) => { if (e.key === 'Escape') setRenamingAlbumId(null) }}
+                />
+              </form>
+            ) : (
+              <button
+                className={`rail-item rail-item--album${activeFilter?.type === 'album' && activeFilter.albumId === album.id ? ' rail-item--active' : ''}`}
+                key={album.id}
+                type="button"
+                onClick={() => onSelectAlbum(album.id)}
+                onDoubleClick={() => { setRenamingAlbumId(album.id); setRenameValue(album.name) }}
+              >
+                <span className="rail-item__label">{album.name}</span>
+                <span className="rail-item__count">{compactCount(album.photoCount)}</span>
+                <button
+                  className="rail-item__delete"
+                  title="Delete album"
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onDeleteAlbum(album.id) }}
+                >×</button>
+              </button>
+            )
+          ))}
+          {albums.length === 0 && !showNewAlbumInput && (
+            <div className="rail-item rail-item--muted"><span>No albums</span></div>
+          )}
+        </div>
+      </section>
       <section className="rail-group">
         <h2>Sources</h2>
         <div className="rail-list">

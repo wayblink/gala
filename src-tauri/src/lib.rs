@@ -32,6 +32,17 @@ pub fn run() {
             library::commands::get_favorite_photos_cmd,
             library::commands::search_photos_cmd,
             library::commands::toggle_photo_favorite_cmd,
+            library::commands::toggle_photo_hidden_cmd,
+            library::commands::get_hidden_photos_cmd,
+            library::commands::get_filter_options_cmd,
+            library::commands::get_filtered_photos_cmd,
+            library::commands::get_albums_cmd,
+            library::commands::create_album_cmd,
+            library::commands::delete_album_cmd,
+            library::commands::rename_album_cmd,
+            library::commands::add_photo_to_album_cmd,
+            library::commands::remove_photo_from_album_cmd,
+            library::commands::get_album_photos_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Gala desktop app");

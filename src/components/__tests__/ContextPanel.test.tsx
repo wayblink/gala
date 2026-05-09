@@ -15,7 +15,7 @@ const librarySummary: LibrarySummary = {
   sources: [],
   totalPhotos: 1,
   recentlyAddedCount: 1,
-  favoritesCount: 0,
+  favoritesCount: 0, hiddenCount: 0,
 }
 
 const selectedPhoto: TimelinePhoto = {
@@ -30,7 +30,7 @@ const selectedPhoto: TimelinePhoto = {
   sourceName: 'Camera Roll',
   sourceStatus: 'online',
   thumbnailPath: null,
-  isFavorite: false,
+  isFavorite: false, isHidden: false,
   cameraMake: 'Fujifilm',
   cameraModel: 'X-T5',
   lensModel: 'XF 23mm F1.4 R LM WR',

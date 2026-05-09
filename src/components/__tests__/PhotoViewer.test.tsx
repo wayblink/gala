@@ -31,7 +31,7 @@ const photos: TimelinePhoto[] = [
     sourceName: 'Test Folder',
     sourceStatus: 'online',
     thumbnailPath: null,
-    isFavorite: false,
+    isFavorite: false, isHidden: false,
   },
   {
     id: 'second',
@@ -50,7 +50,7 @@ const photos: TimelinePhoto[] = [
     sourceName: 'Test Folder',
     sourceStatus: 'online',
     thumbnailPath: null,
-    isFavorite: false,
+    isFavorite: false, isHidden: false,
   },
 ]
 

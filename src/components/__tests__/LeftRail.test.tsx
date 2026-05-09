@@ -9,7 +9,7 @@ const emptySummary: LibrarySummary = {
   sources: [],
   totalPhotos: 0,
   recentlyAddedCount: 0,
-  favoritesCount: 0,
+  favoritesCount: 0, hiddenCount: 0,
 }
 
 describe('LeftRail', () => {
@@ -84,7 +84,7 @@ describe('LeftRail', () => {
     const summary: LibrarySummary = {
       totalPhotos: 4,
       recentlyAddedCount: 0,
-      favoritesCount: 0,
+      favoritesCount: 0, hiddenCount: 0,
       sources: [
         {
           id: 'source-1',

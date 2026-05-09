@@ -18,6 +18,7 @@ describe('library desktop bridge', () => {
       totalPhotos: 0,
       recentlyAddedCount: 0,
       favoritesCount: 0,
+      hiddenCount: 0,
     })
   })
 

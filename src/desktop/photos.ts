@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { PhotoFilter, SourceFolder, TimelinePhoto } from '../types/photos'
+import type { Album, FilterOptions, PhotoFilter, SmartFilter, SourceFolder, TimelinePhoto } from '../types/photos'
 import { isTauriAvailable } from './tauri'
 
 export async function getTimelinePhotos(
@@ -121,5 +121,109 @@ export async function getPhotoDataUrl(photoId: string): Promise<string | null> {
   } catch (error) {
     console.error('[getPhotoDataUrl] Error for', photoId, ':', error)
     return null
+  }
+}
+
+export async function togglePhotoHidden(photoId: string): Promise<boolean> {
+  if (!isTauriAvailable()) return false
+  return await invoke<boolean>('toggle_photo_hidden_cmd', { photoId })
+}
+
+export async function getHiddenPhotos(limit: number, offset: number): Promise<TimelinePhoto[]> {
+  if (!isTauriAvailable()) return []
+  try {
+    return await invoke<TimelinePhoto[]>('get_hidden_photos_cmd', { limit, offset })
+  } catch (error) {
+    console.error('[getHiddenPhotos] Error:', error)
+    return []
+  }
+}
+
+export async function getFilterOptions(): Promise<FilterOptions | null> {
+  if (!isTauriAvailable()) return null
+  try {
+    return await invoke<FilterOptions>('get_filter_options_cmd')
+  } catch (error) {
+    console.error('[getFilterOptions] Error:', error)
+    return null
+  }
+}
+
+export async function getFilteredPhotos(
+  limit: number,
+  offset: number,
+  filter: SmartFilter,
+  sourceId?: string,
+  folderPath?: string,
+): Promise<TimelinePhoto[]> {
+  if (!isTauriAvailable()) return []
+  try {
+    return await invoke<TimelinePhoto[]>('get_filtered_photos_cmd', {
+      limit,
+      offset,
+      sourceId: sourceId ?? null,
+      folderPath: folderPath ?? null,
+      cameras: filter.cameras ?? [],
+      dateFrom: filter.dateFrom ?? null,
+      dateTo: filter.dateTo ?? null,
+      extensions: filter.extensions ?? [],
+    })
+  } catch (error) {
+    console.error('[getFilteredPhotos] Error:', error)
+    return []
+  }
+}
+
+export async function getAlbums(): Promise<Album[]> {
+  if (!isTauriAvailable()) return []
+  try {
+    return await invoke<Album[]>('get_albums_cmd')
+  } catch (error) {
+    console.error('[getAlbums] Error:', error)
+    return []
+  }
+}
+
+export async function createAlbum(name: string): Promise<Album | null> {
+  if (!isTauriAvailable()) return null
+  try {
+    return await invoke<Album>('create_album_cmd', { name })
+  } catch (error) {
+    console.error('[createAlbum] Error:', error)
+    return null
+  }
+}
+
+export async function deleteAlbum(albumId: string): Promise<void> {
+  if (!isTauriAvailable()) return
+  await invoke('delete_album_cmd', { albumId })
+}
+
+export async function renameAlbum(albumId: string, newName: string): Promise<void> {
+  if (!isTauriAvailable()) return
+  await invoke('rename_album_cmd', { albumId, newName })
+}
+
+export async function addPhotoToAlbum(albumId: string, photoId: string): Promise<void> {
+  if (!isTauriAvailable()) return
+  await invoke('add_photo_to_album_cmd', { albumId, photoId })
+}
+
+export async function removePhotoFromAlbum(albumId: string, photoId: string): Promise<void> {
+  if (!isTauriAvailable()) return
+  await invoke('remove_photo_from_album_cmd', { albumId, photoId })
+}
+
+export async function getAlbumPhotos(
+  albumId: string,
+  limit: number,
+  offset: number,
+): Promise<TimelinePhoto[]> {
+  if (!isTauriAvailable()) return []
+  try {
+    return await invoke<TimelinePhoto[]>('get_album_photos_cmd', { albumId, limit, offset })
+  } catch (error) {
+    console.error('[getAlbumPhotos] Error:', error)
+    return []
   }
 }
