@@ -7,7 +7,7 @@ import { PhotoCard } from './PhotoCard'
 type PhotoGalleryProps = {
   photos: TimelinePhoto[]
   selectedPhotoId: string | null
-  onSelectPhoto: (photo: TimelinePhoto) => void
+  onSelectPhoto: (photo: TimelinePhoto | null) => void
   onOpenPhoto: (photo: TimelinePhoto) => void
 }
 

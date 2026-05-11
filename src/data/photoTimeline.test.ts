@@ -19,7 +19,7 @@ const photo = (id: string, capturedAt: string | null): TimelinePhoto => ({
   sourceName: 'Camera Roll',
   sourceStatus: 'online',
   thumbnailPath: null,
-  isFavorite: false, isHidden: false,
+  isFavorite: false, isHidden: false, tags: [],
 })
 
 describe('groupTimelinePhotos', () => {

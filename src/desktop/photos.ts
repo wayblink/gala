@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { Album, FilterOptions, PhotoFilter, SmartFilter, SourceFolder, TimelinePhoto } from '../types/photos'
+import type { Album, FilterOptions, PhotoFilter, SmartFilter, SourceFolder, Tag, TimelinePhoto } from '../types/photos'
 import { isTauriAvailable } from './tauri'
 
 export async function getTimelinePhotos(
@@ -226,4 +226,78 @@ export async function getAlbumPhotos(
     console.error('[getAlbumPhotos] Error:', error)
     return []
   }
+}
+
+export async function addPhotosToAlbumBatch(albumId: string, photoIds: string[]): Promise<void> {
+  if (!isTauriAvailable()) return
+  await invoke('add_photos_to_album_batch_cmd', { albumId, photoIds })
+}
+
+export async function removePhotosFromAlbumBatch(albumId: string, photoIds: string[]): Promise<void> {
+  if (!isTauriAvailable()) return
+  await invoke('remove_photos_from_album_batch_cmd', { albumId, photoIds })
+}
+
+export async function deleteSource(sourceId: string): Promise<void> {
+  if (!isTauriAvailable()) return
+  await invoke('delete_source_cmd', { sourceId })
+}
+
+export async function setPhotosFavoriteBatch(photoIds: string[], favorited: boolean): Promise<void> {
+  if (!isTauriAvailable()) return
+  await invoke('set_photos_favorite_batch_cmd', { photoIds, favorited })
+}
+
+export async function setPhotosHiddenBatch(photoIds: string[], hidden: boolean): Promise<void> {
+  if (!isTauriAvailable()) return
+  await invoke('set_photos_hidden_batch_cmd', { photoIds, hidden })
+}
+
+export async function addTagsToPhotosBatch(photoIds: string[], tags: string[]): Promise<void> {
+  if (!isTauriAvailable()) return
+  await invoke('add_tags_to_photos_batch_cmd', { photoIds, tags })
+}
+
+export async function getPhotoTags(photoId: string): Promise<string[]> {
+  if (!isTauriAvailable()) return []
+  try {
+    return await invoke<string[]>('get_photo_tags_cmd', { photoId })
+  } catch (error) {
+    console.error('[getPhotoTags] Error:', error)
+    return []
+  }
+}
+
+export async function setPhotoTags(photoId: string, tags: string[]): Promise<string[]> {
+  if (!isTauriAvailable()) return []
+  return await invoke<string[]>('set_photo_tags_cmd', { photoId, tags })
+}
+
+export async function getAllTags(): Promise<Tag[]> {
+  if (!isTauriAvailable()) return []
+  try {
+    return await invoke<Tag[]>('get_all_tags_cmd')
+  } catch (error) {
+    console.error('[getAllTags] Error:', error)
+    return []
+  }
+}
+
+export async function getPhotosByTag(
+  tagName: string,
+  limit: number,
+  offset: number,
+): Promise<TimelinePhoto[]> {
+  if (!isTauriAvailable()) return []
+  try {
+    return await invoke<TimelinePhoto[]>('get_photos_by_tag_cmd', { tagName, limit, offset })
+  } catch (error) {
+    console.error('[getPhotosByTag] Error:', error)
+    return []
+  }
+}
+
+export async function revealInFinder(photoId: string): Promise<void> {
+  if (!isTauriAvailable()) return
+  await invoke('reveal_in_finder_cmd', { photoId })
 }

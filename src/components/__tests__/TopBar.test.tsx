@@ -9,8 +9,6 @@ describe('TopBar', () => {
 
     render(
       <TopBar
-        onAddFolder={() => undefined}
-        isScanning={false}
         searchQuery=""
         onSearchChange={onSearchChange}
         displayMode="thumbnail"
@@ -30,8 +28,6 @@ describe('TopBar', () => {
 
     render(
       <TopBar
-        onAddFolder={() => undefined}
-        isScanning={false}
         searchQuery=""
         onSearchChange={() => undefined}
         displayMode="thumbnail"

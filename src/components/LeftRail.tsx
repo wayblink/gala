@@ -1,32 +1,31 @@
 import { useState } from 'react'
 import type { LibrarySummary, ScanProgress } from '../types/library'
-import type { Album, PhotoFilter, SourceFolder } from '../types/photos'
-import { StatusDot } from './StatusDot'
+import type { Album, ComingSoonViewId, PhotoFilter, SourceFolder, Tag } from '../types/photos'
 
 type RailItem = {
   label: string
   count?: string
   active?: boolean
-  todo?: boolean
+  muted?: boolean
   onClick?: () => void
 }
 
-function NavGroup({ title, items }: { title: string; items: RailItem[] }) {
+function NavGroup({ title, items, action }: { title: string; items: RailItem[]; action?: React.ReactNode }) {
   return (
     <section className="rail-group">
-      <h2>{title}</h2>
+      <h2 className={action ? 'rail-group__header-row' : undefined}>
+        {title}
+        {action}
+      </h2>
       <div className="rail-list">
         {items.map((item) => (
           <button
-            className={`rail-item${item.active ? ' rail-item--active' : ''}${
-              item.todo ? ' rail-item--todo' : ''
-            }`}
-            disabled={item.todo}
+            className={`rail-item${item.active ? ' rail-item--active' : ''}${item.muted ? ' rail-item--muted' : ''}`}
             key={item.label}
             type="button"
             onClick={item.onClick}
           >
-            <span className="rail-item__label">{item.todo ? `${item.label} [todo]` : item.label}</span>
+            <span className="rail-item__label">{item.label}</span>
             {item.count ? <span className="rail-item__count">{item.count}</span> : null}
           </button>
         ))}
@@ -35,13 +34,7 @@ function NavGroup({ title, items }: { title: string; items: RailItem[] }) {
   )
 }
 
-const compactCount = (count: number) => {
-  if (count >= 1000) {
-    return `${Math.round(count / 1000)}k`
-  }
-
-  return String(count)
-}
+const compactCount = (count: number) => (count >= 1000 ? `${Math.round(count / 1000)}k` : String(count))
 
 type LeftRailProps = {
   librarySummary: LibrarySummary
@@ -52,13 +45,22 @@ type LeftRailProps = {
   onSelectAllPhotos?: () => void
   onSelectRecent?: () => void
   onSelectFavorites?: () => void
-  onSelectFolder?: (filter: PhotoFilter) => void
   onSelectHidden?: () => void
+  onSelectFolder?: (filter: PhotoFilter) => void
+  onAddSource?: () => void
+  onDeleteSource?: (sourceId: string) => void
+  onSelectView?: (viewId: ComingSoonViewId) => void
+  onSelectExplore?: () => void
+  onSelectSettings?: () => void
   albums?: Album[]
   onSelectAlbum?: (albumId: string) => void
   onCreateAlbum?: (name: string) => void
   onDeleteAlbum?: (albumId: string) => void
   onRenameAlbum?: (albumId: string, newName: string) => void
+  tags?: Tag[]
+  onSelectTag?: (tagName: string) => void
+  collapsed?: boolean
+  onToggleCollapse?: () => void
 }
 
 const scanProcessedCount = (scanProgress: ScanProgress) =>
@@ -75,13 +77,11 @@ function ScanStatusCard({
 }) {
   const processedCount = scanProgress ? scanProcessedCount(scanProgress) : 0
   const totalCount = scanProgress?.discoveredCount ?? 0
-  const progressPercent =
-    totalCount > 0 ? Math.min(100, Math.round((processedCount / totalCount) * 100)) : 0
+  const progressPercent = totalCount > 0 ? Math.min(100, Math.round((processedCount / totalCount) * 100)) : 0
   const currentFile = scanProgress?.currentFile
   const failedCount = scanProgress?.thumbnailFailedCount ?? 0
   const shouldShowScanSummary =
-    !!scanProgress &&
-    (isScanning || scanProgress.status === 'completed' || scanProgress.status === 'failed')
+    !!scanProgress && (isScanning || scanProgress.status === 'completed' || scanProgress.status === 'failed')
   const statusLabel =
     scanProgress?.status === 'completed'
       ? 'Scan Complete'
@@ -105,9 +105,7 @@ function ScanStatusCard({
           {currentFile ? <span className="scan-card__detail">{currentFile}</span> : null}
           {failedCount > 0 ? <span className="scan-card__detail">{failedCount} failed</span> : null}
           {scanProgress.errorMessage ? (
-            <span className="scan-card__detail scan-card__detail--error">
-              {scanProgress.errorMessage}
-            </span>
+            <span className="scan-card__detail scan-card__detail--error">{scanProgress.errorMessage}</span>
           ) : null}
         </>
       ) : (
@@ -126,13 +124,22 @@ export function LeftRail({
   onSelectAllPhotos = () => undefined,
   onSelectRecent = () => undefined,
   onSelectFavorites = () => undefined,
-  onSelectFolder = () => undefined,
   onSelectHidden = () => undefined,
+  onSelectFolder = () => undefined,
+  onAddSource = () => undefined,
+  onDeleteSource = () => undefined,
+  onSelectView = () => undefined,
+  onSelectExplore = () => undefined,
+  onSelectSettings = () => undefined,
   albums = [],
   onSelectAlbum = () => undefined,
   onCreateAlbum = () => undefined,
   onDeleteAlbum = () => undefined,
   onRenameAlbum = () => undefined,
+  tags = [],
+  onSelectTag = () => undefined,
+  collapsed = false,
+  onToggleCollapse = () => undefined,
 }: LeftRailProps) {
   const activeSourceId = activeFilter?.type === 'folder' ? activeFilter.sourceId : null
   const activeFolderPath = activeFilter?.type === 'folder' ? activeFilter.folderPath : null
@@ -167,152 +174,333 @@ export function LeftRail({
       onClick: onSelectHidden,
     },
   ]
-  const viewItems: RailItem[] = [
-    { label: 'People', todo: true },
-    { label: 'Places', todo: true },
-    { label: 'Memories', todo: true },
-    { label: 'Similar', todo: true },
+
+  const viewItems: Array<{ id: ComingSoonViewId; label: string }> = [
+    { id: 'timeline', label: 'Timeline' },
+    { id: 'places', label: 'Places' },
+    { id: 'people', label: 'People' },
+    { id: 'memories', label: 'Memories' },
+    { id: 'similar', label: 'Similar' },
   ]
+  const viewRailItems: RailItem[] = viewItems.map((v) => ({
+    label: v.label,
+    active: activeFilter?.type === 'view' && activeFilter.viewId === v.id,
+    onClick: () => onSelectView(v.id),
+  }))
 
   return (
-    <aside className="left-rail" aria-label="Photo navigation">
-      <NavGroup title="Library" items={libraryItems} />
-      <NavGroup title="Views" items={viewItems} />
-      <section className="rail-group">
-        <h2 className="rail-group__header-row">
-          Albums
-          <button
-            className="rail-header-btn"
-            title="New album"
-            type="button"
-            onClick={() => setShowNewAlbumInput(true)}
-          >+</button>
-        </h2>
-        <div className="rail-list">
-          {showNewAlbumInput && (
-            <form
-              className="rail-new-album"
-              onSubmit={(e) => {
-                e.preventDefault()
-                const name = newAlbumName.trim()
-                if (name) { onCreateAlbum(name); setNewAlbumName(''); setShowNewAlbumInput(false) }
-              }}
-            >
-              <input
-                autoFocus
-                className="rail-album-input"
-                placeholder="Album name"
-                type="text"
-                value={newAlbumName}
-                onChange={(e) => setNewAlbumName(e.target.value)}
-                onBlur={() => { if (!newAlbumName.trim()) setShowNewAlbumInput(false) }}
-                onKeyDown={(e) => { if (e.key === 'Escape') { setShowNewAlbumInput(false); setNewAlbumName('') } }}
-              />
-            </form>
-          )}
-          {albums.map((album) => (
-            renamingAlbumId === album.id ? (
-              <form
-                className="rail-new-album"
-                key={album.id}
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  const name = renameValue.trim()
-                  if (name) { onRenameAlbum(album.id, name) }
-                  setRenamingAlbumId(null)
-                }}
-              >
-                <input
-                  autoFocus
-                  className="rail-album-input"
-                  type="text"
-                  value={renameValue}
-                  onChange={(e) => setRenameValue(e.target.value)}
-                  onBlur={() => setRenamingAlbumId(null)}
-                  onKeyDown={(e) => { if (e.key === 'Escape') setRenamingAlbumId(null) }}
-                />
-              </form>
-            ) : (
-              <button
-                className={`rail-item rail-item--album${activeFilter?.type === 'album' && activeFilter.albumId === album.id ? ' rail-item--active' : ''}`}
-                key={album.id}
-                type="button"
-                onClick={() => onSelectAlbum(album.id)}
-                onDoubleClick={() => { setRenamingAlbumId(album.id); setRenameValue(album.name) }}
-              >
-                <span className="rail-item__label">{album.name}</span>
-                <span className="rail-item__count">{compactCount(album.photoCount)}</span>
-                <button
-                  className="rail-item__delete"
-                  title="Delete album"
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); onDeleteAlbum(album.id) }}
-                >×</button>
-              </button>
-            )
-          ))}
-          {albums.length === 0 && !showNewAlbumInput && (
-            <div className="rail-item rail-item--muted"><span>No albums</span></div>
-          )}
-        </div>
-      </section>
-      <section className="rail-group">
-        <h2>Sources</h2>
-        <div className="rail-list">
-          {sourceFolders.map((folder) => {
-            const source = librarySummary.sources.find((item) => item.id === folder.sourceId)
-            const isActive =
-              activeSourceId === folder.sourceId && activeFolderPath === folder.folderPath
+    <aside className={`left-rail${collapsed ? ' left-rail--collapsed' : ''}`} aria-label="Photo navigation">
+      <button
+        className="rail-collapse-btn"
+        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        type="button"
+        onClick={onToggleCollapse}
+        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+      >
+        {collapsed ? '›' : '‹'}
+      </button>
+      {!collapsed && (
+        <div className="left-rail__scroll">
+          <NavGroup title="Library" items={libraryItems} />
 
-            return (
-              <button
-                aria-label={`${folder.name} ${compactCount(folder.photoCount)}`}
-                className={`rail-item rail-item--source rail-item--folder${
-                  isActive ? ' rail-item--active active' : ''
-                } rail-item--${source?.status ?? 'online'}`}
-                key={folder.id}
-                style={{ paddingLeft: `${9 + folder.depth * 12}px` }}
-                type="button"
-                onClick={() =>
-                  onSelectFolder({
-                    type: 'folder',
-                    sourceId: folder.sourceId,
-                    folderPath: folder.folderPath,
-                  })
-                }
-              >
-                {folder.depth === 0 ? <StatusDot status={source?.status ?? 'online'} /> : null}
-                <span className="rail-item__label">{folder.name}</span>
-                <span className="rail-item__count">{compactCount(folder.photoCount)}</span>
-              </button>
-            )
-          })}
-          {sourceFolders.length === 0 &&
-            librarySummary.sources.map((source) => (
-              <button
-                aria-label={`${source.name} ${compactCount(source.photoCount)}`}
-                className={`rail-item rail-item--source rail-item--${source.status}`}
-                key={source.id}
-                type="button"
-                onClick={() => onSelectFolder({ type: 'folder', sourceId: source.id, folderPath: '' })}
-              >
-                <StatusDot status={source.status} />
-                <span className="rail-item__label">{source.name}</span>
-                <span className="rail-item__count">{compactCount(source.photoCount)}</span>
-              </button>
-            ))}
-          {librarySummary.sources.length === 0 && (
-            <div className="rail-item rail-item--muted">
-              <span>No sources</span>
+          <section className="rail-group">
+            <h2>Views</h2>
+            <div className="rail-list">
+              {viewRailItems.map((item) => (
+                <button
+                  className={`rail-item${item.active ? ' rail-item--active' : ''}`}
+                  key={item.label}
+                  type="button"
+                  onClick={item.onClick}
+                >
+                  <span className="rail-item__label">{item.label}</span>
+                </button>
+              ))}
             </div>
+            {tags.length > 0 && (
+              <>
+                <div className="rail-sub-label">Tags</div>
+                <div className="rail-list">
+                  {tags.map((tag) => (
+                    <button
+                      className={`rail-item rail-item--tag${
+                        activeFilter?.type === 'tag' && activeFilter.tagName === tag.name
+                          ? ' rail-item--active'
+                          : ''
+                      }`}
+                      key={tag.name}
+                      type="button"
+                      onClick={() => onSelectTag(tag.name)}
+                    >
+                      <span className="rail-item__tag-dot" aria-hidden="true" />
+                      <span className="rail-item__label">{tag.name}</span>
+                      <span className="rail-item__count">{compactCount(tag.photoCount)}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
+
+          <section className="rail-group">
+            <h2 className="rail-group__header-row">
+              Sources
+              <button
+                className="rail-header-btn"
+                title="Add source"
+                type="button"
+                onClick={onAddSource}
+              >
+                +
+              </button>
+            </h2>
+            <div className="rail-list">
+              {sourceFolders.map((folder) => {
+                const source = librarySummary.sources.find((item) => item.id === folder.sourceId)
+                const isActive = activeSourceId === folder.sourceId && activeFolderPath === folder.folderPath
+                const isRoot = folder.depth === 0
+                return (
+                  <div
+                    key={folder.id}
+                    className={`rail-item rail-item--source rail-item--folder${
+                      isActive ? ' rail-item--active active' : ''
+                    } rail-item--${source?.status ?? 'online'}${isRoot ? ' rail-item--source-root' : ''}`}
+                    style={{ paddingLeft: `${9 + folder.depth * 12}px` }}
+                  >
+                    <button
+                      aria-label={`${folder.name} ${compactCount(folder.photoCount)}`}
+                      type="button"
+                      className="rail-item__main"
+                      onClick={() =>
+                        onSelectFolder({
+                          type: 'folder',
+                          sourceId: folder.sourceId,
+                          folderPath: folder.folderPath,
+                        })
+                      }
+                    >
+                      <span className="rail-item__label">{folder.name}</span>
+                      <span className="rail-item__count">{compactCount(folder.photoCount)}</span>
+                    </button>
+                    {isRoot ? (
+                      <button
+                        className="rail-item__delete"
+                        title="Remove source"
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (
+                            window.confirm(
+                              `Remove source "${folder.name}"? This deletes all its photos, thumbnails, and album links from Gala. Your original files on disk are not touched.`,
+                            )
+                          ) {
+                            onDeleteSource(folder.sourceId)
+                          }
+                        }}
+                      >
+                        ×
+                      </button>
+                    ) : null}
+                  </div>
+                )
+              })}
+              {sourceFolders.length === 0 &&
+                librarySummary.sources.map((source) => (
+                  <div
+                    key={source.id}
+                    className={`rail-item rail-item--source rail-item--source-root rail-item--${source.status}`}
+                  >
+                    <button
+                      aria-label={`${source.name} ${compactCount(source.photoCount)}`}
+                      type="button"
+                      className="rail-item__main"
+                      onClick={() => onSelectFolder({ type: 'folder', sourceId: source.id, folderPath: '' })}
+                    >
+                      <span className="rail-item__label">{source.name}</span>
+                      <span className="rail-item__count">{compactCount(source.photoCount)}</span>
+                    </button>
+                    <button
+                      className="rail-item__delete"
+                      title="Remove source"
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (
+                          window.confirm(
+                            `Remove source "${source.name}"? This deletes all its photos, thumbnails, and album links from Gala. Your original files on disk are not touched.`,
+                          )
+                        ) {
+                          onDeleteSource(source.id)
+                        }
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              {librarySummary.sources.length === 0 && (
+                <div className="rail-item rail-item--muted">
+                  <span>No sources</span>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="rail-group">
+            <h2 className="rail-group__header-row">
+              Albums
+              <button
+                className="rail-header-btn"
+                title="New album"
+                type="button"
+                onClick={() => setShowNewAlbumInput(true)}
+              >
+                +
+              </button>
+            </h2>
+            <div className="rail-list">
+              {showNewAlbumInput && (
+                <form
+                  className="rail-new-album"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    const name = newAlbumName.trim()
+                    if (name) {
+                      onCreateAlbum(name)
+                      setNewAlbumName('')
+                      setShowNewAlbumInput(false)
+                    }
+                  }}
+                >
+                  <input
+                    autoFocus
+                    className="rail-album-input"
+                    placeholder="Album name"
+                    type="text"
+                    value={newAlbumName}
+                    onChange={(e) => setNewAlbumName(e.target.value)}
+                    onBlur={() => {
+                      if (!newAlbumName.trim()) setShowNewAlbumInput(false)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setShowNewAlbumInput(false)
+                        setNewAlbumName('')
+                      }
+                    }}
+                  />
+                </form>
+              )}
+              {albums.map((album) =>
+                renamingAlbumId === album.id ? (
+                  <form
+                    className="rail-new-album"
+                    key={album.id}
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      const name = renameValue.trim()
+                      if (name) onRenameAlbum(album.id, name)
+                      setRenamingAlbumId(null)
+                    }}
+                  >
+                    <input
+                      autoFocus
+                      className="rail-album-input"
+                      type="text"
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onBlur={() => setRenamingAlbumId(null)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') setRenamingAlbumId(null)
+                      }}
+                    />
+                  </form>
+                ) : (
+                  <div
+                    className={`rail-item rail-item--album${
+                      activeFilter?.type === 'album' && activeFilter.albumId === album.id ? ' rail-item--active' : ''
+                    }`}
+                    key={album.id}
+                  >
+                    <button
+                      type="button"
+                      className="rail-item__main"
+                      onClick={() => onSelectAlbum(album.id)}
+                      onDoubleClick={() => {
+                        setRenamingAlbumId(album.id)
+                        setRenameValue(album.name)
+                      }}
+                    >
+                      <span className="rail-item__label">{album.name}</span>
+                      <span className="rail-item__count">{compactCount(album.photoCount)}</span>
+                    </button>
+                    <button
+                      className="rail-item__rename"
+                      title="Rename album"
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setRenamingAlbumId(album.id)
+                        setRenameValue(album.name)
+                      }}
+                    >
+                      ✎
+                    </button>
+                    <button
+                      className="rail-item__delete"
+                      title="Delete album"
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (window.confirm(`Delete album "${album.name}"? Photos in the album are not deleted.`)) {
+                          onDeleteAlbum(album.id)
+                        }
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ),
+              )}
+              {albums.length === 0 && !showNewAlbumInput && (
+                <div className="rail-item rail-item--muted">
+                  <span>No albums</span>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="rail-group">
+            <h2>Explore</h2>
+            <div className="rail-list">
+              <button
+                className={`rail-item${activeFilter?.type === 'explore' ? ' rail-item--active' : ''}`}
+                type="button"
+                onClick={onSelectExplore}
+              >
+                <span className="rail-item__label">Discover</span>
+              </button>
+            </div>
+          </section>
+
+          <section className="rail-group">
+            <h2>Settings</h2>
+            <div className="rail-list">
+              <button
+                className={`rail-item${activeFilter?.type === 'settings' ? ' rail-item--active' : ''}`}
+                type="button"
+                onClick={onSelectSettings}
+              >
+                <span className="rail-item__label">Preferences</span>
+              </button>
+            </div>
+          </section>
+
+          {(isScanning || scanProgress?.status === 'failed') && (
+            <ScanStatusCard librarySummary={librarySummary} isScanning={isScanning} scanProgress={scanProgress} />
           )}
         </div>
-      </section>
-      <ScanStatusCard
-        librarySummary={librarySummary}
-        isScanning={isScanning}
-        scanProgress={scanProgress}
-      />
+      )}
     </aside>
   )
 }

@@ -1,5 +1,6 @@
 use crate::library::models::{
-    Album, FilterOptions, LibrarySource, LibrarySummary, SourceFolder, TimelinePhoto, UpsertedPhoto,
+    Album, FilterOptions, LibrarySource, LibrarySummary, SourceFolder, Tag, TimelinePhoto,
+    UpsertedPhoto,
 };
 use crate::library::scanner::DiscoveredPhoto;
 use chrono::{DateTime, Utc};
@@ -8,7 +9,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use uuid::Uuid;
 
-const SCHEMA_VERSION: i32 = 5;
+const SCHEMA_VERSION: i32 = 6;
 
 const PHOTO_COLS: &str = "p.id, p.file_name, p.relative_path, p.file_mtime, p.file_size, \
     s.name, s.status, pa.thumbnail_medium_path, p.favorited_at, p.width, p.height, \
@@ -90,6 +91,17 @@ pub fn initialize_schema(conn: &Connection) -> Result<(), String> {
             added_at TEXT NOT NULL,
             PRIMARY KEY (album_id, photo_id)
         );
+        CREATE TABLE IF NOT EXISTS tags (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS photo_tags (
+            photo_id TEXT NOT NULL REFERENCES photos(id),
+            tag_id TEXT NOT NULL REFERENCES tags(id),
+            added_at TEXT NOT NULL,
+            PRIMARY KEY (photo_id, tag_id)
+        );
         "#,
     )
     .map_err(|e| format!("Failed to initialize schema: {}", e))?;
@@ -135,6 +147,17 @@ pub fn migrate_schema(conn: &Connection) -> Result<(), String> {
             photo_id TEXT NOT NULL REFERENCES photos(id),
             added_at TEXT NOT NULL,
             PRIMARY KEY (album_id, photo_id)
+        );
+        CREATE TABLE IF NOT EXISTS tags (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS photo_tags (
+            photo_id TEXT NOT NULL REFERENCES photos(id),
+            tag_id TEXT NOT NULL REFERENCES tags(id),
+            added_at TEXT NOT NULL,
+            PRIMARY KEY (photo_id, tag_id)
         );
         "#,
     )
@@ -577,7 +600,102 @@ fn timeline_photo_from_row(row: &Row<'_>) -> SqlResult<TimelinePhoto> {
         thumbnail_path: row.get(7)?,
         is_favorite: favorited_at.is_some(),
         is_hidden: hidden_at.is_some(),
+        tags: vec![],  // populated separately when needed
     })
+}
+
+pub fn get_photo_tags(conn: &Connection, photo_id: &str) -> Result<Vec<String>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.name FROM tags t \
+              INNER JOIN photo_tags pt ON pt.tag_id = t.id \
+              WHERE pt.photo_id = ?1 ORDER BY t.name COLLATE NOCASE",
+        )
+        .map_err(|e| format!("Failed to prepare get_photo_tags: {}", e))?;
+    let tags = stmt
+        .query_map(params![photo_id], |row| row.get::<_, String>(0))
+        .map_err(|e| format!("Failed to query photo tags: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to collect photo tags: {}", e))?;
+    Ok(tags)
+}
+
+pub fn set_photo_tags(conn: &Connection, photo_id: &str, tags: &[String]) -> Result<Vec<String>, String> {
+    let now = Utc::now().to_rfc3339();
+    for tag in tags {
+        let tag_name = tag.trim();
+        if tag_name.is_empty() { continue; }
+        let existing_id: Option<String> = conn
+            .query_row("SELECT id FROM tags WHERE name = ?1 COLLATE NOCASE", params![tag_name], |r| r.get(0))
+            .ok();
+        let tag_id = if let Some(id) = existing_id {
+            id
+        } else {
+            let id = Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO tags (id, name, created_at) VALUES (?1, ?2, ?3)",
+                params![id, tag_name, now],
+            )
+            .map_err(|e| format!("Failed to insert tag: {}", e))?;
+            id
+        };
+        conn.execute(
+            "INSERT OR IGNORE INTO photo_tags (photo_id, tag_id, added_at) VALUES (?1, ?2, ?3)",
+            params![photo_id, tag_id, now],
+        )
+        .map_err(|e| format!("Failed to link photo tag: {}", e))?;
+    }
+
+    // Remove tags not in the new list
+    let normalized: Vec<String> = tags.iter().map(|t| t.trim().to_lowercase()).filter(|t| !t.is_empty()).collect();
+    let current = get_photo_tags(conn, photo_id)?;
+    for existing_tag in &current {
+        if !normalized.contains(&existing_tag.to_lowercase()) {
+            conn.execute(
+                "DELETE FROM photo_tags WHERE photo_id = ?1 \
+                 AND tag_id = (SELECT id FROM tags WHERE name = ?2 COLLATE NOCASE)",
+                params![photo_id, existing_tag],
+            )
+            .map_err(|e| format!("Failed to remove photo tag: {}", e))?;
+        }
+    }
+
+    get_photo_tags(conn, photo_id)
+}
+
+pub fn get_all_tags(conn: &Connection) -> Result<Vec<Tag>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.name, COUNT(pt.photo_id) as cnt \
+              FROM tags t LEFT JOIN photo_tags pt ON pt.tag_id = t.id \
+              GROUP BY t.id ORDER BY t.name COLLATE NOCASE",
+        )
+        .map_err(|e| format!("Failed to prepare get_all_tags: {}", e))?;
+    let tags = stmt
+        .query_map([], |row| Ok(Tag { name: row.get(0)?, photo_count: row.get(1)? }))
+        .map_err(|e| format!("Failed to query tags: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to collect tags: {}", e))?;
+    Ok(tags)
+}
+
+pub fn get_photos_by_tag(conn: &Connection, tag_name: &str, limit: i64, offset: i64) -> Result<Vec<TimelinePhoto>, String> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT {cols} {joins} \
+              INNER JOIN photo_tags pt ON p.id = pt.photo_id \
+              INNER JOIN tags t ON pt.tag_id = t.id \
+              WHERE {asset} AND p.hidden_at IS NULL AND t.name = ?3 COLLATE NOCASE \
+              ORDER BY COALESCE(strftime('%s', p.captured_at), p.file_mtime) DESC LIMIT ?1 OFFSET ?2",
+            cols = PHOTO_COLS, joins = PHOTO_JOINS, asset = ASSET_READY_COND
+        ))
+        .map_err(|e| format!("Failed to prepare tag photos query: {}", e))?;
+    let photos = stmt
+        .query_map(params![limit, offset, tag_name], timeline_photo_from_row)
+        .map_err(|e| format!("Failed to query tag photos: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to collect tag photos: {}", e))?;
+    Ok(photos)
 }
 
 pub fn get_timeline_photos(
@@ -714,6 +832,88 @@ pub fn set_photo_hidden(conn: &Connection, photo_id: &str, hidden: bool) -> Resu
     conn.execute("UPDATE photos SET hidden_at = ?1 WHERE id = ?2", params![hidden_at, photo_id])
         .map_err(|e| format!("Failed to update hidden: {}", e))?;
     Ok(hidden)
+}
+
+pub fn set_photos_favorite_batch(
+    conn: &mut Connection,
+    photo_ids: &[String],
+    favorited: bool,
+) -> Result<(), String> {
+    let now = Utc::now().to_rfc3339();
+    let value: Option<String> = if favorited { Some(now) } else { None };
+    let tx = conn.transaction().map_err(|e| format!("Failed to start transaction: {}", e))?;
+    for photo_id in photo_ids {
+        tx.execute(
+            "UPDATE photos SET favorited_at = ?1 WHERE id = ?2",
+            params![value, photo_id],
+        )
+        .map_err(|e| format!("Failed to update favorite: {}", e))?;
+    }
+    tx.commit().map_err(|e| format!("Failed to commit favorite batch: {}", e))?;
+    Ok(())
+}
+
+pub fn set_photos_hidden_batch(
+    conn: &mut Connection,
+    photo_ids: &[String],
+    hidden: bool,
+) -> Result<(), String> {
+    let now = Utc::now().to_rfc3339();
+    let value: Option<String> = if hidden { Some(now) } else { None };
+    let tx = conn.transaction().map_err(|e| format!("Failed to start transaction: {}", e))?;
+    for photo_id in photo_ids {
+        tx.execute(
+            "UPDATE photos SET hidden_at = ?1 WHERE id = ?2",
+            params![value, photo_id],
+        )
+        .map_err(|e| format!("Failed to update hidden: {}", e))?;
+    }
+    tx.commit().map_err(|e| format!("Failed to commit hidden batch: {}", e))?;
+    Ok(())
+}
+
+/// Add each tag in `tags` to every photo in `photo_ids` (idempotent — existing
+/// links are skipped via INSERT OR IGNORE). Does not remove existing tags.
+pub fn add_tags_to_photos_batch(
+    conn: &mut Connection,
+    photo_ids: &[String],
+    tags: &[String],
+) -> Result<(), String> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction().map_err(|e| format!("Failed to start transaction: {}", e))?;
+    for tag in tags {
+        let tag_name = tag.trim();
+        if tag_name.is_empty() {
+            continue;
+        }
+        let existing_id: Option<String> = tx
+            .query_row(
+                "SELECT id FROM tags WHERE name = ?1 COLLATE NOCASE",
+                params![tag_name],
+                |r| r.get(0),
+            )
+            .ok();
+        let tag_id = if let Some(id) = existing_id {
+            id
+        } else {
+            let id = Uuid::new_v4().to_string();
+            tx.execute(
+                "INSERT INTO tags (id, name, created_at) VALUES (?1, ?2, ?3)",
+                params![id, tag_name, now],
+            )
+            .map_err(|e| format!("Failed to insert tag: {}", e))?;
+            id
+        };
+        for photo_id in photo_ids {
+            tx.execute(
+                "INSERT OR IGNORE INTO photo_tags (photo_id, tag_id, added_at) VALUES (?1, ?2, ?3)",
+                params![photo_id, tag_id, now],
+            )
+            .map_err(|e| format!("Failed to link photo tag: {}", e))?;
+        }
+    }
+    tx.commit().map_err(|e| format!("Failed to commit tag batch: {}", e))?;
+    Ok(())
 }
 
 pub fn get_photo_original_path(conn: &Connection, photo_id: &str) -> Result<String, String> {
@@ -912,6 +1112,61 @@ pub fn remove_photo_from_album(conn: &Connection, album_id: &str, photo_id: &str
         params![album_id, photo_id],
     )
     .map_err(|e| format!("Failed to remove photo from album: {}", e))?;
+    Ok(())
+}
+
+pub fn add_photos_to_album_batch(conn: &mut Connection, album_id: &str, photo_ids: &[String]) -> Result<(), String> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction().map_err(|e| format!("Failed to start transaction: {}", e))?;
+    for photo_id in photo_ids {
+        tx.execute(
+            "INSERT OR IGNORE INTO album_photos (album_id, photo_id, added_at) VALUES (?1, ?2, ?3)",
+            params![album_id, photo_id, now],
+        )
+        .map_err(|e| format!("Failed to add photo to album: {}", e))?;
+    }
+    tx.commit().map_err(|e| format!("Failed to commit batch: {}", e))?;
+    Ok(())
+}
+
+pub fn remove_photos_from_album_batch(conn: &mut Connection, album_id: &str, photo_ids: &[String]) -> Result<(), String> {
+    let tx = conn.transaction().map_err(|e| format!("Failed to start transaction: {}", e))?;
+    for photo_id in photo_ids {
+        tx.execute(
+            "DELETE FROM album_photos WHERE album_id = ?1 AND photo_id = ?2",
+            params![album_id, photo_id],
+        )
+        .map_err(|e| format!("Failed to remove photo from album: {}", e))?;
+    }
+    tx.commit().map_err(|e| format!("Failed to commit batch: {}", e))?;
+    Ok(())
+}
+
+/// Delete a source and all dependent rows (album_photos, photo_tags,
+/// photo_assets, photos). Caller is responsible for any on-disk cleanup
+/// (thumbnails directory) after this returns.
+pub fn delete_source(conn: &mut Connection, source_id: &str) -> Result<(), String> {
+    let tx = conn.transaction().map_err(|e| format!("Failed to start transaction: {}", e))?;
+    tx.execute(
+        "DELETE FROM album_photos WHERE photo_id IN (SELECT id FROM photos WHERE source_id = ?1)",
+        params![source_id],
+    )
+    .map_err(|e| format!("Failed to delete album_photos for source: {}", e))?;
+    tx.execute(
+        "DELETE FROM photo_tags WHERE photo_id IN (SELECT id FROM photos WHERE source_id = ?1)",
+        params![source_id],
+    )
+    .map_err(|e| format!("Failed to delete photo_tags for source: {}", e))?;
+    tx.execute(
+        "DELETE FROM photo_assets WHERE photo_id IN (SELECT id FROM photos WHERE source_id = ?1)",
+        params![source_id],
+    )
+    .map_err(|e| format!("Failed to delete photo_assets for source: {}", e))?;
+    tx.execute("DELETE FROM photos WHERE source_id = ?1", params![source_id])
+        .map_err(|e| format!("Failed to delete photos for source: {}", e))?;
+    tx.execute("DELETE FROM sources WHERE id = ?1", params![source_id])
+        .map_err(|e| format!("Failed to delete source: {}", e))?;
+    tx.commit().map_err(|e| format!("Failed to commit source deletion: {}", e))?;
     Ok(())
 }
 

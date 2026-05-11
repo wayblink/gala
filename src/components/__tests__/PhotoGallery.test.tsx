@@ -29,7 +29,7 @@ const photo = (id: string, fileName: string): TimelinePhoto => ({
   sourceName: 'source',
   sourceStatus: 'online',
   thumbnailPath: null,
-  isFavorite: false, isHidden: false,
+  isFavorite: false, isHidden: false, tags: [],
 })
 
 describe('PhotoGallery', () => {

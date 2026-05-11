@@ -75,6 +75,7 @@ pub struct TimelinePhoto {
     pub thumbnail_path: Option<String>,
     pub is_favorite: bool,
     pub is_hidden: bool,
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,4 +102,11 @@ pub struct FilterOptions {
     pub extensions: Vec<String>,
     pub date_min: Option<String>,
     pub date_max: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tag {
+    pub name: String,
+    pub photo_count: i64,
 }

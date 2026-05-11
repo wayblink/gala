@@ -51,12 +51,11 @@ describe('LeftRail', () => {
 
     render(<LeftRail librarySummary={emptySummary} isScanning={false} scanProgress={scanProgress} />)
 
-    expect(screen.getByText('Scan Complete')).toBeInTheDocument()
-    expect(screen.getByText('12 / 12 processed')).toBeInTheDocument()
-    expect(screen.getByText('1 failed')).toBeInTheDocument()
+    // After hiding Library Status idle card, completed scan summary is not shown in the rail.
+    expect(screen.queryByText('Scan Complete')).not.toBeInTheDocument()
   })
 
-  it('renders simplified navigation with todo markers for unsupported features', () => {
+  it('renders the five-section IA with Views, Sources, Custom Views, Explore, Settings', () => {
     render(
       <LeftRail
         librarySummary={emptySummary}
@@ -71,12 +70,22 @@ describe('LeftRail', () => {
       />,
     )
 
-    expect(screen.queryByText('Explore')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Library' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Views' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Sources/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Albums/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Explore' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+
     expect(screen.getByRole('button', { name: /All Photos/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Recently Added/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Favorites/i })).toBeInTheDocument()
-    expect(screen.getByText('People [todo]')).toBeInTheDocument()
-    expect(screen.getByText('Places [todo]')).toBeInTheDocument()
+
+    expect(screen.getByRole('button', { name: 'Timeline' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Places' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'People' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Memories' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Similar' })).toBeInTheDocument()
   })
 
   it('renders nested source folders and selects a folder filter', async () => {
@@ -147,7 +156,7 @@ describe('LeftRail', () => {
 
     expect(screen.getByRole('button', { name: /Pictures 4/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Trips 2/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Japan 2/i })).toHaveClass('active')
+    expect(screen.getByRole('button', { name: /Japan 2/i }).closest('.rail-item--folder')).toHaveClass('active')
     expect(screen.getByRole('button', { name: /Kyoto 1/i })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /Kyoto 1/i }))

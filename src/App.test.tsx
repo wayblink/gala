@@ -21,7 +21,6 @@ describe('App', () => {
       }),
     ).not.toBeInTheDocument()
     expect(screen.getByText('Library Index')).toBeInTheDocument()
-    expect(await screen.findByText('Desktop Runtime')).toBeInTheDocument()
     expect(screen.getByText('No sources')).toBeInTheDocument()
     expect(screen.getByText('No photo selected')).toBeInTheDocument()
   })
@@ -58,5 +57,16 @@ describe('App', () => {
     fireEvent.click(galleryButton)
     expect(galleryButton).toHaveAttribute('aria-pressed', 'true')
     expect(listButton).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('routes unimplemented Views nav items to the ComingSoon placeholder', async () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Places' }))
+
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'Places' }),
+    ).toBeInTheDocument()
+    expect(screen.getAllByText('Coming soon').length).toBeGreaterThan(0)
   })
 })

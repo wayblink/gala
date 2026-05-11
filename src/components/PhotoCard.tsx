@@ -28,7 +28,7 @@ const formatFileSize = (bytes: number) => {
 
 const formatDimensions = (photo: TimelinePhoto) => {
   if (!photo.width || !photo.height) return 'Pending'
-  return `${photo.width} x ${photo.height}`
+  return `${photo.width} × ${photo.height}`
 }
 
 export function PhotoCard({

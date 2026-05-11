@@ -1,9 +1,21 @@
+export type ComingSoonViewId = 'timeline' | 'places' | 'people' | 'memories' | 'similar'
+
 export type PhotoFilter =
-  | { type: 'folder'; sourceId: string; folderPath: string }
+  // Library — always-available base views
+  | { type: 'all' }
   | { type: 'recent' }
   | { type: 'favorites' }
   | { type: 'hidden' }
+  // Views — semantic views (V1 targets; most are placeholders in V0)
+  | { type: 'view'; viewId: ComingSoonViewId }
+  // Sources — filesystem sources and nested folders
+  | { type: 'folder'; sourceId: string; folderPath: string }
+  // Custom views — user-created groupings
   | { type: 'album'; albumId: string }
+  | { type: 'tag'; tagName: string }
+  // Explore / Settings placeholders
+  | { type: 'explore' }
+  | { type: 'settings' }
 
 export type SmartFilter = {
   cameras?: string[]
@@ -56,4 +68,10 @@ export type TimelinePhoto = {
   thumbnailPath: string | null
   isFavorite: boolean
   isHidden: boolean
+  tags: string[]
+}
+
+export type Tag = {
+  name: string
+  photoCount: number
 }

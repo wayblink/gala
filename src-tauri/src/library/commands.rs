@@ -1,16 +1,19 @@
 use crate::library::exif::extract_exif_metadata;
 use crate::library::models::{
-    Album, FilterOptions, LibrarySummary, ScanProgress, ScanSummary, SourceFolder, TimelinePhoto,
+    Album, FilterOptions, LibrarySummary, ScanProgress, ScanSummary, SourceFolder, Tag,
+    TimelinePhoto,
 };
 use crate::library::scanner::discover_photos_with_progress;
 use crate::library::storage::{
-    add_photo_to_album, create_album, delete_album, get_album_photos, get_albums,
-    get_favorite_photos, get_filter_options, get_filtered_photos, get_hidden_photos,
-    get_library_summary as get_summary, get_photo_original_path, get_recently_added_photos,
+    add_photo_to_album, add_photos_to_album_batch, add_tags_to_photos_batch, create_album,
+    delete_album, delete_source, get_album_photos, get_albums, get_all_tags, get_favorite_photos,
+    get_filter_options, get_filtered_photos, get_hidden_photos, get_library_summary as get_summary,
+    get_photo_original_path, get_photo_tags, get_photos_by_tag, get_recently_added_photos,
     get_source_folders, get_timeline_photos, initialize_schema, mark_photo_assets_failed,
-    migrate_schema, open_database, remove_photo_from_album, rename_album, search_photos,
-    set_photo_favorite, set_photo_hidden, update_photo_dimensions, update_photo_exif_metadata,
-    upsert_photo_assets, upsert_source, upsert_source_photos,
+    migrate_schema, open_database, remove_photo_from_album, remove_photos_from_album_batch,
+    rename_album, search_photos, set_photo_favorite, set_photo_hidden, set_photo_tags,
+    set_photos_favorite_batch, set_photos_hidden_batch, update_photo_dimensions,
+    update_photo_exif_metadata, upsert_photo_assets, upsert_source, upsert_source_photos,
 };
 use crate::library::thumbnails::ThumbnailGenerator;
 use base64::{engine::general_purpose, Engine as _};
@@ -611,4 +614,157 @@ pub fn get_album_photos_cmd(
     initialize_schema(&conn)?;
     migrate_schema(&conn)?;
     get_album_photos(&conn, &album_id, limit, offset)
+}
+
+#[tauri::command]
+pub fn add_photos_to_album_batch_cmd(
+    app: AppHandle,
+    album_id: String,
+    photo_ids: Vec<String>,
+) -> Result<(), String> {
+    let db_path = get_db_path(&app)?;
+    let mut conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+    add_photos_to_album_batch(&mut conn, &album_id, &photo_ids)
+}
+
+#[tauri::command]
+pub fn remove_photos_from_album_batch_cmd(
+    app: AppHandle,
+    album_id: String,
+    photo_ids: Vec<String>,
+) -> Result<(), String> {
+    let db_path = get_db_path(&app)?;
+    let mut conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+    remove_photos_from_album_batch(&mut conn, &album_id, &photo_ids)
+}
+
+#[tauri::command]
+pub fn set_photos_favorite_batch_cmd(
+    app: AppHandle,
+    photo_ids: Vec<String>,
+    favorited: bool,
+) -> Result<(), String> {
+    let db_path = get_db_path(&app)?;
+    let mut conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+    set_photos_favorite_batch(&mut conn, &photo_ids, favorited)
+}
+
+#[tauri::command]
+pub fn set_photos_hidden_batch_cmd(
+    app: AppHandle,
+    photo_ids: Vec<String>,
+    hidden: bool,
+) -> Result<(), String> {
+    let db_path = get_db_path(&app)?;
+    let mut conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+    set_photos_hidden_batch(&mut conn, &photo_ids, hidden)
+}
+
+#[tauri::command]
+pub fn add_tags_to_photos_batch_cmd(
+    app: AppHandle,
+    photo_ids: Vec<String>,
+    tags: Vec<String>,
+) -> Result<(), String> {
+    let db_path = get_db_path(&app)?;
+    let mut conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+    add_tags_to_photos_batch(&mut conn, &photo_ids, &tags)
+}
+
+/// Remove a source: gather its photo IDs, drop on-disk thumbnails for those
+/// photos, then run the cascading DB delete inside a transaction.
+#[tauri::command]
+pub fn delete_source_cmd(app: AppHandle, source_id: String) -> Result<(), String> {
+    let db_path = get_db_path(&app)?;
+    let mut conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+
+    let photo_ids: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT id FROM photos WHERE source_id = ?1")
+            .map_err(|e| format!("Failed to prepare photo lookup: {}", e))?;
+        let rows = stmt
+            .query_map(params![source_id], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("Failed to query source photos: {}", e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to collect source photo ids: {}", e))?;
+        rows
+    };
+
+    let cache_root = get_thumbnail_cache_dir(&app)?;
+    for size in ["small", "medium", "large"] {
+        let size_dir = cache_root.join(size);
+        for photo_id in &photo_ids {
+            let path = size_dir.join(format!("{}.jpg", photo_id));
+            if path.exists() {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+
+    delete_source(&mut conn, &source_id)
+}
+
+#[tauri::command]
+pub fn get_photo_tags_cmd(app: AppHandle, photo_id: String) -> Result<Vec<String>, String> {
+    let conn = open_conn(&app)?;
+    get_photo_tags(&conn, &photo_id)
+}
+
+#[tauri::command]
+pub fn set_photo_tags_cmd(
+    app: AppHandle,
+    photo_id: String,
+    tags: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let conn = open_conn(&app)?;
+    set_photo_tags(&conn, &photo_id, &tags)
+}
+
+#[tauri::command]
+pub fn get_all_tags_cmd(app: AppHandle) -> Result<Vec<Tag>, String> {
+    let db_path = get_db_path(&app)?;
+    if !db_path.exists() { return Ok(vec![]); }
+    let conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+    get_all_tags(&conn)
+}
+
+#[tauri::command]
+pub fn get_photos_by_tag_cmd(
+    app: AppHandle,
+    tag_name: String,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<TimelinePhoto>, String> {
+    let db_path = get_db_path(&app)?;
+    if !db_path.exists() { return Ok(vec![]); }
+    let conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+    get_photos_by_tag(&conn, &tag_name, limit, offset)
+}
+
+#[tauri::command]
+pub fn reveal_in_finder_cmd(app: AppHandle, photo_id: String) -> Result<(), String> {
+    let conn = open_conn(&app)?;
+    let path = get_photo_original_path(&conn, &photo_id)?;
+    std::process::Command::new("open")
+        .arg("-R")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| format!("Failed to reveal in Finder: {}", e))?;
+    Ok(())
 }

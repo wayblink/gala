@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Maximize2, Minimize2, X } from 'lucide-react'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { getPhotoDataUrl, getThumbnailFile } from '../desktop/photos'
+import { getPhotoDataUrl, getThumbnailFile, revealInFinder } from '../desktop/photos'
 import type { TimelinePhoto } from '../types/photos'
 
 type PhotoViewerProps = {
   photos: TimelinePhoto[]
   initialIndex: number
-  onPhotoChange?: (photo: TimelinePhoto) => void
+  onPhotoChange?: (photo: TimelinePhoto | null) => void
   onClose: () => void
 }
 
@@ -17,6 +17,7 @@ export function PhotoViewer({ photos, initialIndex, onPhotoChange, onClose }: Ph
   const [fallbackUrl, setFallbackUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
 
   const currentPhoto = photos[currentIndex]
@@ -119,7 +120,12 @@ export function PhotoViewer({ photos, initialIndex, onPhotoChange, onClose }: Ph
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        onClose()
+        if (isFullscreen) {
+          void document.exitFullscreen?.()
+          setIsFullscreen(false)
+        } else {
+          onClose()
+        }
       }
 
       if (event.key === 'ArrowLeft') {
@@ -129,11 +135,25 @@ export function PhotoViewer({ photos, initialIndex, onPhotoChange, onClose }: Ph
       if (event.key === 'ArrowRight') {
         setCurrentIndex((index) => Math.min(index + 1, photos.length - 1))
       }
+
+      if (event.key === 'f' || event.key === 'F') {
+        void toggleFullscreen()
+      }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose, photos.length])
+  }, [onClose, photos.length, isFullscreen])
+
+  const toggleFullscreen = async () => {
+    if (!document.fullscreenElement) {
+      await document.documentElement.requestFullscreen?.()
+      setIsFullscreen(true)
+    } else {
+      await document.exitFullscreen?.()
+      setIsFullscreen(false)
+    }
+  }
 
   if (!currentPhoto) {
     return null
@@ -141,7 +161,7 @@ export function PhotoViewer({ photos, initialIndex, onPhotoChange, onClose }: Ph
 
   return (
     <div
-      className="photo-viewer"
+      className={`photo-viewer${isFullscreen ? ' photo-viewer--fullscreen' : ''}`}
       role="dialog"
       aria-modal="true"
       aria-label={currentPhoto.fileName}
@@ -159,6 +179,24 @@ export function PhotoViewer({ photos, initialIndex, onPhotoChange, onClose }: Ph
         <div className="photo-viewer__counter">
           {currentIndex + 1} / {photos.length}
         </div>
+        <button
+          type="button"
+          className="photo-viewer__control"
+          aria-label="Show in Finder"
+          title="Show in Finder"
+          onClick={() => void revealInFinder(currentPhoto.id)}
+        >
+          <span style={{ fontSize: 14 }}>Finder</span>
+        </button>
+        <button
+          type="button"
+          className="photo-viewer__control"
+          aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          title={isFullscreen ? 'Exit fullscreen (F)' : 'Fullscreen (F)'}
+          onClick={() => void toggleFullscreen()}
+        >
+          {isFullscreen ? <Minimize2 size={18} strokeWidth={2} /> : <Maximize2 size={18} strokeWidth={2} />}
+        </button>
         <button
           type="button"
           className="photo-viewer__control"
