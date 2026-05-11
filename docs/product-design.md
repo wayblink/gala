@@ -1,111 +1,122 @@
 # Product Design: Non-Destructive Photo View Engine
 
+> 产品设计文档。回答产品是为谁做的、解决什么问题、核心模块与流程是什么。
+> 架构参见 [technical-architecture.md](technical-architecture.md)；界面与交互见 [desktop-ui-design.md](desktop-ui-design.md)；数据与运行逻辑见 [data-and-control-design.md](data-and-control-design.md)。
+
 ## Summary
 
-This desktop application helps photography enthusiasts browse, rediscover, and organize large local photo libraries through generated views. It does not change the original folder structure. Instead, it builds an index and generates multiple ways to see the same photos.
+Gala 帮助摄影爱好者以可回溯、可解释、非破坏性优先的方式浏览、重访和整理本地照片库。
 
-The product should feel less like a file manager and more like a memory light table: calm, visual, and personal, while still precise enough for serious photo browsing.
+它不要求用户先修改原始文件夹结构，而是在原始照片之上建立索引、生成视图，并提供新的管理方式。后续即使引入移动、重命名、归档、删除等整理操作，也应优先通过索引、链接、归档和标记删除等机制实现更灵活、可回溯的管理体验，而不是让底层存储直接变成唯一真相。
+
+产品应当更像一张“记忆 light table”，而不是一个文件管理器或数据库前端。
+
+---
 
 ## Target Users
 
-Primary users are photography enthusiasts with large local libraries from phones, cameras, drones, external drives, and old folders.
+核心用户是拥有大量本地照片的摄影爱好者，他们的照片可能来自：
 
-They want:
+- 手机。
+- 相机。
+- 无人机。
+- 外置硬盘。
+- 多年来积累的旧文件夹。
 
-- Better ways to revisit forgotten photos.
-- Fast browsing across many years of images.
-- Views based on time, place, people, camera, color, similarity, and memory.
-- Confidence that the app will not move, rename, delete, or rewrite originals.
+他们需要：
 
-They do not necessarily need:
+- 更好的重访方式。
+- 跨多年照片的快速浏览能力。
+- 基于时间、地点、人物、器材、相似性和记忆的视图。
+- 更高效的照片整理方式，减少筛选耗时。
+- 处理“一张照片多个副本 / 多个版本”问题的能力。
+- 在“不舍得删”和“必须做筛选”之间找到更灵活的中间路径。
+- 对“原片不会被改动”的信任感。
 
-- Professional RAW editing.
-- Multi-user studio workflows.
-- Cloud-first sync.
-- Heavy digital asset management.
+他们通常不需要：
+
+- 专业 RAW 编辑流程。
+- 多人协作工作室流程。
+- 云优先同步。
+- 重型企业 DAM 系统。
+
+---
 
 ## Product Positioning
 
-The product is a view engine above local photos.
+Gala 是一个建立在本地照片之上的 view engine。
 
-It is not:
+它不是：
 
-- A Lightroom replacement.
-- A cloud album.
-- A Finder or Explorer skin.
-- A destructive photo organizer.
+- Lightroom 替代品。
+- 云相册。
+- Finder 或 Explorer 皮肤。
+- 依赖直接改写底层文件结构的整理器。
 
-It is:
+它是：
 
-- A local-first photo browser.
-- A non-destructive indexer.
-- A strategy-driven view generator.
-- A rediscovery surface for personal photo history.
+- Local-first photo browser。
+- Reversible photo management engine。
+- Strategy-driven view generator。
+- Personal photo rediscovery surface。
+
+---
 
 ## Design Principles
 
-### 1. Non-Destructive by Default
+### 1. Reversible and Non-Destructive by Default
 
-The app never changes the physical location of original photos in V0.
+Gala 默认不依赖直接改写底层文件来完成整理。
 
-Allowed:
+这并不意味着系统永远不能提供移动、重命名、归档或删除操作，而是意味着这些能力应优先建立在索引、链接、逻辑归档、标记删除和可回溯操作历史之上，让用户获得更灵活的管理体验。
 
-- Read image files.
-- Generate thumbnails and previews in the app cache.
-- Store metadata and references in the local index.
-- Save views as references to photo IDs.
+允许：
 
-Not allowed:
+- 读取图片文件。
+- 在应用缓存中生成缩略图和预览。
+- 在本地索引中存储引用和元数据。
+- 将视图保存为照片引用集合。
+- 建立照片之间的逻辑关系。
+- 通过索引和产品状态实现归档、隐藏、筛选和标记删除。
+- 提供移动、重命名、删除等整理操作的产品入口和接口，但要求这些操作具备可解释性、可追踪性和可回溯性。
 
-- Move originals.
-- Rename originals.
-- Delete originals.
-- Rewrite original metadata.
+默认不应把以下方式作为核心整理模型：
+
+- 让“是否改写原始文件”成为唯一整理手段。
+- 把低层文件操作直接等同于产品级整理语义。
+- 让用户只能通过物理删除来完成筛选。
+- 在没有清晰历史记录和恢复路径的情况下做不可逆操作。
 
 ### 2. Views Over Folders
 
-Folders are sources, not the primary product metaphor.
+文件夹是 source，不是产品主隐喻。
 
-A user may add a folder from disk, but the main product experience should be built around views:
+用户可以从磁盘添加文件夹，但产品主体验应围绕视图展开，例如：
 
-- Timeline.
-- Places.
-- People.
-- Memories.
-- Similar photos.
-- Custom views.
+- Timeline
+- Places
+- People
+- Memories
+- Similar
+- Custom Views
 
 ### 3. Every Automatic View Must Explain Itself
 
-A generated view should answer: "Why am I seeing these photos?"
+每个自动生成的视图都必须解释“为什么我会看到这些照片”。
 
-Example:
-
-```text
-This view contains 42 photos.
-They were mostly captured between 2023-10-02 and 2023-10-06.
-The location clusters around Kyoto.
-18 photos contain night scenes, and 12 were previously favorited.
-```
-
-This keeps AI and rule-generated views trustworthy.
+这条原则直接决定用户对 AI 和规则系统的信任边界。
 
 ### 4. AI Suggests, Users Stay in Control
 
-AI can generate labels, memories, groupings, explanations, and view suggestions.
-
-AI must not silently:
-
-- Delete photos.
-- Move files.
-- Override user-created views.
-- Treat low-confidence inference as fact.
+AI 可以生成标签、记忆、分组、解释和视图建议，但 AI 不能默默替用户做破坏性决定。
 
 ### 5. The Photo Surface Is the Product
 
-The interface should prioritize viewing photos, not managing a database. Controls should support browsing, filtering, saving, and understanding views without competing with the images.
+产品体验应优先让用户看照片，而不是看数据库控制面板。
 
-## Core Concepts
+---
+
+## Core Product Model
 
 ```text
 Photo Source
@@ -117,67 +128,48 @@ Photo Source
 
 ### Photo Source
 
-A location that contains original image files.
+包含原始图片文件的位置。
 
-Examples:
+例如：
 
-- Local folder.
-- External drive.
-- Network volume.
-- Imported phone export folder.
+- 本地文件夹。
+- 外置硬盘。
+- 网络卷。
+- 手机导出的目录。
 
 ### Photo Index
 
-A local structured index of photo references and derived metadata.
+本地结构化索引，保存照片引用与派生元数据。
 
-It stores:
+除了单张文件引用之外，Photo Index 还应逐步承载更高层的照片关系，例如同一逻辑照片下的 RAW、JPG 和编辑版本关联。
 
-- File path references.
-- File fingerprints.
-- EXIF metadata.
-- Thumbnail references.
-- Places.
-- People.
-- Tags.
-- AI or rule-generated signals.
+### Logical Photo Set
+
+一个逻辑照片集合，用于把同一次拍摄产生的多个文件版本组织成一个更高层的产品对象。
+
+典型情况包括：
+
+- 同一张照片同时存在 RAW 和 JPG。
+- 同一张照片存在导出版本或编辑后版本。
+- 同一张照片因为历史迁移产生多个副本。
+
+这个概念的目标不是掩盖文件差异，而是让产品在浏览、筛选和管理时，先以“同一张照片”作为基本语义单位，而不是把所有文件版本平铺成彼此独立的照片。
 
 ### View Strategy
 
-A rule, query, or model-driven process that builds a view from the index.
-
-Examples:
-
-- Timeline strategy.
-- Place strategy.
-- Camera strategy.
-- Memory strategy.
-- Similarity strategy.
-- Manual strategy.
+基于规则、查询或模型，从索引中生成视图的过程。
 
 ### View Instance
 
-A specific generated result from a strategy.
-
-Examples:
-
-- "Japan, October 2024".
-- "Same day in past years".
-- "Summer evenings".
-- "Photos from X100V".
-- "Similar light".
+某个策略在某次生成后得到的具体结果。
 
 ### Photo Surface
 
-The UI where a user browses and acts on photos and views.
+用户浏览照片和视图的主界面。
 
-It supports:
+在更完整的版本中，Photo Surface 不仅展示单个文件，还应支持展示“逻辑照片”和“版本集合”的关系。
 
-- Timeline browsing.
-- Contact sheet scanning.
-- Focus viewing.
-- View explanations.
-- Saving generated views.
-- Jumping between related views.
+---
 
 ## V0 Information Architecture
 
@@ -215,615 +207,211 @@ App
     └── Privacy
 ```
 
-## Main Desktop Layout
+---
 
-```text
-┌────────────────────────────────────────────────────────────┐
-│ Top Bar: current view / search / import / filters / density │
-├───────────────┬──────────────────────────────┬─────────────┤
-│ Left Rail     │ Photo Surface                │ Context     │
-│               │                              │ Panel       │
-│ Library       │ Timeline / Grid / Moment     │             │
-│ Views         │ Contact Sheet / Map / Focus  │ EXIF        │
-│ Sources       │                              │ View Reason │
-│ Explore       │                              │ Actions     │
-└───────────────┴──────────────────────────────┴─────────────┘
-```
+## Core Product Modules
 
-### Left Rail
+### Library
 
-The left rail is a view library, not just a folder tree.
+提供基础照片集合浏览，例如全部照片、最近导入、收藏和隐藏内容。
 
-Primary sections:
+### Views
 
-- Library.
-- Views.
-- Sources.
-- Explore.
-- Settings.
+承载 Timeline、Places、People、Memories、Similar 和 Custom Views 等产品主体验。
 
-### Photo Surface
+### Sources
 
-The center area is the main product surface.
+展示当前接入的照片来源，并向用户透明显示来源状态。
 
-V0 surface modes:
+### Explore
 
-- Timeline view.
-- Contact sheet view.
-- Focus viewer.
-- Saved view surface.
+提供用于重访和发现的探索入口，例如同一天、被遗忘的照片、相似光线和旅行集合。
 
-Future surface modes:
+### Settings
 
-- Map table.
-- Moment clusters.
-- Similar light exploration.
-- Compare view.
+承载来源管理、索引策略、AI 能力开关和隐私设置。
 
-### Context Panel
-
-The right panel explains the current photo or view.
-
-For a photo:
-
-- EXIF.
-- Path.
-- Date.
-- Location.
-- Camera.
-- Tags.
-- Related views.
-
-For a generated view:
-
-- Strategy name.
-- Explanation.
-- Confidence.
-- Groups.
-- Save/refresh actions.
-
-## V0 User Flows
-
-### Add First Source
-
-```text
-Open app
-  -> Add local folder
-    -> App explains non-destructive indexing
-      -> Scan starts
-        -> Timeline appears
-```
-
-### Browse Timeline
-
-```text
-Open Library
-  -> Timeline
-    -> Year/month/day groups
-      -> Open photo
-        -> Move through filmstrip
-```
-
-### Save a Generated View
-
-```text
-Open Memories
-  -> App generates view
-    -> User reads explanation
-      -> User saves view
-        -> View appears under Custom Views
-```
-
-### Handle Offline Drive
-
-```text
-External drive indexed
-  -> Drive disconnected
-    -> Source marked offline
-      -> Thumbnails remain visible
-        -> Original unavailable state shown in focus viewer
-```
+---
 
 ## V0 View Types
 
 ### Timeline
 
-Groups photos by captured date.
-
-Requirements:
-
-- Year/month/day grouping.
-- Missing date fallback.
-- Density switch.
-- Fast scroll for large libraries.
+按拍摄时间组织照片，是产品的基础视图。
 
 ### Places
 
-Groups photos by GPS and inferred places.
-
-Requirements:
-
-- Store GPS metadata.
-- Cluster nearby photos.
-- Allow unknown place state.
-- Avoid map-first dependency in V0.
+按 GPS 和地点聚类组织照片。
 
 ### People
 
-V0 should reserve the IA and schema, but automatic face recognition is not required.
-
-Requirements:
-
-- Manual person labels allowed.
-- Future face clustering can attach to the same model.
+作为人物组织入口存在。V0 可以保留信息架构和数据位，但不要求立即具备自动人脸识别。
 
 ### Memories
 
-Generated views similar in spirit to iPhone memories.
-
-V0 can use simple signals:
-
-- Time range.
-- Location cluster.
-- Favorites.
-- Tags.
-- Similar colors.
-- Camera session.
+生成类似“回忆”的视图，基于时间、地点、收藏、标签和其他轻量信号。
 
 ### Similar
 
-Groups visually or contextually similar photos.
-
-V0 can start with lightweight signals:
-
-- Captured near the same time.
-- Same dimensions or aspect ratio.
-- Similar dominant colors.
-- Same camera/lens.
-
-Future versions can add embeddings.
+组织视觉或上下文相似的照片。V0 可从轻量信号起步，后续再扩展到更强的相似能力。
 
 ### Custom Views
 
-Saved views created by users.
-
-Types:
-
-- Manual photo collection.
-- Saved filter.
-- Saved generated view.
-
-## Visual Direction
-
-Working name: **Memory Table**.
-
-The product should feel like a quiet light table for memory, not a database.
-
-Recommended system direction:
-
-- Warm dark surfaces.
-- Matte panels.
-- Paper-like text colors.
-- Amber highlight for memory moments.
-- Square or subtly rounded photo cells.
-- Motion that feels like moving across a table or filmstrip.
-
-Initial palette:
-
-- Ink 950: `#171615`.
-- Ink 900: `#201F1D`.
-- Ink 800: `#2A2825`.
-- Stone 500: `#8E887E`.
-- Paper 200: `#D8D0C2`.
-- Paper 100: `#EEE6D8`.
-- Amber Dust: `#C9974D`.
-- Lake Blue: `#527C8E`.
-- Archive Red: `#9D4B3F`.
-
-Recommended typography:
-
-- UI: Alegreya Sans.
-- Editorial/view titles: Literata.
-- EXIF/data: IBM Plex Mono.
-
-## V0 Desktop Experience
-
-The first useful screen after adding a source should feel like a working light table, not a setup wizard or file browser. The user should immediately see photos, understand the current view, and see that originals are only being referenced.
-
-### Primary Screen: Timeline Light Table
-
-```text
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ Memory Table        Timeline: All Photos            Search     Add Source    │
-│                     18,426 photos · 2009-2026       Density    Filters       │
-├──────────────────┬────────────────────────────────────────────┬──────────────┤
-│ Library          │ 2026                                       │ View Context │
-│  All Photos      │ ┌────┐ ┌────┐ ┌────────┐ ┌────┐ ┌────┐     │ Strategy     │
-│  Recently Added  │ │    │ │    │ │        │ │    │ │    │     │ Timeline     │
-│  Favorites       │ └────┘ └────┘ └────────┘ └────┘ └────┘     │              │
-│                  │ May 7                                      │ Why visible  │
-│ Views            │ ┌────┐ ┌────────┐ ┌────┐ ┌────┐            │ Grouped by    │
-│  Timeline        │ │    │ │        │ │    │ │    │            │ captured date │
-│  Places          │ └────┘ └────────┘ └────┘ └────┘            │              │
-│  Memories        │                                            │ Source state  │
-│  Similar         │ 2025                                       │ 3 online      │
-│                  │ ┌────────┐ ┌────┐ ┌────┐ ┌────────┐        │ 1 offline     │
-│ Sources          │ │        │ │    │ │    │ │        │        │              │
-│  Mac Photos      │ └────────┘ └────┘ └────┘ └────────┘        │ Actions      │
-│  X100V Drive     │                                            │ Save View     │
-│  Archive SSD     │                                            │ Explain       │
-└──────────────────┴────────────────────────────────────────────┴──────────────┘
-```
-
-Screen priorities:
-
-1. Photos are the largest visual mass.
-2. The active view title is always visible.
-3. Source safety is visible without shouting.
-4. Right-side context explains either the selected photo or the generated view.
-5. Folders appear under Sources, but never become the main navigation metaphor.
-
-### First-Run Source Flow
-
-The first run should make the non-destructive guarantee unavoidable.
-
-```text
-┌────────────────────────────────────────────────────────────┐
-│ Add a photo source                                         │
-│                                                            │
-│ Choose a folder or drive. Memory Table will read photos,   │
-│ build thumbnails, and keep originals exactly where they are.│
-│                                                            │
-│ [Choose Folder]                                            │
-│                                                            │
-│ What happens next                                          │
-│ - Originals stay in place                                  │
-│ - Thumbnails go into the app cache                         │
-│ - Views are saved as references                            │
-│ - You can remove this source from the app later             │
-└────────────────────────────────────────────────────────────┘
-```
-
-Avoid legalistic copy. The guarantee should read like a promise, not a permission dialog.
-
-### Focus Viewer
-
-Opening a photo shifts the center surface from contact sheet to focus mode while keeping the left rail and context panel stable.
-
-```text
-┌──────────────────┬────────────────────────────────────────────┬──────────────┐
-│ Views            │                                            │ Photo        │
-│ Timeline         │              selected photo                │ DSCF4281.RAF  │
-│ Memories         │                                            │              │
-│ Similar          │                                            │ Captured     │
-│                  │                                            │ Oct 4, 2024  │
-│ Filmstrip        │ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐              │ Camera       │
-│                  │ └──┘ └──┘ └──┘ └──┘ └──┘ └──┘              │ X100V        │
-│                  │                                            │              │
-│                  │                                            │ Related      │
-│                  │                                            │ Kyoto Nights │
-└──────────────────┴────────────────────────────────────────────┴──────────────┘
-```
-
-Rules:
-
-- The selected photo sits on a matte surface with no decorative frame.
-- The filmstrip is functional, not ornamental.
-- EXIF and path information use monospaced numerals.
-- Missing original and offline source states appear in the context panel and on the image surface.
-
-### Generated View Explanation
-
-Every generated view needs an explanation block that is concise enough to scan.
-
-```text
-Kyoto Nights
-42 photos · generated from Timeline + Place + Light signals
-
-Why this view exists
-- 31 photos were captured between Oct 2 and Oct 6, 2024.
-- Most locations cluster near Kyoto.
-- 18 photos are night scenes.
-- 12 photos were previously favorited.
-
-Confidence: High
-[Save View] [Refresh] [Show Rules]
-```
-
-The explanation should never pretend low-confidence inference is fact. Use language like "likely", "appears", or "clustered around" when the system is not certain.
-
-## Visual System
+允许用户保存手动集合、保存过滤器或保存自动生成的视图。
 
-Working name: **Memory Table**.
+---
 
-The interface should feel like a quiet table covered in photographic contact sheets. The product is calm, but not generic. The distinctive gesture is the contrast between warm matte chrome and luminous photo cells.
+## V1 Photo Management Capabilities
 
-### Design Thesis
-
-A warm darkroom workspace for local photo memory: matte, quiet, archival, and trustworthy.
+在 V1 中，Gala 应开始从“浏览与发现”进一步进入“高效整理与版本管理”。
 
-The one thing users should remember:
+### 1. 同一张照片的多版本关联
 
-> My photos stayed where they were, but the app gave me new ways to see them.
+系统应允许并尽可能自动识别同一逻辑照片下的多个版本，例如：
 
-Every visual decision should reinforce that promise. The app should not look like cloud storage, enterprise asset management, or an AI gallery toy.
-
-### Color Tokens
+- RAW 格式。
+- JPG 格式。
+- 编辑后的导出版本。
+- 因历史迁移产生的重复副本。
 
-```css
-:root {
-  --ink-950: #171615;
-  --ink-900: #201f1d;
-  --ink-850: #24221f;
-  --ink-800: #2a2825;
-  --ink-700: #38342f;
-  --stone-600: #6f695f;
-  --stone-500: #8e887e;
-  --paper-200: #d8d0c2;
-  --paper-100: #eee6d8;
-  --amber-dust: #c9974d;
-  --lake-blue: #527c8e;
-  --archive-red: #9d4b3f;
-  --success-moss: #788b5a;
-}
-```
+这些文件在底层仍然是独立文件，但在产品层应被组织成有关联的一组内容。
 
-Usage:
+### 2. RAW 与 JPG 自动关联
 
-- `--ink-950`: app background.
-- `--ink-900`: navigation and top bar.
-- `--ink-850`: photo surface.
-- `--ink-800`: raised panels.
-- `--paper-100`: primary text.
-- `--paper-200`: secondary headings.
-- `--stone-500`: muted labels and inactive nav.
-- `--amber-dust`: selected view, saved state, memory highlights.
-- `--lake-blue`: source and metadata accents.
-- `--archive-red`: destructive or missing-file states only.
-- `--success-moss`: completed scans and online source states.
+对于常见的同拍 RAW + JPG 组合，系统应尝试自动建立关联关系。
 
-Color rules:
+这类能力的产品价值是：
 
-- Amber is the only default action accent.
-- Blue is informational, not primary.
-- Red is never decorative.
-- Large text on dark surfaces should use paper tones, not pure white.
-- Photo thumbnails provide most of the color; UI chrome should stay restrained.
+- 降低浏览时的重复感。
+- 避免同一照片在主视图里被当成两张不相关内容反复出现。
+- 为后续同步管理提供基础。
 
-### Typography
+### 3. 去重展示
 
-- **UI and navigation:** Alegreya Sans.
-- **View titles and memory names:** Literata.
-- **EXIF, paths, counts, timestamps:** IBM Plex Mono.
+在存在多个版本或多个副本时，产品应支持“去重展示”。
 
-Type scale:
+去重展示的目标不是删除文件，而是：
 
-| Token | Size | Line height | Use |
-| --- | ---: | ---: | --- |
-| Display | 40px | 44px | Empty states, first-run promise |
-| H1 | 28px | 34px | Current view title |
-| H2 | 20px | 26px | Panel title, year group |
-| Body | 16px | 24px | Explanations, setup copy |
-| Small | 13px | 18px | Labels, metadata |
-| Micro | 11px | 14px | Dense EXIF labels only |
+- 在浏览时优先展示一个逻辑代表项。
+- 在需要时展开查看全部关联版本。
+- 让筛选和挑片以逻辑照片为单位，而不是以文件为单位。
 
-Rules:
+### 4. 同步编辑管理
 
-- Never use system-ui as the primary product font.
-- Keep body copy at 16px or larger except dense metadata.
-- Use tabular numerals for counts, dates, and EXIF values.
-- View titles may feel editorial; controls should stay plain and legible.
+当多个版本已经建立逻辑关联后，系统应支持面向整组进行管理，例如：
 
-### Spacing and Shape
+- 统一标记收藏、归档或隐藏。
+- 统一进入筛选流程。
+- 在单个版本与整组操作之间切换。
 
-- Base unit: 4px.
-- Standard rhythm: 8, 12, 16, 24, 32, 48.
-- App chrome density: compact.
-- Reading and explanation density: comfortable.
-- Photo grid gap: 6px in dense mode, 10px in standard mode, 16px in spacious mode.
-- Panel padding: 16px compact, 24px standard.
-- Border radius: 4px for photo cells, 8px for controls, 12px for panels.
+这类能力的重点不是“文件同步写回”，而是“逻辑管理同步”，即用户对一组相关照片的管理动作可以拥有更高层的一致性。
 
-Rules:
+### 5. 解决的核心痛点
 
-- Photo cells should be square or subtly rounded, never bubbly.
-- Cards are not decoration. Use panels only for persistent regions or selectable saved views.
-- Nested radius should be smaller than outer panel radius.
-- Distinct sections need more spacing than related controls.
+这组 V1 能力要解决的不是技术炫技，而是非常具体的照片管理痛点：
 
-### Motion
+- 照片整理耗时长。
+- 同一张照片存在多个副本或多个版本。
+- 用户不舍得删，但又必须筛选。
+- 用户希望保留历史和回退空间，同时提高整理效率。
 
-Motion should feel like moving a contact sheet across a table.
+---
 
-- View switch: 180-240ms opacity + slight horizontal slide.
-- Photo open: 220-320ms scale from thumbnail position into focus surface.
-- Filmstrip navigation: 120-180ms translate.
-- Scan progress: calm pulse or progress bar, never a celebratory animation.
-- Save view: brief amber state change and confirmation text.
-
-Rules:
-
-- Respect reduced motion.
-- Avoid transition-all.
-- Animate transform and opacity only unless there is a specific layout reason.
-- Motion explains spatial movement; it should not add personality unrelated to photos.
-
-## Component Behavior
-
-### Left Rail
-
-The left rail is the user's map of possible views.
-
-Required groups:
-
-- Library.
-- Views.
-- Sources.
-- Explore.
-- Settings.
-
-Behavior:
-
-- Active item uses amber text plus a quiet left marker.
-- Offline source uses muted text and a small status dot.
-- Missing source uses archive red and a short label.
-- Counts are optional and should be right-aligned in mono.
-- The rail should remain visible in desktop V0.
-
-### Top Bar
-
-The top bar orients the current surface.
-
-Contents:
-
-- App name.
-- Current view title.
-- Photo count or filtered count.
-- Search.
-- Add Source.
-- Density switch.
-- Filter entry point.
-
-Behavior:
-
-- Search should be visually available but not dominate browsing.
-- Add Source stays visible because sources are the system boundary.
-- Filters should expose active filter chips when applied.
-
-### Photo Grid
-
-The photo grid is a scanning surface.
-
-Rules:
-
-- Use masonry only if it remains predictable; timeline grouping is more important than packing efficiency.
-- Preserve aspect ratio where possible.
-- Show lightweight skeletons that match final thumbnail shapes.
-- Hover reveals actions, but selection affordance must be visible without hover.
-- Missing original thumbnails remain visible if cached, with a clear unavailable badge.
-
-### Context Panel
-
-The context panel changes by selection type.
-
-For a view:
-
-- Strategy.
-- Explanation.
-- Confidence.
-- Source states.
-- Save and refresh actions.
-
-For a photo:
-
-- File name.
-- Captured date.
-- Source.
-- Path.
-- Camera and lens.
-- Dimensions.
-- Related views.
-
-Rules:
-
-- The panel should answer "what am I looking at?" and "why is it here?"
-- Use progressive disclosure for raw EXIF.
-- Put source safety states above technical trivia.
-
-## Empty, Loading, and Failure States
-
-### Empty Library
-
-```text
-Your photos stay where they are.
-Choose a folder or drive. Memory Table will build views from references, thumbnails, and metadata.
-
-[Choose Folder]
-```
-
-### Scanning
-
-```text
-Scanning Mac Photos
-12,480 seen · 8,912 indexed · 143 skipped
-
-You can start browsing while scanning continues.
-```
-
-### Offline Source
-
-```text
-Archive SSD is offline.
-Thumbnails and saved views are still available. Originals will open again when the drive is connected.
-```
-
-### Missing Photo
-
-```text
-Original file not found.
-This source is online, but the file path no longer exists. The cached thumbnail remains in your view.
-```
-
-Offline and missing must never collapse into the same message. This distinction is a trust feature.
-
-## Key Interaction Flows
+## Core Product Flows
 
 ### Add First Source
 
-1. Empty state explains the promise.
-2. User chooses a folder or drive.
-3. App requests permission if needed.
-4. Scan starts in the background.
-5. Timeline appears as soon as first batch is indexed.
-6. Context panel shows source status and scan progress.
+用户第一次打开产品时，应立即理解非破坏性承诺，并在添加 source 后尽快进入 Timeline 浏览。
 
-### Save Generated View
+### Browse Timeline
 
-1. User opens Memories or Similar.
-2. App shows generated view with explanation.
-3. User saves the view.
-4. Saved view appears under Custom Views.
-5. Saved view stores references, not duplicate files.
+用户应能够沿时间结构快速浏览大量照片，并随时进入 focus viewer 查看单张细节。
 
-### Source Goes Offline
+### Save a Generated View
 
-1. App detects unavailable volume.
-2. Source changes to offline.
-3. Timeline keeps thumbnails visible.
-4. Focus viewer shows original unavailable.
-5. Reconnecting the source restores original access.
+用户应能够查看自动生成视图的解释，并把有价值的结果保存为长期可访问的视图。
 
-## Design Risks and Guardrails
+### Handle Offline Drive
 
-Safe choices:
+当外部硬盘离线时，产品必须明确告知“source offline”和“file missing”的区别，这是用户信任的一部分。
 
-- Desktop-first three-region layout because photo browsing benefits from persistent navigation, large surface area, and context.
-- Warm dark chrome because photos should carry color and the app should recede.
-- Mono metadata because serious photo users scan dates, lenses, and paths.
+---
 
-Deliberate risks:
+## Product Success Criteria
 
-- Editorial view titles with Literata make generated memories feel personal rather than database-like.
-- Amber as the only primary accent avoids generic blue SaaS and gives saved memories a physical archive feel.
-- The product avoids card mosaics even though dashboards often default to them; the photo surface, not cards, is the product.
+V0 成功的标准是用户能够：
 
-Guardrails:
+- 添加一个本地照片来源。
+- 在不改变文件位置的前提下看到时间视图。
+- 打开一张照片并理解其上下文。
+- 保存一个生成视图。
+- 理解自动视图为什么存在。
+- 在 source 离线时仍然明白发生了什么。
 
-- Do not turn the app into a folder tree.
-- Do not make AI suggestions look more certain than they are.
-- Do not hide source state behind settings.
-- Do not add decorative gradients, blobs, or icon grids.
-- Do not use purple as the primary visual identity.
+如果产品最终只是一个“缩略图更好看的文件网格”，那就不算成功。
 
-## V0 Success Criteria
+从 V1 往后，产品的进一步成功标准还包括：
 
-V0 is successful if a user can:
+- 用户能够把同一逻辑照片的 RAW、JPG 和编辑版本看作一组内容进行管理。
+- 用户能够在不直接依赖底层物理删除的前提下完成更有效的筛选。
+- 用户能够在“保留全部文件”和“高效整理照片”之间获得新的中间路径。
 
-- Add a folder of local photos.
-- See photos grouped by time without changing file locations.
-- Open a photo and inspect its context.
-- Save a generated view.
-- Understand why an automatic view exists.
-- Disconnect a source and still understand what happened.
+---
 
-V0 is not successful if it only becomes a file grid with prettier thumbnails.
+## Target User Priority
+
+目标用户群体存在优先级，决定产品决策中的取舍方向：
+
+1. **重度爱好者（首要）**：自己挑相机、关心 RAW、对色彩管理和元数据敏感、有跨年累积的几万到几十万张照片，对"工具懂自己"有强烈需求。
+2. **业余爱好者（次要）**：拍得多、整理少，有"想找回某次旅行的某张照片"的痛点，但不愿意学 Lightroom。
+3. **小白用户（兼容）**：只要默认行为安全（不动原片）、Timeline 能跑通，就算合格。
+4. **专业摄影师（暂不优先）**：依赖 Capture One / Lightroom / 工作流插件，Gala 在 V0/V1 不与其正面竞争。
+
+设计冲突时，先服务重度爱好者，再让小白也不被吓到。
+
+---
+
+## AI Posture
+
+摄影师群体既传统又新锐，对"AI 味重"的产品本能戒备。Gala 的策略是：
+
+- V1 之前不暴露鲜明 AI 特征，把"懂摄影"作为产品语言（EXIF 排版、镜头/焦段视角、连拍/RAW+JPG 的语义识别）。
+- V2 引入 AI 能力时，仍以"摄影师工作流的解释"作为表达方式，而不是"AI 帮你做了什么"。
+- 任何 AI 结果都必须可解释、可追溯、可拒绝。
+
+---
+
+## Sustainability
+
+Gala 当前是个人 MVP 项目，不预设盈利模式。但为了避免后续架构被钱反向推着改，先固定几条原则：
+
+承诺**不会**做的事：
+
+- 不卖广告。
+- 不出售用户数据，包括元数据、缩略图、行为埋点。
+- 不把已有功能往付费版后撤。
+- 不在免费版强制注册账号。
+
+未来可能探索的方向（未承诺）：
+
+- 捐赠 / Pay-what-you-want。
+- 一次性买断 + 大版本付费升级。
+- Pro Pack 增值服务，例如云 AI provider、跨设备同步、批量整理工具。
+- 面向工作室的 B2B 模块。
+
+这一节会随着产品演进继续修订。
+
+---
+
+## Reference Products
+
+以下产品在某些维度上值得借鉴或对照，列在这里作为后续设计的参考点。
+
+- **Apple Photos（macOS / iOS）**：人脸聚类、Memories、回忆视图、本地优先 + iCloud 同步的混合策略。值得借鉴它"Memories 自动生成 + 用户可保留可丢弃"的产品节奏。
+- **Mylio Photos**：本地优先、跨设备非云同步、明确的 Source 概念、外置硬盘离线支持。是与 Gala 定位最接近的对照组，订阅制（约 $99/yr）。
+- **digiKam**：开源、跨平台、强元数据管理、面向重度爱好者，证明非破坏性 + 关系数据库这条路在桌面端可行。一次性免费但 UX 偏 expert-only。
+- **Adobe Bridge**：以"浏览器"自定位，强调元数据、批处理和文件级管理，对应 Gala "view engine 而非 Lightroom 替代品"的边界。
+- **Lightroom Classic（Library 模块）**：智能预览、Catalog、Collection vs Folder 分离的概念，是 V1 多版本管理可对照的成熟模型。
+- **Photo Mechanic**：摄影师挑片速度的天花板。Gala 在 V1 做"高效整理"时应以它的浏览/标记速度为基准。
+
+具体借鉴策略与差异化点，将在后续 design review 中逐项展开。
