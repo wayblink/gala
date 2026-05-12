@@ -71,6 +71,39 @@ describe('App', () => {
     expect(screen.queryByText('Coming soon')).not.toBeInTheDocument()
   })
 
+
+  it('keeps existing browse views on the timeline photo surface', async () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: /favorites/i }))
+    expect(
+      within(screen.getByLabelText('Timeline photo surface')).getByRole('heading', {
+        name: 'Favorites',
+        level: 2,
+      }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1, name: 'Similar Review' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /hidden/i }))
+    expect(
+      within(screen.getByLabelText('Timeline photo surface')).getByRole('heading', {
+        name: 'Hidden',
+        level: 2,
+      }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1, name: 'Similar Review' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /all photos/i }))
+    expect(screen.getByLabelText('Timeline photo surface')).toBeInTheDocument()
+    expect(
+      within(screen.getByLabelText('Timeline photo surface')).queryByRole('heading', {
+        name: 'All Photos',
+        level: 2,
+      }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1, name: 'Similar Review' })).not.toBeInTheDocument()
+  })
+
   it('routes unimplemented Views nav items to the ComingSoon placeholder', async () => {
     render(<App />)
 
