@@ -12,3 +12,4 @@ src-tauri/gen/schemas/
 # Test data
 test-photos/
 test-photos-*/
+.gstack/

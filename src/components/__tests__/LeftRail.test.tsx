@@ -85,7 +85,7 @@ describe('LeftRail', () => {
     expect(screen.getByRole('button', { name: 'Places' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'People' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Memories' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Similar' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Similar Review' })).toBeInTheDocument()
   })
 
   it('renders nested source folders and selects a folder filter', async () => {

@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fact / View / Action / Workflow 设计骨架</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #11172a;
+      --panel-2: #151c33;
+      --text: #e8ecf8;
+      --muted: #aab4d6;
+      --accent: #8ab4ff;
+      --accent-2: #6ee7b7;
+      --border: rgba(255,255,255,.08);
+      --code-bg: #0a0f1d;
+      --shadow: 0 10px 30px rgba(0,0,0,.25);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top, rgba(138,180,255,.10), transparent 36%),
+        radial-gradient(circle at 80% 0%, rgba(110,231,183,.08), transparent 24%),
+        var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+    }
+
+    .container {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 40px 20px 64px;
+    }
+
+    .hero {
+      padding: 28px 28px 24px;
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      margin-bottom: 24px;
+    }
+
+    h1, h2, h3 {
+      line-height: 1.25;
+      margin: 0 0 12px;
+    }
+
+    h1 {
+      font-size: 2rem;
+      letter-spacing: -0.03em;
+    }
+
+    h2 {
+      font-size: 1.45rem;
+      margin-top: 34px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+    }
+
+    h3 {
+      font-size: 1.08rem;
+      margin-top: 20px;
+      color: var(--accent);
+    }
+
+    p { margin: 0 0 14px; color: var(--text); }
+    .muted { color: var(--muted); }
+
+    .callout {
+      margin: 14px 0 0;
+      padding: 14px 16px;
+      background: rgba(138,180,255,.08);
+      border: 1px solid rgba(138,180,255,.18);
+      border-radius: 14px;
+      color: var(--text);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px;
+    }
+
+    ul { margin: 0 0 14px 20px; padding: 0; }
+    li { margin: 6px 0; }
+
+    pre {
+      margin: 14px 0;
+      padding: 16px;
+      overflow: auto;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      color: #dbe5ff;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.03);
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: .95em;
+    }
+
+    .label {
+      display: inline-block;
+      padding: 4px 10px;
+      border: 1px solid rgba(138,180,255,.22);
+      border-radius: 999px;
+      color: var(--accent);
+      background: rgba(138,180,255,.08);
+      font-size: .85rem;
+      margin-bottom: 12px;
+    }
+
+    .quote {
+      padding: 14px 16px;
+      border-left: 4px solid var(--accent-2);
+      background: rgba(110,231,183,.08);
+      border-radius: 0 14px 14px 0;
+      margin: 14px 0;
+    }
+
+    .footer {
+      margin-top: 34px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: .95rem;
+    }
+
+    @media (max-width: 760px) {
+      .container { padding: 20px 14px 48px; }
+      .hero { padding: 20px; }
+      .grid { grid-template-columns: 1fr; }
+      h1 { font-size: 1.65rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <section class="hero">
+      <div class="label">通用设计骨架</div>
+      <h1>Fact / View / Action / Workflow 设计骨架</h1>
+      <p class="muted">一个数据工程 agent 化系统的抽象框架，适用于照片、文档、知识库、运维、审查等场景。</p>
+      <div class="callout">
+        <strong>核心一句话：</strong>
+        用 Fact 作为事实底座，用 View 组织可消费语境，用 Action 执行明确操作，用 Workflow 编排安全过程。
+      </div>
+    </section>
+
+    <h2>1. 四个核心概念</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>1.1 Fact</h3>
+        <p>Fact 是系统里的稳定事实。</p>
+        <p class="muted">特点：</p>
+        <ul>
+          <li>可追溯</li>
+          <li>可版本化</li>
+          <li>不依赖 UI</li>
+          <li>尽量不可歧义</li>
+          <li>是其他所有层的基础</li>
+        </ul>
+        <p><strong>Fact = 系统认为“真实发生过”的事情。</strong></p>
+      </div>
+
+      <div class="card">
+        <h3>1.2 View</h3>
+        <p>View 是对 Facts 的一种消费方式。</p>
+        <p class="muted">特点：</p>
+        <ul>
+          <li>是组织方式，不是原始事实</li>
+          <li>可以动态计算，也可以缓存 / materialize</li>
+          <li>可以保存、恢复、分享</li>
+          <li>面向特定任务、角色或上下文</li>
+        </ul>
+        <p><strong>View = 在某个任务语境下，Facts 被组织出来的“可看、可处理”的样子。</strong></p>
+      </div>
+
+      <div class="card">
+        <h3>1.3 Action</h3>
+        <p>Action 是系统允许执行的明确操作。</p>
+        <p class="muted">特点：</p>
+        <ul>
+          <li>有明确输入</li>
+          <li>有明确输出</li>
+          <li>有副作用</li>
+          <li>可审计</li>
+          <li>最好可撤销</li>
+        </ul>
+        <p><strong>Action = 对 Facts 施加变化的最小操作单元。</strong></p>
+      </div>
+
+      <div class="card">
+        <h3>1.4 Workflow</h3>
+        <p>Workflow 是 Action 的编排。</p>
+        <p class="muted">特点：</p>
+        <ul>
+          <li>描述从一个状态到另一个状态的过程</li>
+          <li>负责顺序、条件、分支、确认、回滚</li>
+          <li>是 agent 和用户都能依赖的过程模型</li>
+        </ul>
+        <p><strong>Workflow = 安全地把多个 Action 串起来的过程。</strong></p>
+      </div>
+    </div>
+
+    <h2>2. 四者之间的关系</h2>
+    <pre><code>Facts  -&gt;  Views  -&gt;  Actions  -&gt;  Workflows
+   ↑                     ↓
+   └────── result &amp; state changes ───────┘</code></pre>
+    <p>更具体一点：</p>
+    <ol>
+      <li>Fact 是底层事实。</li>
+      <li>View 读取 Fact 并组织成当前任务可消费的形式。</li>
+      <li>Action 在 View 上被选择和执行。</li>
+      <li>Workflow 负责把多个 Action 安全串联起来。</li>
+      <li>Workflow 的执行结果又会写回新的 Fact。</li>
+    </ol>
+
+    <h2>3. 系统原则</h2>
+    <div class="card">
+      <ul>
+        <li><strong>Facts are durable.</strong> 事实是系统的稳定底座，不能随 UI 轻易变化。</li>
+        <li><strong>Views are consumable.</strong> 视图是面向任务的组织方式，可以动态生成、缓存、重建。</li>
+        <li><strong>Actions are explicit.</strong> 任何改变系统状态的行为都必须通过明确 Action 发生。</li>
+        <li><strong>Workflows are safe orchestration.</strong> Workflow 负责过程安全，不允许 agent 直接跳过边界随意改底层。</li>
+        <li><strong>AI suggests, human confirms when risky.</strong> AI 可以建议、排序、解释、预填动作，但高风险动作必须用户确认。</li>
+        <li><strong>Every automatic result must be explainable.</strong> 自动结果不能只是“看起来像”，必须能说明为什么。</li>
+        <li><strong>Reversibility first.</strong> 清理、分组、归档类场景优先保证可撤销。</li>
+      </ul>
+    </div>
+
+    <h2>4. 一个通用的层次结构</h2>
+
+    <h3>4.1 Ingestion / Observation Layer</h3>
+    <p>负责采集输入和观察信号。</p>
+    <ul>
+      <li>文件导入</li>
+      <li>用户操作</li>
+      <li>外部系统事件</li>
+      <li>扫描任务</li>
+      <li>模型结果</li>
+    </ul>
+
+    <h3>4.2 Fact Layer</h3>
+    <p>负责保存稳定事实。</p>
+    <ul>
+      <li>原始记录</li>
+      <li>结构化结果</li>
+      <li>用户确认</li>
+      <li>审计事件</li>
+      <li>工作流输出</li>
+    </ul>
+
+    <h3>4.3 View Layer</h3>
+    <p>负责把 facts 组织成可理解对象。</p>
+    <ul>
+      <li>任务视图</li>
+      <li>队列视图</li>
+      <li>聚合视图</li>
+      <li>折叠视图</li>
+      <li>智能推荐视图</li>
+    </ul>
+
+    <h3>4.4 Action Layer</h3>
+    <p>负责定义允许的操作。</p>
+    <ul>
+      <li>单步动作</li>
+      <li>批量动作</li>
+      <li>预览动作</li>
+      <li>提交动作</li>
+      <li>回滚动作</li>
+    </ul>
+
+    <h3>4.5 Workflow Layer</h3>
+    <p>负责编排动作。</p>
+    <ul>
+      <li>触发条件</li>
+      <li>步骤顺序</li>
+      <li>分支逻辑</li>
+      <li>人工确认</li>
+      <li>失败恢复</li>
+      <li>再进入机制</li>
+    </ul>
+
+    <h3>4.6 Agent Interface Layer</h3>
+    <p>负责向 AI agent 暴露能力。</p>
+    <ul>
+      <li>读 view</li>
+      <li>调 action</li>
+      <li>发起 workflow</li>
+      <li>请求解释</li>
+      <li>预览执行结果</li>
+    </ul>
+
+    <h2>5. 最小闭环</h2>
+    <p>一个完整闭环通常是：</p>
+    <ol>
+      <li>观察到事实变化</li>
+      <li>生成或更新 view</li>
+      <li>agent 或用户在 view 上做决策</li>
+      <li>触发 action</li>
+      <li>action 被 workflow 编排执行</li>
+      <li>写入新的 facts</li>
+      <li>view 重新 materialize</li>
+    </ol>
+    <div class="quote">
+      <strong>Fact drives View, View informs Action, Action updates Fact, Workflow keeps the process safe.</strong>
+    </div>
+
+    <h2>6. 权限边界</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Agent 可以</h3>
+        <ul>
+          <li>读取 view</li>
+          <li>排序、聚类、解释</li>
+          <li>建议 action</li>
+          <li>发起低风险 workflow</li>
+          <li>在确认后执行动作</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Agent 不应该</h3>
+        <ul>
+          <li>直接改底层事实</li>
+          <li>绕过 workflow</li>
+          <li>把临时判断当永久事实</li>
+          <li>无解释地批量执行高风险动作</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2>7. 在 Gala 里的映射</h2>
+
+    <h3>Facts</h3>
+    <ul>
+      <li>照片文件</li>
+      <li>EXIF</li>
+      <li>相似度结果</li>
+      <li>人脸 / 对象 / 场景信号</li>
+      <li>用户收藏 / 隐藏 / 删除</li>
+      <li>logical group</li>
+      <li>review decision</li>
+    </ul>
+
+    <h3>Views</h3>
+    <ul>
+      <li>Similar Review View</li>
+      <li>Cleanup Queue View</li>
+      <li>Burst Selection View</li>
+      <li>People View</li>
+      <li>Search View</li>
+    </ul>
+
+    <h3>Actions</h3>
+    <ul>
+      <li>promote candidate group</li>
+      <li>create logical group</li>
+      <li>hide others</li>
+      <li>favorite keeper</li>
+      <li>split group</li>
+      <li>dismiss candidate</li>
+    </ul>
+
+    <h3>Workflows</h3>
+    <ul>
+      <li>similarity review workflow</li>
+      <li>duplicate cleanup workflow</li>
+      <li>burst review workflow</li>
+      <li>agent-assisted curation workflow</li>
+    </ul>
+
+    <h2>8. 以“查重创建逻辑组”为例</h2>
+    <p>“查重并创建逻辑组”不是一个孤立数据操作，而是一个 workflow 中的 action。</p>
+
+    <pre><code>Workflow: Similarity Review
+  1. scan photos
+  2. cluster candidates
+  3. build review view
+  4. rank groups
+  5. user/agent chooses action
+  6. promote to logical group
+  7. update facts
+  8. refresh views</code></pre>
+
+    <p>这里的“创建逻辑组”只是第 6 步的一个 action。真正的产品对象是整个 <strong>review workflow + view instance</strong>。</p>
+
+    <h2>9. 一个推荐的通用数据模型</h2>
+    <pre><code>type Fact = {
+  id: string
+  type: string
+  payload: unknown
+  source: string
+  createdAt: string
+}
+
+type View = {
+  id: string
+  type: string
+  sourceFacts: string[]
+  filters?: unknown
+  sort?: unknown
+  state?: unknown
+}
+
+type Action = {
+  id: string
+  type: string
+  input: unknown
+  preconditions?: string[]
+  reversible: boolean
+}
+
+type Workflow = {
+  id: string
+  type: string
+  steps: Action[]
+  trigger: string
+  requiresConfirmation: boolean
+}</code></pre>
+
+    <h2>10. 这套骨架的价值</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>对产品</h3>
+        <ul>
+          <li>不是做一个孤立 AI 功能，而是做一个可持续的操作系统式产品</li>
+          <li>可以逐步扩展到更多场景</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>对工程</h3>
+        <ul>
+          <li>事实、视图、动作、流程分层清楚</li>
+          <li>更容易测试、回滚、审计</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>对 AI / Agent</h3>
+        <ul>
+          <li>agent 不直接碰底层</li>
+          <li>agent 在 view 上思考，在 action 上行动</li>
+          <li>能力可控、边界清晰</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>对未来扩展</h3>
+        <ul>
+          <li>照片、文档、知识库、财务、运维、审查系统都能套这个模型</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2>11. 一句更完整的总述</h2>
+    <div class="quote">
+      一个由 Facts 提供真相、Views 提供语境、Actions 提供操作、Workflows 提供安全编排的 agent 化数据系统。
+    </div>
+
+    <div class="footer">
+      如果你愿意，我下一步可以把这份 HTML 再整理成更适合放进项目文档站的版本，或者拆成 <code>.md</code> + <code>.html</code> 两个实际文件。
+    </div>
+  </div>
+</body>
+</html>
