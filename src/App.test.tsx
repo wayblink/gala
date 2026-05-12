@@ -59,6 +59,18 @@ describe('App', () => {
     expect(listButton).toHaveAttribute('aria-pressed', 'false')
   })
 
+  it('shows Similar Review as a workflow surface when selected', async () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Similar Review' }))
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Similar Review' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/review candidate groups/i)).toBeInTheDocument()
+    expect(screen.queryByText('Coming soon')).not.toBeInTheDocument()
+  })
+
   it('routes unimplemented Views nav items to the ComingSoon placeholder', async () => {
     render(<App />)
 

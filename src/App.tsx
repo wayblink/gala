@@ -2,6 +2,9 @@ import { ContextPanel } from './components/ContextPanel'
 import { LeftRail } from './components/LeftRail'
 import { PhotoSurface } from './components/PhotoSurface'
 import { TopBar } from './components/TopBar'
+import { SimilarReviewView } from './features/similar-review/SimilarReviewView'
+import { buildSimilarReviewQueue } from './features/similar-review/similarReviewModel'
+import { getTimelinePhotos } from './desktop/photos'
 import { pickPhotoFolder, scanPhotoSource } from './desktop/library'
 import {
   addTagsToPhotosBatch,
@@ -18,11 +21,12 @@ import { useSelection } from './state/useSelection'
 import { useTags } from './state/useTags'
 import { useViewFilter } from './state/useViewFilter'
 import type { ComingSoonViewId, PhotoFilter } from './types/photos'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 export default function App() {
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [rightCollapsed, setRightCollapsed] = useState(false)
+  const [similarReviewPhotos, setSimilarReviewPhotos] = useState<Awaited<ReturnType<typeof getTimelinePhotos>>>([])
 
   const library = useLibrary()
   const albumsState = useAlbums()
@@ -78,6 +82,9 @@ export default function App() {
 
   const handleSelectComingSoonView = (viewId: ComingSoonViewId) => {
     handleSelectFilter({ type: 'view', viewId })
+    if (viewId === 'similar') {
+      void getTimelinePhotos(100, 0).then(setSimilarReviewPhotos)
+    }
   }
 
   const handleSelectExplore = () => handleSelectFilter({ type: 'explore' })
@@ -198,6 +205,11 @@ export default function App() {
   const filterActive = Object.keys(view.smartFilter).some(
     (k) => (view.smartFilter as Record<string, unknown>)[k] !== undefined,
   )
+  const isSimilarReviewSelected = view.filter?.type === 'view' && view.filter.viewId === 'similar'
+  const similarReviewCards = useMemo(
+    () => buildSimilarReviewQueue(similarReviewPhotos),
+    [similarReviewPhotos],
+  )
 
   return (
     <div className="app-shell">
@@ -267,35 +279,39 @@ export default function App() {
             onDoubleClick={() => leftRailSize.setWidth(240)}
           />
         )}
-        <PhotoSurface
-          filter={view.filter}
-          title={photoViewTitle}
-          displayMode={view.displayMode}
-          dataVersion={view.dataVersion}
-          selectedPhotoId={selection.selectedPhoto?.id ?? null}
-          searchQuery={view.searchQuery}
-          smartFilter={view.smartFilter}
-          filterPanelOpen={view.filterPanelOpen}
-          filterOptions={library.filterOptions}
-          onSmartFilterChange={view.setSmartFilter}
-          onCloseFilterPanel={() => view.setFilterPanelOpen(false)}
-          onSelectPhoto={selection.setSelectedPhoto}
-          albums={albumsState.albums}
-          onBatchAddToAlbum={handleBatchAddToAlbum}
-          onBatchRemoveFromAlbum={async (albumId, photoIds) => {
-            await albumsState.removeBatch(albumId, photoIds)
-            view.bumpDataVersion()
-          }}
-          selectionMode={selection.selectionMode}
-          onToggleSelectionMode={selection.toggleSelectionMode}
-          selectedIds={selection.selectedIds}
-          onToggleSelectedId={selection.toggleSelected}
-          onClearSelection={selection.clearSelected}
-          onSetSelectedIds={selection.setSelectedIds}
-          onBatchFavorite={handleBatchFavorite}
-          onBatchHide={handleBatchHide}
-          onBatchAddTags={handleBatchAddTags}
-        />
+        {isSimilarReviewSelected ? (
+          <SimilarReviewView cards={similarReviewCards} />
+        ) : (
+          <PhotoSurface
+            filter={view.filter}
+            title={photoViewTitle}
+            displayMode={view.displayMode}
+            dataVersion={view.dataVersion}
+            selectedPhotoId={selection.selectedPhoto?.id ?? null}
+            searchQuery={view.searchQuery}
+            smartFilter={view.smartFilter}
+            filterPanelOpen={view.filterPanelOpen}
+            filterOptions={library.filterOptions}
+            onSmartFilterChange={view.setSmartFilter}
+            onCloseFilterPanel={() => view.setFilterPanelOpen(false)}
+            onSelectPhoto={selection.setSelectedPhoto}
+            albums={albumsState.albums}
+            onBatchAddToAlbum={handleBatchAddToAlbum}
+            onBatchRemoveFromAlbum={async (albumId, photoIds) => {
+              await albumsState.removeBatch(albumId, photoIds)
+              view.bumpDataVersion()
+            }}
+            selectionMode={selection.selectionMode}
+            onToggleSelectionMode={selection.toggleSelectionMode}
+            selectedIds={selection.selectedIds}
+            onToggleSelectedId={selection.toggleSelected}
+            onClearSelection={selection.clearSelected}
+            onSetSelectedIds={selection.setSelectedIds}
+            onBatchFavorite={handleBatchFavorite}
+            onBatchHide={handleBatchHide}
+            onBatchAddTags={handleBatchAddTags}
+          />
+        )}
         {!rightCollapsed && (
           <div
             className="workspace-grid__resizer"

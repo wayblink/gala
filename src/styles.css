@@ -2034,3 +2034,85 @@ a {
   padding: 6px 10px 2px;
 }
 
+
+/* ── Similar Review workflow surface ───────── */
+.similar-review-view {
+  background: var(--ink-900);
+  color: var(--paper-100);
+  overflow: auto;
+  padding: 32px;
+}
+
+.similar-review-view__header {
+  border-bottom: 1px solid var(--ink-700);
+  margin-bottom: 24px;
+  padding-bottom: 18px;
+}
+
+.similar-review-view__eyebrow {
+  color: var(--stone-500);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+
+.similar-review-view__header h1 {
+  font-size: 28px;
+  font-weight: 650;
+  margin: 0 0 8px;
+}
+
+.similar-review-view__header p:last-child {
+  color: var(--paper-200);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.similar-review-view__cards {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.similar-review-card {
+  background: rgba(20, 22, 26, 0.62);
+  border: 1px solid var(--ink-700);
+  border-radius: 14px;
+  padding: 18px;
+}
+
+.similar-review-card__meta {
+  align-items: center;
+  color: var(--stone-400);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.badge {
+  background: rgba(201, 151, 77, 0.16);
+  border: 1px solid rgba(201, 151, 77, 0.42);
+  border-radius: 999px;
+  color: #f4c77d;
+  display: inline-flex;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  text-transform: uppercase;
+}
+
+.similar-review-card h2 {
+  font-size: 17px;
+  margin: 0 0 8px;
+}
+
+.similar-review-card p {
+  color: var(--paper-200);
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+}

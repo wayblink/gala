@@ -180,7 +180,7 @@ export function LeftRail({
     { id: 'places', label: 'Places' },
     { id: 'people', label: 'People' },
     { id: 'memories', label: 'Memories' },
-    { id: 'similar', label: 'Similar' },
+    { id: 'similar', label: 'Similar Review' },
   ]
   const viewRailItems: RailItem[] = viewItems.map((v) => ({
     label: v.label,
