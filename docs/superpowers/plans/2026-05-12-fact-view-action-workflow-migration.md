@@ -574,7 +574,7 @@ Verify manually:
 - Similar Review shows a workflow-style queue.
 - The app does not look like a rewrite.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src docs/superpowers/plans/2026-05-12-fact-view-action-workflow-migration.md
