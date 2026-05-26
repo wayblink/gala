@@ -318,9 +318,7 @@ export default function App() {
 
   return (
     <div
-      className={`app-shell${leftCollapsed ? ' app-shell--left-collapsed' : ''}${
-        rightCollapsed ? ' app-shell--right-collapsed' : ''
-      }`}
+      className="app-shell"
       style={
         {
           '--left-rail-w': `${leftRailSize.width}px`,
