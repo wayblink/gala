@@ -10,6 +10,13 @@ type TopBarProps = {
   onToggleFilter?: () => void
   selectionMode?: boolean
   onToggleSelectionMode?: () => void
+  // Similar Review mode: banner becomes a control area for the group window
+  similarReviewMode?: boolean
+  windowMs?: number
+  windowMsMin?: number
+  windowMsMax?: number
+  windowPresets?: number[]
+  onWindowChange?: (next: number) => void
 }
 
 const displayModes: Array<{
@@ -22,6 +29,11 @@ const displayModes: Array<{
   { mode: 'gallery', label: 'Gallery', icon: GalleryHorizontal },
 ]
 
+function formatWindow(ms: number): string {
+  if (ms < 60_000) return `${Math.round(ms / 1_000)} s`
+  return `${Math.round(ms / 60_000)} min`
+}
+
 export function TopBar({
   searchQuery,
   onSearchChange,
@@ -31,26 +43,60 @@ export function TopBar({
   onToggleFilter,
   selectionMode = false,
   onToggleSelectionMode,
+  similarReviewMode = false,
+  windowMs = 30_000,
+  windowMsMin = 1_000,
+  windowMsMax = 300_000,
+  windowPresets = [1_000, 5_000, 10_000, 30_000, 60_000, 300_000],
+  onWindowChange,
 }: TopBarProps) {
   return (
-    <header className="top-bar">
+    <header className={`top-bar${similarReviewMode ? ' top-bar--similar-review' : ''}`}>
       <div className="top-bar__brand">Memory Table</div>
       <div className="top-bar__center">
-        <div className="view-mode-switcher" aria-label="Display mode">
-          {displayModes.map(({ mode, label, icon: Icon }) => (
-            <button
-              key={mode}
-              className={`icon-button${displayMode === mode ? ' icon-button--active' : ''}`}
-              type="button"
-              aria-label={label}
-              aria-pressed={displayMode === mode}
-              title={label}
-              onClick={() => onDisplayModeChange(mode)}
-            >
-              <Icon size={16} />
-            </button>
-          ))}
-        </div>
+        {similarReviewMode ? (
+          <label className="sr-banner-slider" aria-label="Group window">
+            <span className="sr-banner-slider__label">Group window</span>
+            <input
+              type="range"
+              min={windowMsMin}
+              max={windowMsMax}
+              step={1_000}
+              value={Math.max(windowMsMin, Math.min(windowMsMax, windowMs))}
+              onChange={(event) => onWindowChange?.(Number.parseInt(event.target.value, 10))}
+              aria-label="Group window in milliseconds"
+            />
+            <span className="sr-banner-slider__value">{formatWindow(windowMs)}</span>
+            <span className="sr-banner-slider__presets">
+              {windowPresets.map((preset) => (
+                <button
+                  type="button"
+                  key={preset}
+                  className={`sr-banner-slider__preset${preset === windowMs ? ' sr-banner-slider__preset--active' : ''}`}
+                  onClick={() => onWindowChange?.(preset)}
+                >
+                  {formatWindow(preset)}
+                </button>
+              ))}
+            </span>
+          </label>
+        ) : (
+          <div className="view-mode-switcher" aria-label="Display mode">
+            {displayModes.map(({ mode, label, icon: Icon }) => (
+              <button
+                key={mode}
+                className={`icon-button${displayMode === mode ? ' icon-button--active' : ''}`}
+                type="button"
+                aria-label={label}
+                aria-pressed={displayMode === mode}
+                title={label}
+                onClick={() => onDisplayModeChange(mode)}
+              >
+                <Icon size={16} />
+              </button>
+            ))}
+          </div>
+        )}
         <button
           className={`icon-button${selectionMode ? ' icon-button--active' : ''}`}
           aria-label={selectionMode ? 'Exit selection mode' : 'Enter selection mode'}
@@ -62,24 +108,28 @@ export function TopBar({
         </button>
       </div>
       <div className="top-bar__right">
-        <label className="search-field">
-          <Search size={15} aria-hidden="true" />
-          <span className="sr-only">Search photos</span>
-          <input
-            placeholder="Search"
-            value={searchQuery}
-            onChange={(event) => onSearchChange(event.target.value)}
-          />
-        </label>
-        <button
-          className={`icon-button${filterActive ? ' icon-button--active' : ''}`}
-          aria-label="Open filters"
-          aria-pressed={filterActive}
-          title="Smart filters"
-          onClick={onToggleFilter}
-        >
-          <Filter size={16} />
-        </button>
+        {!similarReviewMode && (
+          <>
+            <label className="search-field">
+              <Search size={15} aria-hidden="true" />
+              <span className="sr-only">Search photos</span>
+              <input
+                placeholder="Search"
+                value={searchQuery}
+                onChange={(event) => onSearchChange(event.target.value)}
+              />
+            </label>
+            <button
+              className={`icon-button${filterActive ? ' icon-button--active' : ''}`}
+              aria-label="Open filters"
+              aria-pressed={filterActive}
+              title="Smart filters"
+              onClick={onToggleFilter}
+            >
+              <Filter size={16} />
+            </button>
+          </>
+        )}
       </div>
     </header>
   )

@@ -9,8 +9,6 @@ type Decision = 'keep' | 'discard'
 type Props = {
   cards: SimilarReviewCard[]
   photosById: Map<string, TimelinePhoto>
-  windowMs: number
-  onWindowChange: (next: number) => void
   activeCardId: string | null
   onSelectCard: (cardId: string | null) => void
   selectedPhotoId: string | null
@@ -20,15 +18,6 @@ type Props = {
   onToggleSelectedId: (id: string) => void
   onClearSelection: () => void
   onZoomPhotos: (photos: TimelinePhoto[], initialIndex: number) => void
-}
-
-const WINDOW_PRESETS = [1_000, 5_000, 10_000, 30_000, 60_000, 300_000]
-const MIN_WINDOW_MS = 1_000
-const MAX_WINDOW_MS = 300_000
-
-function formatWindow(ms: number): string {
-  if (ms < 60_000) return `${Math.round(ms / 1_000)} s`
-  return `${Math.round(ms / 60_000)} min`
 }
 
 function formatSpan(spanMs: number | null): string {
@@ -51,18 +40,6 @@ function formatSecond(iso: string | null | undefined): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
-function defaultDecisions(card: SimilarReviewCard): Record<string, Decision> {
-  const next: Record<string, Decision> = {}
-  card.photoIds.forEach((id, idx) => {
-    if (card.kind === 'burst' && card.photoIds.length > 1) {
-      next[id] = idx === 0 ? 'keep' : 'discard'
-    } else {
-      next[id] = 'keep'
-    }
-  })
-  return next
-}
-
 function badgeLabel(kind: SimilarReviewCardKind): string {
   if (kind === 'burst') return 'Burst'
   if (kind === 'duplicate') return 'Duplicate'
@@ -79,7 +56,6 @@ function Tile({
   photo,
   fileNameFallback,
   decision,
-  isBest,
   selectionMode,
   isMultiSelected,
   isFocusSelected,
@@ -90,8 +66,7 @@ function Tile({
 }: {
   photo: TimelinePhoto | undefined
   fileNameFallback: string
-  decision: Decision
-  isBest: boolean
+  decision: Decision | undefined
   selectionMode: boolean
   isMultiSelected: boolean
   isFocusSelected: boolean
@@ -117,8 +92,8 @@ function Tile({
 
   const className = [
     'sr-tile',
+    decision === 'keep' ? 'sr-tile--keep' : '',
     decision === 'discard' ? 'sr-tile--discard' : '',
-    isBest && decision === 'keep' ? 'sr-tile--best' : '',
     isFocusSelected ? 'sr-tile--focused' : '',
     isMultiSelected ? 'sr-tile--multi-selected' : '',
     selectionMode ? 'sr-tile--selecting' : '',
@@ -145,7 +120,7 @@ function Tile({
       </span>
       {decision === 'keep' && (
         <span className="sr-tile__decision-badge sr-tile__decision-badge--keep" aria-hidden>
-          {isBest ? '★ Best' : 'Keep'}
+          Keep
         </span>
       )}
       {decision === 'discard' && (
@@ -236,8 +211,6 @@ function QueueThumbnail({ photo }: { photo: TimelinePhoto | undefined }) {
 export function SimilarReviewView({
   cards,
   photosById,
-  windowMs,
-  onWindowChange,
   activeCardId,
   onSelectCard,
   selectedPhotoId,
@@ -249,7 +222,7 @@ export function SimilarReviewView({
   onZoomPhotos,
 }: Props) {
   const [decisionsByCard, setDecisionsByCard] = useState<Record<string, Record<string, Decision>>>(
-    () => Object.fromEntries(cards.map((c) => [c.id, defaultDecisions(c)])),
+    () => Object.fromEntries(cards.map((c) => [c.id, {}])),
   )
 
   useEffect(() => {
@@ -258,7 +231,7 @@ export function SimilarReviewView({
       let dirty = false
       for (const card of cards) {
         if (!next[card.id]) {
-          next[card.id] = defaultDecisions(card)
+          next[card.id] = {}
           dirty = true
         }
       }
@@ -271,38 +244,20 @@ export function SimilarReviewView({
     [cards, activeCardId],
   )
 
-  const activeDecisions = activeCard
-    ? (decisionsByCard[activeCard.id] ?? defaultDecisions(activeCard))
-    : {}
+  const activeDecisions = activeCard ? (decisionsByCard[activeCard.id] ?? {}) : {}
 
-  const setDecision = useCallback(
-    (cardId: string, photoId: string, decision: Decision) => {
-      setDecisionsByCard((prev) => {
-        const card = cards.find((c) => c.id === cardId)
-        if (!card) return prev
-        return {
-          ...prev,
-          [cardId]: { ...(prev[cardId] ?? defaultDecisions(card)), [photoId]: decision },
-        }
-      })
-    },
-    [cards],
-  )
+  const setDecision = useCallback((cardId: string, photoId: string, decision: Decision) => {
+    setDecisionsByCard((prev) => ({
+      ...prev,
+      [cardId]: { ...(prev[cardId] ?? {}), [photoId]: decision },
+    }))
+  }, [])
 
   const setAllDecisions = (decision: Decision) => {
     if (!activeCard) return
     const next: Record<string, Decision> = {}
     activeCard.photoIds.forEach((id) => {
       next[id] = decision
-    })
-    setDecisionsByCard((prev) => ({ ...prev, [activeCard.id]: next }))
-  }
-
-  const keepBest = () => {
-    if (!activeCard) return
-    const next: Record<string, Decision> = {}
-    activeCard.photoIds.forEach((id, idx) => {
-      next[id] = idx === 0 ? 'keep' : 'discard'
     })
     setDecisionsByCard((prev) => ({ ...prev, [activeCard.id]: next }))
   }
@@ -320,7 +275,7 @@ export function SimilarReviewView({
       const next = { ...prev }
       for (const card of cards) {
         let touched = false
-        const updated = { ...(next[card.id] ?? defaultDecisions(card)) }
+        const updated = { ...(next[card.id] ?? {}) }
         for (const id of card.photoIds) {
           if (selectedIds.has(id)) {
             updated[id] = decision
@@ -423,36 +378,9 @@ export function SimilarReviewView({
             Review candidate groups before they become durable logical groups. {cards.length} groups,{' '}
             {completedCount} decided.
           </p>
-          <div className="sr-canvas__toolbar">
-            <label className="sr-slider">
-              <span className="sr-slider__label">Group window</span>
-              <input
-                type="range"
-                min={MIN_WINDOW_MS}
-                max={MAX_WINDOW_MS}
-                step={1_000}
-                value={Math.max(MIN_WINDOW_MS, Math.min(MAX_WINDOW_MS, windowMs))}
-                onChange={(e) => onWindowChange(Number.parseInt(e.target.value, 10))}
-                aria-label="Group window in milliseconds"
-              />
-              <span className="sr-slider__value">{formatWindow(windowMs)}</span>
-              <span className="sr-slider__presets">
-                {WINDOW_PRESETS.map((preset) => (
-                  <button
-                    type="button"
-                    key={preset}
-                    className={`sr-slider__preset${preset === windowMs ? ' sr-slider__preset--active' : ''}`}
-                    onClick={() => onWindowChange(preset)}
-                  >
-                    {formatWindow(preset)}
-                  </button>
-                ))}
-              </span>
-            </label>
-            <span className="sr-canvas__crumb">
-              {activeCard ? `Group ${activeIdx + 1} of ${cards.length}` : 'No active group'}
-            </span>
-          </div>
+          <span className="sr-canvas__crumb">
+            {activeCard ? `Group ${activeIdx + 1} of ${cards.length}` : 'No active group'}
+          </span>
 
           {selectionMode && (
             <div className="sr-batchbar" role="region" aria-label="Batch actions">
@@ -510,17 +438,15 @@ export function SimilarReviewView({
             <div
               className={`sr-hero__grid sr-hero__grid--cols-${Math.min(3, Math.max(1, activeCard.photoIds.length))}`}
             >
-              {activeCard.photoIds.map((id, idx) => {
+              {activeCard.photoIds.map((id) => {
                 const photo = photosById.get(id)
-                const decision = activeDecisions[id] ?? 'keep'
-                const isBest = idx === 0
+                const decision = activeDecisions[id]
                 return (
                   <Tile
                     key={id}
                     photo={photo}
                     fileNameFallback={id}
                     decision={decision}
-                    isBest={isBest}
                     selectionMode={selectionMode}
                     isMultiSelected={selectedIds.has(id)}
                     isFocusSelected={!selectionMode && selectedPhotoId === id}
@@ -548,9 +474,6 @@ export function SimilarReviewView({
                 </button>
                 <button type="button" className="secondary-button" onClick={() => setAllDecisions('discard')}>
                   Discard all
-                </button>
-                <button type="button" className="secondary-button" onClick={keepBest}>
-                  Keep best
                 </button>
               </div>
               <button

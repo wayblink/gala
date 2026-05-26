@@ -2204,15 +2204,9 @@ a {
   margin: 0 0 16px;
 }
 
-.sr-canvas__toolbar {
-  align-items: center;
-  display: flex;
-  gap: 18px;
-  justify-content: space-between;
-}
-
 .sr-canvas__crumb {
   color: var(--stone-500);
+  display: block;
   font-size: 12px;
   font-family: ui-monospace, "SF Mono", monospace;
 }
@@ -2223,41 +2217,50 @@ a {
   text-align: center;
 }
 
-.sr-slider {
+/* Banner slider — lives in TopBar center while in Similar Review */
+.top-bar--similar-review .top-bar__center {
+  flex: 1;
+  min-width: 0;
+}
+
+.sr-banner-slider {
   align-items: center;
   display: inline-flex;
   flex: 1;
-  flex-wrap: wrap;
   gap: 12px;
-  max-width: 640px;
+  min-width: 0;
 }
 
-.sr-slider__label {
+.sr-banner-slider__label {
   color: var(--stone-500);
   font-size: 12px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 
-.sr-slider__value {
-  color: var(--amber-dust);
-  font-size: 13px;
-  font-weight: 700;
-  font-family: ui-monospace, "SF Mono", monospace;
-  min-width: 52px;
-}
-
-.sr-slider input[type='range'] {
+.sr-banner-slider input[type='range'] {
   accent-color: var(--amber-dust);
   background: transparent;
   flex: 1;
-  min-width: 160px;
+  height: 4px;
+  min-width: 140px;
 }
 
-.sr-slider__presets {
+.sr-banner-slider__value {
+  color: var(--amber-dust);
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  min-width: 52px;
+  text-align: right;
+}
+
+.sr-banner-slider__presets {
   display: inline-flex;
   gap: 4px;
 }
 
-.sr-slider__preset {
+.sr-banner-slider__preset {
   background: var(--ink-800);
   border: 1px solid var(--ink-700);
   border-radius: 4px;
@@ -2268,11 +2271,11 @@ a {
   padding: 3px 7px;
 }
 
-.sr-slider__preset:hover {
+.sr-banner-slider__preset:hover {
   background: var(--ink-700);
 }
 
-.sr-slider__preset--active {
+.sr-banner-slider__preset--active {
   background: var(--amber-dust);
   border-color: #d8ad69;
   color: #17130f;
@@ -2372,7 +2375,7 @@ a {
   text-align: center;
 }
 
-.sr-tile--best > .sr-tile__media {
+.sr-tile--keep > .sr-tile__media {
   border-color: var(--amber-dust);
 }
 

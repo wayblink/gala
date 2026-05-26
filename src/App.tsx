@@ -327,6 +327,9 @@ export default function App() {
         onToggleFilter={view.toggleFilterPanel}
         selectionMode={selection.selectionMode}
         onToggleSelectionMode={selection.toggleSelectionMode}
+        similarReviewMode={isSimilarReviewSelected}
+        windowMs={similarReviewWindowMs}
+        onWindowChange={setSimilarReviewWindowMs}
       />
       <div
         className={`workspace-grid${leftCollapsed ? ' workspace-grid--left-collapsed' : ''}${
@@ -388,8 +391,6 @@ export default function App() {
           <SimilarReviewView
             cards={similarReviewCards}
             photosById={similarReviewPhotosById}
-            windowMs={similarReviewWindowMs}
-            onWindowChange={setSimilarReviewWindowMs}
             activeCardId={similarReviewActiveCard?.id ?? null}
             onSelectCard={(cardId) => {
               setSimilarReviewActiveCardId(cardId)
