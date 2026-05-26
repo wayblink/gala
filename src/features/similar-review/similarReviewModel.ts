@@ -7,80 +7,160 @@ export type SimilarReviewCard = {
   confidence: number
   title: string
   reason: string
+  fileNameRange: { first: string; last: string }
+  timeSpanMs: number | null
+  capturedAt: string | null
 }
 
-type SimilarReviewPhoto = {
+export type SimilarReviewPhoto = {
   id: string
   fileName: string
   capturedAt: string | null
   sourceName: string
 }
 
-const BURST_WINDOW_MS = 5_000
+export type BuildSimilarReviewQueueOptions = {
+  windowMs?: number
+}
 
-export function buildSimilarReviewQueue(photos: SimilarReviewPhoto[]): SimilarReviewCard[] {
-  if (photos.length === 0) {
-    return []
-  }
+export const DEFAULT_WINDOW_MS = 30_000
+const FILENAME_FALLBACK_MAX_DIFF = 3
 
-  const sorted = [...photos].sort((a, b) => {
+const filenameParts = (name: string): { prefix: string; seq: number } | null => {
+  const match = /^(.*?)(\d+)(\.[^.]+)?$/.exec(name)
+  if (!match) return null
+  const prefix = match[1]
+  const seq = Number.parseInt(match[2], 10)
+  if (!Number.isFinite(seq)) return null
+  return { prefix, seq }
+}
+
+const naturalCompare = (a: string, b: string) =>
+  a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+
+const sortPhotos = (photos: SimilarReviewPhoto[]) =>
+  [...photos].sort((a, b) => {
     const aTime = a.capturedAt ? Date.parse(a.capturedAt) : Number.POSITIVE_INFINITY
     const bTime = b.capturedAt ? Date.parse(b.capturedAt) : Number.POSITIVE_INFINITY
-    return aTime - bTime || a.id.localeCompare(b.id)
+    return aTime - bTime || naturalCompare(a.fileName, b.fileName) || a.id.localeCompare(b.id)
   })
 
+const closeByTime = (a: SimilarReviewPhoto, b: SimilarReviewPhoto, windowMs: number): boolean => {
+  const aTime = a.capturedAt ? Date.parse(a.capturedAt) : Number.NaN
+  const bTime = b.capturedAt ? Date.parse(b.capturedAt) : Number.NaN
+  if (!Number.isFinite(aTime) || !Number.isFinite(bTime)) return false
+  return Math.abs(aTime - bTime) <= windowMs
+}
+
+const closeByFilename = (a: SimilarReviewPhoto, b: SimilarReviewPhoto): boolean => {
+  if (a.capturedAt || b.capturedAt) return false
+  const aParts = filenameParts(a.fileName)
+  const bParts = filenameParts(b.fileName)
+  if (!aParts || !bParts) return false
+  if (aParts.prefix !== bParts.prefix) return false
+  return Math.abs(aParts.seq - bParts.seq) <= FILENAME_FALLBACK_MAX_DIFF
+}
+
+const computeTimeSpanMs = (group: SimilarReviewPhoto[]): number | null => {
+  const times = group
+    .map((photo) => (photo.capturedAt ? Date.parse(photo.capturedAt) : Number.NaN))
+    .filter((t) => Number.isFinite(t))
+  if (times.length === 0) return null
+  return Math.max(...times) - Math.min(...times)
+}
+
+const buildBurstCard = (
+  group: SimilarReviewPhoto[],
+  index: number,
+): SimilarReviewCard => {
+  const spanMs = computeTimeSpanMs(group)
+  const spanLabel = spanMs == null ? 'sequence' : `${(spanMs / 1000).toFixed(spanMs < 10_000 ? 0 : 1)} seconds`
+  return {
+    id: `card-${index}`,
+    kind: 'burst',
+    photoIds: group.map((p) => p.id),
+    confidence: spanMs != null && spanMs <= 5_000 ? 0.95 : 0.78,
+    title: `Burst · ${group.length} photos · ${spanLabel}`,
+    reason: 'Nearby captures within the active window.',
+    fileNameRange: { first: group[0].fileName, last: group[group.length - 1].fileName },
+    timeSpanMs: spanMs,
+    capturedAt: group[0].capturedAt,
+  }
+}
+
+const buildSameSceneCard = (
+  group: SimilarReviewPhoto[],
+  index: number,
+): SimilarReviewCard => {
+  const spanMs = computeTimeSpanMs(group)
+  const spanLabel = spanMs == null ? 'sequence' : `${(spanMs / 1000).toFixed(0)} seconds`
+  return {
+    id: `card-${index}`,
+    kind: 'same-scene',
+    photoIds: group.map((p) => p.id),
+    confidence: 0.6,
+    title: `Same scene · ${group.length} photos · ${spanLabel}`,
+    reason: 'Loose grouping within the active window.',
+    fileNameRange: { first: group[0].fileName, last: group[group.length - 1].fileName },
+    timeSpanMs: spanMs,
+    capturedAt: group[0].capturedAt,
+  }
+}
+
+const buildSingleCard = (
+  photo: SimilarReviewPhoto,
+  index: number,
+): SimilarReviewCard => ({
+  id: `card-${index}`,
+  kind: 'same-scene',
+  photoIds: [photo.id],
+  confidence: 0.2,
+  title: `Single · ${photo.fileName}`,
+  reason: 'No nearby captures within the active window.',
+  fileNameRange: { first: photo.fileName, last: photo.fileName },
+  timeSpanMs: 0,
+  capturedAt: photo.capturedAt,
+})
+
+export function buildSimilarReviewQueue(
+  photos: SimilarReviewPhoto[],
+  options: BuildSimilarReviewQueueOptions = {},
+): SimilarReviewCard[] {
+  if (photos.length === 0) return []
+  const windowMs = options.windowMs ?? DEFAULT_WINDOW_MS
+
+  const sorted = sortPhotos(photos)
   const cards: SimilarReviewCard[] = []
-  let burst: SimilarReviewPhoto[] = []
+  let group: SimilarReviewPhoto[] = []
 
-  const flushBurst = () => {
-    if (burst.length === 0) return
-
-    if (burst.length >= 2) {
-      cards.push({
-        id: `card-${cards.length + 1}`,
-        kind: 'burst',
-        photoIds: burst.map((photo) => photo.id),
-        confidence: 0.95,
-        title: `Burst review · ${burst.length} photos`,
-        reason: 'Nearby captures within a short time window.',
-      })
+  const flush = () => {
+    if (group.length === 0) return
+    if (group.length >= 2) {
+      const spanMs = computeTimeSpanMs(group)
+      const isTightBurst = spanMs != null && spanMs <= Math.min(5_000, windowMs)
+      const card = isTightBurst || spanMs == null
+        ? buildBurstCard(group, cards.length + 1)
+        : buildSameSceneCard(group, cards.length + 1)
+      cards.push(card)
     } else {
-      const [photo] = burst
-      cards.push({
-        id: `card-${cards.length + 1}`,
-        kind: 'same-scene',
-        photoIds: [photo.id],
-        confidence: 0.2,
-        title: `Single capture · ${photo.fileName}`,
-        reason: 'No nearby captures found.',
-      })
+      cards.push(buildSingleCard(group[0], cards.length + 1))
     }
-
-    burst = []
+    group = []
   }
 
   for (const photo of sorted) {
-    if (burst.length === 0) {
-      burst.push(photo)
+    if (group.length === 0) {
+      group.push(photo)
       continue
     }
-
-    const previous = burst[burst.length - 1]
-    const previousTime = previous.capturedAt ? Date.parse(previous.capturedAt) : Number.NaN
-    const currentTime = photo.capturedAt ? Date.parse(photo.capturedAt) : Number.NaN
-    const withinBurstWindow = Number.isFinite(previousTime) && Number.isFinite(currentTime)
-      ? Math.abs(currentTime - previousTime) <= BURST_WINDOW_MS
-      : false
-
-    if (withinBurstWindow) {
-      burst.push(photo)
+    const previous = group[group.length - 1]
+    if (closeByTime(previous, photo, windowMs) || closeByFilename(previous, photo)) {
+      group.push(photo)
       continue
     }
-
-    flushBurst()
-    burst.push(photo)
+    flush()
+    group.push(photo)
   }
-
-  flushBurst()
+  flush()
   return cards
 }

@@ -1,17 +1,101 @@
 import { describe, expect, it } from 'vitest'
 import { buildSimilarReviewQueue } from '../similarReviewModel'
 
-const photos = [
-  { id: 'p1', fileName: 'IMG_1001.JPG', capturedAt: '2026-05-12T10:00:00.000Z', sourceName: 'A' },
-  { id: 'p2', fileName: 'IMG_1002.JPG', capturedAt: '2026-05-12T10:00:03.000Z', sourceName: 'A' },
-  { id: 'p3', fileName: 'IMG_2001.JPG', capturedAt: '2026-05-12T12:00:00.000Z', sourceName: 'A' },
-]
+const at = (iso: string | null, id: string, name = `${id}.JPG`) => ({
+  id,
+  fileName: name,
+  capturedAt: iso,
+  sourceName: 'A',
+})
 
 describe('buildSimilarReviewQueue', () => {
-  it('groups nearby captures into a review card', () => {
-    const queue = buildSimilarReviewQueue(photos)
+  it('groups nearby captures into a burst card under the default window', () => {
+    const queue = buildSimilarReviewQueue([
+      at('2026-05-12T10:00:00.000Z', 'p1', 'IMG_0001.JPG'),
+      at('2026-05-12T10:00:03.000Z', 'p2', 'IMG_0002.JPG'),
+      at('2026-05-12T12:00:00.000Z', 'p3', 'IMG_0099.JPG'),
+    ])
     expect(queue.length).toBe(2)
     expect(queue[0].photoIds).toEqual(['p1', 'p2'])
     expect(queue[0].kind).toBe('burst')
+  })
+
+  it('respects a custom windowMs and groups within the wider window', () => {
+    const queue = buildSimilarReviewQueue(
+      [
+        at('2026-05-12T10:00:00.000Z', 'p1', 'IMG_0001.JPG'),
+        at('2026-05-12T10:00:45.000Z', 'p2', 'IMG_0002.JPG'),
+      ],
+      { windowMs: 60_000 },
+    )
+    expect(queue.length).toBe(1)
+    expect(queue[0].photoIds).toEqual(['p1', 'p2'])
+  })
+
+  it('splits when photos exceed the configured window', () => {
+    const queue = buildSimilarReviewQueue(
+      [
+        at('2026-05-12T10:00:00.000Z', 'p1', 'IMG_0001.JPG'),
+        at('2026-05-12T10:00:10.000Z', 'p2', 'IMG_0002.JPG'),
+      ],
+      { windowMs: 5_000 },
+    )
+    expect(queue.length).toBe(2)
+    expect(queue.map((c) => c.kind)).toEqual(['same-scene', 'same-scene'])
+  })
+
+  it('falls back to filename adjacency when both photos lack EXIF time', () => {
+    const queue = buildSimilarReviewQueue([
+      at(null, 'p1', 'IMG_0001.JPG'),
+      at(null, 'p2', 'IMG_0002.JPG'),
+      at(null, 'p3', 'IMG_0003.JPG'),
+    ])
+    expect(queue.length).toBe(1)
+    expect(queue[0].photoIds).toEqual(['p1', 'p2', 'p3'])
+    expect(queue[0].kind).toBe('burst')
+  })
+
+  it('does not group via filename when sequence numbers are far apart', () => {
+    const queue = buildSimilarReviewQueue([
+      at(null, 'p1', 'IMG_0001.JPG'),
+      at(null, 'p2', 'IMG_0010.JPG'),
+    ])
+    expect(queue.length).toBe(2)
+  })
+
+  it('does not group via filename when prefixes differ', () => {
+    const queue = buildSimilarReviewQueue([
+      at(null, 'p1', 'IMG_0001.JPG'),
+      at(null, 'p2', 'CAM_0002.JPG'),
+    ])
+    expect(queue.length).toBe(2)
+  })
+
+  it('does not bridge EXIF-known and EXIF-missing photos via filename', () => {
+    const queue = buildSimilarReviewQueue([
+      at('2026-05-12T10:00:00.000Z', 'p1', 'IMG_0001.JPG'),
+      at(null, 'p2', 'IMG_0002.JPG'),
+    ])
+    expect(queue.length).toBe(2)
+  })
+
+  it('sorts photos inside a group naturally by filename when timestamps tie', () => {
+    const sameTime = '2026-05-12T10:00:00.000Z'
+    const queue = buildSimilarReviewQueue([
+      at(sameTime, 'p2', 'IMG_0010.JPG'),
+      at(sameTime, 'p1', 'IMG_0002.JPG'),
+    ])
+    expect(queue[0].photoIds).toEqual(['p1', 'p2'])
+  })
+
+  it('exposes filename range and time span on each card', () => {
+    const queue = buildSimilarReviewQueue([
+      at('2026-05-12T10:00:00.000Z', 'p1', 'IMG_0001.JPG'),
+      at('2026-05-12T10:00:03.000Z', 'p2', 'IMG_0002.JPG'),
+      at('2026-05-12T10:00:05.000Z', 'p3', 'IMG_0003.JPG'),
+    ])
+    expect(queue[0].fileNameRange).toEqual({ first: 'IMG_0001.JPG', last: 'IMG_0003.JPG' })
+    expect(queue[0].timeSpanMs).toBe(5_000)
+    expect(queue[0].capturedAt).toBe('2026-05-12T10:00:00.000Z')
   })
 })
