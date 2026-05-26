@@ -2218,6 +2218,22 @@ a {
 }
 
 /* Banner slider — lives in TopBar center while in Similar Review */
+.top-bar--similar-review {
+  grid-template-columns: var(--left-rail-w, 240px) minmax(0, 1fr) var(--right-panel-w, 280px);
+}
+
+.app-shell--left-collapsed .top-bar--similar-review {
+  grid-template-columns: 16px minmax(0, 1fr) var(--right-panel-w, 280px);
+}
+
+.app-shell--right-collapsed .top-bar--similar-review {
+  grid-template-columns: var(--left-rail-w, 240px) minmax(0, 1fr) 16px;
+}
+
+.app-shell--left-collapsed.app-shell--right-collapsed .top-bar--similar-review {
+  grid-template-columns: 16px minmax(0, 1fr) 16px;
+}
+
 .top-bar--similar-review .top-bar__center {
   flex: 1;
   min-width: 0;

@@ -317,7 +317,17 @@ export default function App() {
     : undefined
 
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell${leftCollapsed ? ' app-shell--left-collapsed' : ''}${
+        rightCollapsed ? ' app-shell--right-collapsed' : ''
+      }`}
+      style={
+        {
+          '--left-rail-w': `${leftRailSize.width}px`,
+          '--right-panel-w': `${rightPanelSize.width}px`,
+        } as React.CSSProperties
+      }
+    >
       <TopBar
         searchQuery={view.searchQuery}
         onSearchChange={handleSearchChange}
@@ -335,12 +345,6 @@ export default function App() {
         className={`workspace-grid${leftCollapsed ? ' workspace-grid--left-collapsed' : ''}${
           rightCollapsed ? ' workspace-grid--right-collapsed' : ''
         }`}
-        style={
-          {
-            '--left-rail-w': `${leftRailSize.width}px`,
-            '--right-panel-w': `${rightPanelSize.width}px`,
-          } as React.CSSProperties
-        }
       >
         <LeftRail
           librarySummary={library.summary}
