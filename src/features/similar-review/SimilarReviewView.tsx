@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Check, X, ZoomIn } from 'lucide-react'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import type { TimelinePhoto } from '../../types/photos'
 import type { SimilarReviewCard, SimilarReviewCardKind } from './similarReviewModel'
@@ -10,6 +11,15 @@ type Props = {
   photosById: Map<string, TimelinePhoto>
   windowMs: number
   onWindowChange: (next: number) => void
+  activeCardId: string | null
+  onSelectCard: (cardId: string | null) => void
+  selectedPhotoId: string | null
+  onSelectPhoto: (photo: TimelinePhoto | null) => void
+  selectionMode: boolean
+  selectedIds: Set<string>
+  onToggleSelectedId: (id: string) => void
+  onClearSelection: () => void
+  onZoomPhotos: (photos: TimelinePhoto[], initialIndex: number) => void
 }
 
 const WINDOW_PRESETS = [1_000, 5_000, 10_000, 30_000, 60_000, 300_000]
@@ -41,13 +51,6 @@ function formatSecond(iso: string | null | undefined): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
-function totalSize(ids: string[], byId: Map<string, TimelinePhoto>): string {
-  const bytes = ids.reduce((acc, id) => acc + (byId.get(id)?.fileSize ?? 0), 0)
-  if (bytes === 0) return '—'
-  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-  return `${Math.round(bytes / 1024)} KB`
-}
-
 function defaultDecisions(card: SimilarReviewCard): Record<string, Decision> {
   const next: Record<string, Decision> = {}
   card.photoIds.forEach((id, idx) => {
@@ -72,14 +75,30 @@ function badgeClass(kind: SimilarReviewCardKind): string {
   return 'sr-badge sr-badge--scene'
 }
 
-function Thumbnail({
+function Tile({
   photo,
+  fileNameFallback,
   decision,
   isBest,
+  selectionMode,
+  isMultiSelected,
+  isFocusSelected,
+  onClick,
+  onZoom,
+  onKeep,
+  onDiscard,
 }: {
   photo: TimelinePhoto | undefined
-  decision: Decision | undefined
+  fileNameFallback: string
+  decision: Decision
   isBest: boolean
+  selectionMode: boolean
+  isMultiSelected: boolean
+  isFocusSelected: boolean
+  onClick: () => void
+  onZoom: () => void
+  onKeep: () => void
+  onDiscard: () => void
 }) {
   const [url, setUrl] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
@@ -95,21 +114,96 @@ function Thumbnail({
       setFailed(true)
     }
   }, [photo?.thumbnailPath])
+
   const className = [
-    'sr-hero__photo',
-    isBest ? 'sr-hero__photo--best' : '',
-    decision === 'discard' ? 'sr-hero__photo--discard' : '',
+    'sr-tile',
+    decision === 'discard' ? 'sr-tile--discard' : '',
+    isBest && decision === 'keep' ? 'sr-tile--best' : '',
+    isFocusSelected ? 'sr-tile--focused' : '',
+    isMultiSelected ? 'sr-tile--multi-selected' : '',
+    selectionMode ? 'sr-tile--selecting' : '',
   ]
     .filter(Boolean)
     .join(' ')
+
+  const label = photo?.fileName ?? fileNameFallback
+
   return (
-    <div className={className}>
-      {url && !failed ? (
-        <img src={url} alt={photo?.fileName ?? ''} onError={() => setFailed(true)} />
-      ) : (
-        <span className="sr-hero__photo-fallback">{photo?.fileName ?? '—'}</span>
+    <button
+      type="button"
+      className={className}
+      onClick={onClick}
+      aria-pressed={isFocusSelected || isMultiSelected}
+      aria-label={`Photo ${label}`}
+    >
+      <span className="sr-tile__media">
+        {url && !failed ? (
+          <img src={url} alt={label} onError={() => setFailed(true)} />
+        ) : (
+          <span className="sr-tile__fallback">{label}</span>
+        )}
+      </span>
+      {decision === 'keep' && (
+        <span className="sr-tile__decision-badge sr-tile__decision-badge--keep" aria-hidden>
+          {isBest ? '★ Best' : 'Keep'}
+        </span>
       )}
-    </div>
+      {decision === 'discard' && (
+        <span className="sr-tile__decision-badge sr-tile__decision-badge--discard" aria-hidden>
+          Discard
+        </span>
+      )}
+      {selectionMode && (
+        <span
+          className={`sr-tile__check${isMultiSelected ? ' sr-tile__check--on' : ''}`}
+          aria-hidden
+        >
+          {isMultiSelected ? <Check size={14} strokeWidth={3} /> : null}
+        </span>
+      )}
+      <span className="sr-tile__overlay" aria-hidden>
+        <span
+          role="button"
+          tabIndex={-1}
+          className="sr-tile__overlay-btn"
+          title="Zoom"
+          onClick={(e) => {
+            e.stopPropagation()
+            onZoom()
+          }}
+        >
+          <ZoomIn size={18} strokeWidth={2} />
+        </span>
+        <span
+          role="button"
+          tabIndex={-1}
+          className="sr-tile__overlay-btn sr-tile__overlay-btn--keep"
+          title="Keep"
+          onClick={(e) => {
+            e.stopPropagation()
+            onKeep()
+          }}
+        >
+          <Check size={18} strokeWidth={2.5} />
+        </span>
+        <span
+          role="button"
+          tabIndex={-1}
+          className="sr-tile__overlay-btn sr-tile__overlay-btn--discard"
+          title="Discard"
+          onClick={(e) => {
+            e.stopPropagation()
+            onDiscard()
+          }}
+        >
+          <X size={18} strokeWidth={2.5} />
+        </span>
+      </span>
+      <span className="sr-tile__caption">
+        <span className="sr-tile__filename">{label}</span>
+        <span className="sr-tile__time">{formatSecond(photo?.capturedAt)}</span>
+      </span>
+    </button>
   )
 }
 
@@ -139,8 +233,21 @@ function QueueThumbnail({ photo }: { photo: TimelinePhoto | undefined }) {
   )
 }
 
-export function SimilarReviewView({ cards, photosById, windowMs, onWindowChange }: Props) {
-  const [activeCardId, setActiveCardId] = useState<string | null>(cards[0]?.id ?? null)
+export function SimilarReviewView({
+  cards,
+  photosById,
+  windowMs,
+  onWindowChange,
+  activeCardId,
+  onSelectCard,
+  selectedPhotoId,
+  onSelectPhoto,
+  selectionMode,
+  selectedIds,
+  onToggleSelectedId,
+  onClearSelection,
+  onZoomPhotos,
+}: Props) {
   const [decisionsByCard, setDecisionsByCard] = useState<Record<string, Record<string, Decision>>>(
     () => Object.fromEntries(cards.map((c) => [c.id, defaultDecisions(c)])),
   )
@@ -157,31 +264,32 @@ export function SimilarReviewView({ cards, photosById, windowMs, onWindowChange 
       }
       return dirty ? next : prev
     })
-    if (cards.length === 0) {
-      setActiveCardId(null)
-      return
-    }
-    if (!activeCardId || !cards.some((c) => c.id === activeCardId)) {
-      setActiveCardId(cards[0].id)
-    }
-  }, [cards, activeCardId])
+  }, [cards])
 
   const activeCard = useMemo(
     () => cards.find((c) => c.id === activeCardId) ?? null,
     [cards, activeCardId],
   )
 
-  const activeDecisions = activeCard ? (decisionsByCard[activeCard.id] ?? defaultDecisions(activeCard)) : {}
+  const activeDecisions = activeCard
+    ? (decisionsByCard[activeCard.id] ?? defaultDecisions(activeCard))
+    : {}
 
-  const setDecision = (photoId: string, decision: Decision) => {
-    if (!activeCard) return
-    setDecisionsByCard((prev) => ({
-      ...prev,
-      [activeCard.id]: { ...(prev[activeCard.id] ?? defaultDecisions(activeCard)), [photoId]: decision },
-    }))
-  }
+  const setDecision = useCallback(
+    (cardId: string, photoId: string, decision: Decision) => {
+      setDecisionsByCard((prev) => {
+        const card = cards.find((c) => c.id === cardId)
+        if (!card) return prev
+        return {
+          ...prev,
+          [cardId]: { ...(prev[cardId] ?? defaultDecisions(card)), [photoId]: decision },
+        }
+      })
+    },
+    [cards],
+  )
 
-  const setAll = (decision: Decision) => {
+  const setAllDecisions = (decision: Decision) => {
     if (!activeCard) return
     const next: Record<string, Decision> = {}
     activeCard.photoIds.forEach((id) => {
@@ -203,7 +311,26 @@ export function SimilarReviewView({ cards, photosById, windowMs, onWindowChange 
     if (cards.length === 0 || !activeCard) return
     const idx = cards.findIndex((c) => c.id === activeCard.id)
     const next = Math.min(cards.length - 1, Math.max(0, idx + delta))
-    setActiveCardId(cards[next].id)
+    onSelectCard(cards[next].id)
+  }
+
+  const applyBatchDecision = (decision: Decision) => {
+    if (selectedIds.size === 0) return
+    setDecisionsByCard((prev) => {
+      const next = { ...prev }
+      for (const card of cards) {
+        let touched = false
+        const updated = { ...(next[card.id] ?? defaultDecisions(card)) }
+        for (const id of card.photoIds) {
+          if (selectedIds.has(id)) {
+            updated[id] = decision
+            touched = true
+          }
+        }
+        if (touched) next[card.id] = updated
+      }
+      return next
+    })
   }
 
   const completedCount = useMemo(
@@ -215,9 +342,29 @@ export function SimilarReviewView({ cards, photosById, windowMs, onWindowChange 
     [cards, decisionsByCard],
   )
 
-  const heroPhotos = activeCard?.photoIds.map((id) => photosById.get(id)) ?? []
-  const inspectorPhoto = heroPhotos[0]
+  const handleTileClick = (cardId: string, photoId: string) => {
+    if (selectionMode) {
+      onToggleSelectedId(photoId)
+      return
+    }
+    onSelectCard(cardId)
+    const photo = photosById.get(photoId)
+    onSelectPhoto(photo ?? null)
+  }
+
+  const handleTileZoom = (cardPhotoIds: string[], photoId: string) => {
+    const photos = cardPhotoIds
+      .map((id) => photosById.get(id))
+      .filter((p): p is TimelinePhoto => Boolean(p))
+    const idx = Math.max(0, photos.findIndex((p) => p.id === photoId))
+    if (photos.length === 0) return
+    onZoomPhotos(photos, idx)
+  }
+
   const activeIdx = activeCard ? cards.findIndex((c) => c.id === activeCard.id) : -1
+  const selectedAcrossActive = activeCard
+    ? activeCard.photoIds.reduce((acc, id) => acc + (selectedIds.has(id) ? 1 : 0), 0)
+    : 0
 
   return (
     <main className="similar-review-view" aria-label="Similar review workflow">
@@ -234,13 +381,15 @@ export function SimilarReviewView({ cards, photosById, windowMs, onWindowChange 
               const firstPhoto = photosById.get(card.photoIds[0])
               const isActive = card.id === activeCardId
               const dec = decisionsByCard[card.id]
-              const decided = dec ? card.photoIds.every((id) => dec[id] === 'keep' || dec[id] === 'discard') : false
+              const decided = dec
+                ? card.photoIds.every((id) => dec[id] === 'keep' || dec[id] === 'discard')
+                : false
               return (
                 <button
                   type="button"
                   key={card.id}
                   className={`sr-queue__item${isActive ? ' sr-queue__item--active' : ''}`}
-                  onClick={() => setActiveCardId(card.id)}
+                  onClick={() => onSelectCard(card.id)}
                   aria-pressed={isActive}
                 >
                   <QueueThumbnail photo={firstPhoto} />
@@ -304,6 +453,41 @@ export function SimilarReviewView({ cards, photosById, windowMs, onWindowChange 
               {activeCard ? `Group ${activeIdx + 1} of ${cards.length}` : 'No active group'}
             </span>
           </div>
+
+          {selectionMode && (
+            <div className="sr-batchbar" role="region" aria-label="Batch actions">
+              <span className="sr-batchbar__count">
+                {selectedIds.size} selected
+                {activeCard && selectedAcrossActive > 0 ? ` · ${selectedAcrossActive} in this group` : ''}
+              </span>
+              <div className="sr-batchbar__actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={selectedIds.size === 0}
+                  onClick={() => applyBatchDecision('keep')}
+                >
+                  <Check size={14} strokeWidth={2} /> Keep selected
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={selectedIds.size === 0}
+                  onClick={() => applyBatchDecision('discard')}
+                >
+                  <X size={14} strokeWidth={2} /> Discard selected
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  disabled={selectedIds.size === 0}
+                  onClick={onClearSelection}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          )}
         </header>
 
         {!activeCard ? (
@@ -312,129 +496,72 @@ export function SimilarReviewView({ cards, photosById, windowMs, onWindowChange 
           </div>
         ) : (
           <div className="sr-hero">
-            <div className="sr-hero__main">
-              <div className="sr-hero__title-row">
-                <span className={badgeClass(activeCard.kind)}>{badgeLabel(activeCard.kind)}</span>
-                <h2 className="sr-hero__title">
-                  {badgeLabel(activeCard.kind)} at {formatClock(activeCard.capturedAt) || 'unknown time'}
-                </h2>
-              </div>
-              <p className="sr-hero__sub">
-                {activeCard.photoIds.length} photos · {formatSpan(activeCard.timeSpanMs)} ·{' '}
-                {activeCard.fileNameRange.first} → {activeCard.fileNameRange.last}
-              </p>
+            <div className="sr-hero__title-row">
+              <span className={badgeClass(activeCard.kind)}>{badgeLabel(activeCard.kind)}</span>
+              <h2 className="sr-hero__title">
+                {badgeLabel(activeCard.kind)} at {formatClock(activeCard.capturedAt) || 'unknown time'}
+              </h2>
+            </div>
+            <p className="sr-hero__sub">
+              {activeCard.photoIds.length} photos · {formatSpan(activeCard.timeSpanMs)} ·{' '}
+              {activeCard.fileNameRange.first} → {activeCard.fileNameRange.last}
+            </p>
 
-              <div className={`sr-hero__grid sr-hero__grid--cols-${Math.min(3, Math.max(1, heroPhotos.length))}`}>
-                {activeCard.photoIds.map((id, idx) => {
-                  const photo = photosById.get(id)
-                  const decision = activeDecisions[id] ?? 'keep'
-                  const isBest = idx === 0 && decision === 'keep'
-                  return (
-                    <div className="sr-hero__tile" key={id}>
-                      <Thumbnail photo={photo} decision={decision} isBest={isBest} />
-                      <div
-                        className="sr-toggle"
-                        role="radiogroup"
-                        aria-label={`Decision for ${photo?.fileName ?? id}`}
-                      >
-                        <button
-                          type="button"
-                          className={`sr-toggle__opt${decision === 'keep' ? ' sr-toggle__opt--keep' : ''}`}
-                          aria-pressed={decision === 'keep'}
-                          onClick={() => setDecision(id, 'keep')}
-                        >
-                          {isBest ? '★ Best' : 'Keep'}
-                        </button>
-                        <button
-                          type="button"
-                          className={`sr-toggle__opt${decision === 'discard' ? ' sr-toggle__opt--discard' : ''}`}
-                          aria-pressed={decision === 'discard'}
-                          onClick={() => setDecision(id, 'discard')}
-                        >
-                          Discard
-                        </button>
-                      </div>
-                      <div className="sr-hero__caption">
-                        <span>{photo?.fileName ?? id}</span>
-                        <span>{formatSecond(photo?.capturedAt)}</span>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-
-              <div className="sr-hero__actions">
-                <div className="sr-hero__actions-left">
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => advance(-1)}
-                    disabled={activeIdx <= 0}
-                  >
-                    ← Previous
-                  </button>
-                  <button type="button" className="secondary-button" onClick={() => setAll('keep')}>
-                    Keep all
-                  </button>
-                  <button type="button" className="secondary-button" onClick={() => setAll('discard')}>
-                    Discard all
-                  </button>
-                  <button type="button" className="secondary-button" onClick={keepBest}>
-                    Keep best
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  className="primary-button"
-                  onClick={() => advance(1)}
-                  disabled={activeIdx >= cards.length - 1}
-                >
-                  Apply &amp; Next →
-                </button>
-              </div>
+            <div
+              className={`sr-hero__grid sr-hero__grid--cols-${Math.min(3, Math.max(1, activeCard.photoIds.length))}`}
+            >
+              {activeCard.photoIds.map((id, idx) => {
+                const photo = photosById.get(id)
+                const decision = activeDecisions[id] ?? 'keep'
+                const isBest = idx === 0
+                return (
+                  <Tile
+                    key={id}
+                    photo={photo}
+                    fileNameFallback={id}
+                    decision={decision}
+                    isBest={isBest}
+                    selectionMode={selectionMode}
+                    isMultiSelected={selectedIds.has(id)}
+                    isFocusSelected={!selectionMode && selectedPhotoId === id}
+                    onClick={() => handleTileClick(activeCard.id, id)}
+                    onZoom={() => handleTileZoom(activeCard.photoIds, id)}
+                    onKeep={() => setDecision(activeCard.id, id, 'keep')}
+                    onDiscard={() => setDecision(activeCard.id, id, 'discard')}
+                  />
+                )
+              })}
             </div>
 
-            <aside className="sr-inspector" aria-label="Group details">
-              <h3>Inspector</h3>
-              <dl className="sr-inspector__list">
-                <div>
-                  <dt>Camera</dt>
-                  <dd>{inspectorPhoto?.cameraModel ?? inspectorPhoto?.cameraMake ?? '—'}</dd>
-                </div>
-                <div>
-                  <dt>Lens</dt>
-                  <dd>{inspectorPhoto?.lensModel ?? '—'}</dd>
-                </div>
-                <div>
-                  <dt>Captured</dt>
-                  <dd>{formatSecond(activeCard.capturedAt) || '—'}</dd>
-                </div>
-                <div>
-                  <dt>Time span</dt>
-                  <dd>{formatSpan(activeCard.timeSpanMs)}</dd>
-                </div>
-                <div>
-                  <dt>Total size</dt>
-                  <dd>{totalSize(activeCard.photoIds, photosById)}</dd>
-                </div>
-                <div>
-                  <dt>Confidence</dt>
-                  <dd>
-                    {activeCard.confidence.toFixed(2)} {badgeLabel(activeCard.kind).toLowerCase()}
-                  </dd>
-                </div>
-              </dl>
-              <div className="sr-inspector__files">
-                <span className="sr-inspector__files-label">Files</span>
-                <div className="sr-inspector__file-list">
-                  {activeCard.photoIds.map((id) => (
-                    <span key={id} className="sr-inspector__file">
-                      {photosById.get(id)?.fileName ?? id}
-                    </span>
-                  ))}
-                </div>
+            <div className="sr-hero__actions">
+              <div className="sr-hero__actions-left">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => advance(-1)}
+                  disabled={activeIdx <= 0}
+                >
+                  ← Previous
+                </button>
+                <button type="button" className="secondary-button" onClick={() => setAllDecisions('keep')}>
+                  Keep all
+                </button>
+                <button type="button" className="secondary-button" onClick={() => setAllDecisions('discard')}>
+                  Discard all
+                </button>
+                <button type="button" className="secondary-button" onClick={keepBest}>
+                  Keep best
+                </button>
               </div>
-            </aside>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => advance(1)}
+                disabled={activeIdx >= cards.length - 1}
+              >
+                Apply &amp; Next →
+              </button>
+            </div>
           </div>
         )}
       </section>

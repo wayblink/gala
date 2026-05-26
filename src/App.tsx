@@ -1,6 +1,7 @@
 import { ContextPanel } from './components/ContextPanel'
 import { LeftRail } from './components/LeftRail'
 import { PhotoSurface } from './components/PhotoSurface'
+import { PhotoViewer } from './components/PhotoViewer'
 import { TopBar } from './components/TopBar'
 import { SimilarReviewView } from './features/similar-review/SimilarReviewView'
 import { buildSimilarReviewQueue, DEFAULT_WINDOW_MS } from './features/similar-review/similarReviewModel'
@@ -21,13 +22,18 @@ import { useSelection } from './state/useSelection'
 import { useTags } from './state/useTags'
 import { useViewFilter } from './state/useViewFilter'
 import type { ComingSoonViewId, PhotoFilter } from './types/photos'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 export default function App() {
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [rightCollapsed, setRightCollapsed] = useState(false)
   const [similarReviewPhotos, setSimilarReviewPhotos] = useState<Awaited<ReturnType<typeof getTimelinePhotos>>>([])
   const [similarReviewWindowMs, setSimilarReviewWindowMs] = useState<number>(DEFAULT_WINDOW_MS)
+  const [similarReviewActiveCardId, setSimilarReviewActiveCardId] = useState<string | null>(null)
+  const [similarReviewViewerState, setSimilarReviewViewerState] = useState<{
+    photos: Awaited<ReturnType<typeof getTimelinePhotos>>
+    index: number
+  } | null>(null)
 
   const library = useLibrary()
   const albumsState = useAlbums()
@@ -215,6 +221,100 @@ export default function App() {
     () => new Map(similarReviewPhotos.map((p) => [p.id, p])),
     [similarReviewPhotos],
   )
+  const similarReviewActiveCard = useMemo(() => {
+    if (similarReviewCards.length === 0) return null
+    return (
+      similarReviewCards.find((c) => c.id === similarReviewActiveCardId) ?? similarReviewCards[0]
+    )
+  }, [similarReviewCards, similarReviewActiveCardId])
+  useEffect(() => {
+    if (!isSimilarReviewSelected) return
+    const expected = similarReviewActiveCard?.id ?? null
+    if (expected !== similarReviewActiveCardId) setSimilarReviewActiveCardId(expected)
+  }, [isSimilarReviewSelected, similarReviewActiveCard, similarReviewActiveCardId])
+
+  const similarReviewInspector = isSimilarReviewSelected
+    ? (() => {
+        if (!similarReviewActiveCard) {
+          return (
+            <section>
+              <p className="eyebrow">Similar Review</p>
+              <p className="mono-muted">No active group. Widen the time window or scan a source.</p>
+            </section>
+          )
+        }
+        const card = similarReviewActiveCard
+        const firstPhoto = similarReviewPhotosById.get(card.photoIds[0])
+        const totalBytes = card.photoIds.reduce(
+          (acc, id) => acc + (similarReviewPhotosById.get(id)?.fileSize ?? 0),
+          0,
+        )
+        const totalSize =
+          totalBytes >= 1024 * 1024
+            ? `${(totalBytes / 1024 / 1024).toFixed(1)} MB`
+            : totalBytes > 0
+              ? `${Math.round(totalBytes / 1024)} KB`
+              : '—'
+        const span = card.timeSpanMs
+        const spanLabel =
+          span == null
+            ? 'sequence'
+            : span < 60_000
+              ? `${Math.max(1, Math.round(span / 1_000))} s`
+              : `${(span / 60_000).toFixed(1)} min`
+        return (
+          <section className="sr-cp-inspector">
+            <p className="eyebrow">Group Inspector</p>
+            <h3 className="cp-photo-name">{card.title}</h3>
+            <p className="cp-photo-date">
+              {card.fileNameRange.first} → {card.fileNameRange.last}
+            </p>
+            <dl className="metadata-list" aria-label="Group metadata">
+              <div>
+                <dt>Kind</dt>
+                <dd>{card.kind}</dd>
+              </div>
+              <div>
+                <dt>Photos</dt>
+                <dd>{card.photoIds.length}</dd>
+              </div>
+              <div>
+                <dt>Time span</dt>
+                <dd>{spanLabel}</dd>
+              </div>
+              <div>
+                <dt>Captured</dt>
+                <dd>
+                  {card.capturedAt
+                    ? new Date(card.capturedAt).toLocaleString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                      })
+                    : '—'}
+                </dd>
+              </div>
+              <div>
+                <dt>Camera</dt>
+                <dd>{firstPhoto?.cameraModel ?? firstPhoto?.cameraMake ?? '—'}</dd>
+              </div>
+              <div>
+                <dt>Lens</dt>
+                <dd>{firstPhoto?.lensModel ?? '—'}</dd>
+              </div>
+              <div>
+                <dt>Total size</dt>
+                <dd>{totalSize}</dd>
+              </div>
+              <div>
+                <dt>Confidence</dt>
+                <dd>{card.confidence.toFixed(2)}</dd>
+              </div>
+            </dl>
+          </section>
+        )
+      })()
+    : undefined
 
   return (
     <div className="app-shell">
@@ -290,6 +390,18 @@ export default function App() {
             photosById={similarReviewPhotosById}
             windowMs={similarReviewWindowMs}
             onWindowChange={setSimilarReviewWindowMs}
+            activeCardId={similarReviewActiveCard?.id ?? null}
+            onSelectCard={(cardId) => {
+              setSimilarReviewActiveCardId(cardId)
+              selection.setSelectedPhoto(null)
+            }}
+            selectedPhotoId={selection.selectedPhoto?.id ?? null}
+            onSelectPhoto={selection.setSelectedPhoto}
+            selectionMode={selection.selectionMode}
+            selectedIds={selection.selectedIds}
+            onToggleSelectedId={selection.toggleSelected}
+            onClearSelection={selection.clearSelected}
+            onZoomPhotos={(photos, index) => setSimilarReviewViewerState({ photos, index })}
           />
         ) : (
           <PhotoSurface
@@ -355,8 +467,17 @@ export default function App() {
             await albumsState.removeBatch(albumId, photoIds)
             view.bumpDataVersion()
           }}
+          similarReviewMode={isSimilarReviewSelected}
+          similarReviewInspector={similarReviewInspector}
         />
       </div>
+      {similarReviewViewerState && (
+        <PhotoViewer
+          photos={similarReviewViewerState.photos}
+          initialIndex={similarReviewViewerState.index}
+          onClose={() => setSimilarReviewViewerState(null)}
+        />
+      )}
     </div>
   )
 }

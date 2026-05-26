@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { Eye, EyeOff, Star } from 'lucide-react'
 import type { LibrarySummary } from '../types/library'
 import type { Album, TimelinePhoto } from '../types/photos'
@@ -24,6 +24,9 @@ type ContextPanelProps = {
   onBatchAddTags?: (photoIds: string[], tags: string[]) => Promise<void>
   onBatchAddToAlbum?: (albumId: string, photoIds: string[]) => Promise<void>
   onBatchRemoveFromAlbum?: (albumId: string, photoIds: string[]) => Promise<void>
+  // Similar Review mode: replaces the Library Index header section with a custom slot
+  similarReviewMode?: boolean
+  similarReviewInspector?: ReactNode
 }
 
 const formatFileSize = (bytes: number) => {
@@ -89,6 +92,8 @@ export function ContextPanel({
   onBatchAddTags,
   onBatchAddToAlbum,
   onBatchRemoveFromAlbum,
+  similarReviewMode = false,
+  similarReviewInspector,
 }: ContextPanelProps) {
   const [albumPickerOpen, setAlbumPickerOpen] = useState(false)
   const [tagInput, setTagInput] = useState('')
@@ -110,6 +115,14 @@ export function ContextPanel({
       </button>
       {!collapsed && (
         <div className="context-panel__scroll">
+      {similarReviewMode ? (
+        similarReviewInspector ?? (
+          <section>
+            <p className="eyebrow">Similar Review</p>
+            <p className="mono-muted">Pick a group from the queue to inspect.</p>
+          </section>
+        )
+      ) : (
       <section>
         <p className="eyebrow">Library Index</p>
         <p className="mono-muted">
@@ -125,6 +138,7 @@ export function ContextPanel({
           </ul>
         )}
       </section>
+      )}
       {isBatchMode ? (
         <section className="cp-photo-section cp-batch-section">
           <div className="cp-photo-info">
