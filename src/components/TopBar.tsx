@@ -101,15 +101,17 @@ export function TopBar({
         )}
       </div>
       <div className="top-bar__right">
-        <label className="search-field">
-          <Search size={15} aria-hidden="true" />
-          <span className="sr-only">Search photos</span>
-          <input
-            placeholder="Search"
-            value={searchQuery}
-            onChange={(event) => onSearchChange(event.target.value)}
-          />
-        </label>
+        {!similarReviewMode && (
+          <label className="search-field">
+            <Search size={15} aria-hidden="true" />
+            <span className="sr-only">Search photos</span>
+            <input
+              placeholder="Search"
+              value={searchQuery}
+              onChange={(event) => onSearchChange(event.target.value)}
+            />
+          </label>
+        )}
         {similarReviewMode ? (
           selectButton
         ) : (
