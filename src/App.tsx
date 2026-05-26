@@ -3,7 +3,7 @@ import { LeftRail } from './components/LeftRail'
 import { PhotoSurface } from './components/PhotoSurface'
 import { TopBar } from './components/TopBar'
 import { SimilarReviewView } from './features/similar-review/SimilarReviewView'
-import { buildSimilarReviewQueue } from './features/similar-review/similarReviewModel'
+import { buildSimilarReviewQueue, DEFAULT_WINDOW_MS } from './features/similar-review/similarReviewModel'
 import { getTimelinePhotos } from './desktop/photos'
 import { pickPhotoFolder, scanPhotoSource } from './desktop/library'
 import {
@@ -27,6 +27,7 @@ export default function App() {
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [rightCollapsed, setRightCollapsed] = useState(false)
   const [similarReviewPhotos, setSimilarReviewPhotos] = useState<Awaited<ReturnType<typeof getTimelinePhotos>>>([])
+  const [similarReviewWindowMs, setSimilarReviewWindowMs] = useState<number>(DEFAULT_WINDOW_MS)
 
   const library = useLibrary()
   const albumsState = useAlbums()
@@ -207,7 +208,11 @@ export default function App() {
   )
   const isSimilarReviewSelected = view.filter?.type === 'view' && view.filter.viewId === 'similar'
   const similarReviewCards = useMemo(
-    () => buildSimilarReviewQueue(similarReviewPhotos),
+    () => buildSimilarReviewQueue(similarReviewPhotos, { windowMs: similarReviewWindowMs }),
+    [similarReviewPhotos, similarReviewWindowMs],
+  )
+  const similarReviewPhotosById = useMemo(
+    () => new Map(similarReviewPhotos.map((p) => [p.id, p])),
     [similarReviewPhotos],
   )
 
@@ -280,7 +285,12 @@ export default function App() {
           />
         )}
         {isSimilarReviewSelected ? (
-          <SimilarReviewView cards={similarReviewCards} />
+          <SimilarReviewView
+            cards={similarReviewCards}
+            photosById={similarReviewPhotosById}
+            windowMs={similarReviewWindowMs}
+            onWindowChange={setSimilarReviewWindowMs}
+          />
         ) : (
           <PhotoSurface
             filter={view.filter}
