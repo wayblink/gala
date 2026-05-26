@@ -67,18 +67,6 @@ export function TopBar({
               aria-label="Group window in milliseconds"
             />
             <span className="sr-banner-slider__value">{formatWindow(windowMs)}</span>
-            <span className="sr-banner-slider__presets">
-              {windowPresets.map((preset) => (
-                <button
-                  type="button"
-                  key={preset}
-                  className={`sr-banner-slider__preset${preset === windowMs ? ' sr-banner-slider__preset--active' : ''}`}
-                  onClick={() => onWindowChange?.(preset)}
-                >
-                  {formatWindow(preset)}
-                </button>
-              ))}
-            </span>
           </label>
         ) : (
           <div className="view-mode-switcher" aria-label="Display mode">

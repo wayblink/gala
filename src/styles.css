@@ -2242,9 +2242,10 @@ a {
 .sr-banner-slider {
   align-items: center;
   display: inline-flex;
-  flex: 1;
+  flex: 0 1 33%;
   gap: 12px;
-  min-width: 0;
+  max-width: 33%;
+  min-width: 220px;
 }
 
 .sr-banner-slider__label {
@@ -2259,7 +2260,7 @@ a {
   background: transparent;
   flex: 1;
   height: 4px;
-  min-width: 140px;
+  min-width: 80px;
 }
 
 .sr-banner-slider__value {
@@ -2269,33 +2270,6 @@ a {
   font-weight: 700;
   min-width: 52px;
   text-align: right;
-}
-
-.sr-banner-slider__presets {
-  display: inline-flex;
-  gap: 4px;
-}
-
-.sr-banner-slider__preset {
-  background: var(--ink-800);
-  border: 1px solid var(--ink-700);
-  border-radius: 4px;
-  color: var(--paper-200);
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 11px;
-  padding: 3px 7px;
-}
-
-.sr-banner-slider__preset:hover {
-  background: var(--ink-700);
-}
-
-.sr-banner-slider__preset--active {
-  background: var(--amber-dust);
-  border-color: #d8ad69;
-  color: #17130f;
-  font-weight: 700;
 }
 
 .sr-hero {
