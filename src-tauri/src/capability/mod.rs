@@ -8,12 +8,16 @@
 mod orchestrator;
 mod provider;
 mod registry;
+mod scope;
 mod store;
 mod types;
+
+pub mod commands;
 
 pub use orchestrator::{Orchestrator, OrchestratorConfig, RunOutcome, RunSummary};
 pub use provider::{CapabilityProvider, NoopProvider};
 pub use registry::CapabilityRegistry;
+pub use scope::resolve_scope;
 pub use types::{
     AnalyzeContext, AnalyzeInput, AnalyzeOutput, AnalysisRequest, Artifact, CapabilityError,
     CapabilityId, JobStatus, ProviderId, ScopeKind,
