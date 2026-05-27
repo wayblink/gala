@@ -1,3 +1,4 @@
+pub mod capability;
 pub mod library;
 
 #[derive(serde::Serialize)]

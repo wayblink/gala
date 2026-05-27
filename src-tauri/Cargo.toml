@@ -24,6 +24,10 @@ uuid = { version = "1", features = ["v4", "serde"] }
 image = "0.25"
 base64 = "0.22"
 kamadak-exif = "0.6"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time"] }
+tokio-util = "0.7"
+async-trait = "0.1"
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time", "test-util"] }
