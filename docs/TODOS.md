@@ -22,11 +22,10 @@ Review 反馈汇总。按优先级与领域组织，逐项消化后迁移到对�
   - 避免 V1 落地时全表 migration。
   - 同时预留 `photo_groups` 表的草稿 schema（可在 TODOS.md 内先画 draft）。
 
-- [ ] **能力层接口形态 RFC**
-  - 回答：控制层如何调用能力层？Rust trait、FFI、子进程 HTTP、还是 in-process channel？
-  - Provider 结果的统一序列化格式。
-  - 任务状态持久化表（是否复用 `scan_jobs`？）。
-  - 输出到 `core-image-analysis-platform.md` 或新建 `capability-interface-rfc.md`。
+- [x] **能力层接口形态 RFC**
+  - 收敛于 [capability-interface-rfc.md](capability-interface-rfc.md)（2026-05-27 起草）。
+  - 决策摘要：trait `CapabilityProvider` in-process / `analysis_jobs` 与 `scan_jobs` 解耦 / 结果走 `analysis_results` 账本 + 域专属表（faces、persons、photo_faces）/ JSON 序列化。
+  - 实现入口：People V0 作为首个 capability consumer。
 
 ### UI / 设计
 
