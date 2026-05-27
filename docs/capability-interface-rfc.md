@@ -403,7 +403,7 @@ V0 不开 MCP，但接口要为后续暴露留口子。
 
 **M1（本 RFC 落地）**：
 - 建立 `capability` crate 模块、trait、registry。
-- 落 `analysis_jobs` / `analysis_events` / `analysis_results` 三表 schema v4 migration。
+- 落 `analysis_jobs` / `analysis_events` / `analysis_results` 三表 schema v7 migration（基线 v6 → v7）。
 - People V0：`MacosVisionFaceProvider` + `HnswFaceClusterer`，最简 UI。
 
 **M2**：

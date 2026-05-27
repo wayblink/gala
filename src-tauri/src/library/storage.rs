@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use uuid::Uuid;
 
-const SCHEMA_VERSION: i32 = 6;
+const SCHEMA_VERSION: i32 = 7;
 
 const PHOTO_COLS: &str = "p.id, p.file_name, p.relative_path, p.file_mtime, p.file_size, \
     s.name, s.status, pa.thumbnail_medium_path, p.favorited_at, p.width, p.height, \
@@ -102,6 +102,92 @@ pub fn initialize_schema(conn: &Connection) -> Result<(), String> {
             added_at TEXT NOT NULL,
             PRIMARY KEY (photo_id, tag_id)
         );
+        CREATE TABLE IF NOT EXISTS analysis_jobs (
+            id TEXT PRIMARY KEY,
+            capability TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            schema_version INTEGER NOT NULL,
+            scope_kind TEXT NOT NULL,
+            scope_id TEXT,
+            status TEXT NOT NULL,
+            priority INTEGER NOT NULL DEFAULT 0,
+            attempt_count INTEGER NOT NULL DEFAULT 0,
+            parent_job_id TEXT REFERENCES analysis_jobs(id),
+            config_json TEXT,
+            started_at TEXT,
+            completed_at TEXT,
+            photos_total INTEGER NOT NULL DEFAULT 0,
+            photos_done INTEGER NOT NULL DEFAULT 0,
+            photos_failed INTEGER NOT NULL DEFAULT 0,
+            photos_skipped INTEGER NOT NULL DEFAULT 0,
+            error_message TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS analysis_events (
+            id TEXT PRIMARY KEY,
+            analysis_job_id TEXT NOT NULL REFERENCES analysis_jobs(id),
+            photo_id TEXT REFERENCES photos(id),
+            event_type TEXT NOT NULL,
+            message TEXT,
+            result_summary TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS analysis_results (
+            photo_id TEXT NOT NULL REFERENCES photos(id),
+            capability TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            schema_version INTEGER NOT NULL,
+            result_json TEXT NOT NULL,
+            confidence REAL,
+            job_id TEXT REFERENCES analysis_jobs(id),
+            generated_at TEXT NOT NULL,
+            PRIMARY KEY (photo_id, capability, provider_id, schema_version)
+        );
+        CREATE TABLE IF NOT EXISTS persons (
+            id TEXT PRIMARY KEY,
+            display_name TEXT,
+            rep_face_id TEXT,
+            cluster_method TEXT NOT NULL,
+            face_count INTEGER NOT NULL DEFAULT 0,
+            is_hidden INTEGER NOT NULL DEFAULT 0,
+            merged_into TEXT REFERENCES persons(id),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS faces (
+            id TEXT PRIMARY KEY,
+            photo_id TEXT NOT NULL REFERENCES photos(id),
+            detected_by TEXT NOT NULL,
+            bbox_x REAL NOT NULL,
+            bbox_y REAL NOT NULL,
+            bbox_w REAL NOT NULL,
+            bbox_h REAL NOT NULL,
+            confidence REAL NOT NULL,
+            landmarks_json TEXT,
+            embedding_path TEXT,
+            embedding_dim INTEGER,
+            person_id TEXT REFERENCES persons(id),
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS photo_faces (
+            photo_id TEXT NOT NULL REFERENCES photos(id),
+            face_id TEXT NOT NULL REFERENCES faces(id),
+            PRIMARY KEY (photo_id, face_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_analysis_jobs_status
+            ON analysis_jobs(status, priority DESC, created_at);
+        CREATE INDEX IF NOT EXISTS idx_analysis_jobs_capability
+            ON analysis_jobs(capability, provider_id);
+        CREATE INDEX IF NOT EXISTS idx_analysis_events_job
+            ON analysis_events(analysis_job_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_analysis_results_capability
+            ON analysis_results(capability, provider_id);
+        CREATE INDEX IF NOT EXISTS idx_faces_photo ON faces(photo_id);
+        CREATE INDEX IF NOT EXISTS idx_faces_person
+            ON faces(person_id) WHERE person_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_persons_name
+            ON persons(display_name) WHERE display_name IS NOT NULL;
         "#,
     )
     .map_err(|e| format!("Failed to initialize schema: {}", e))?;
@@ -159,6 +245,92 @@ pub fn migrate_schema(conn: &Connection) -> Result<(), String> {
             added_at TEXT NOT NULL,
             PRIMARY KEY (photo_id, tag_id)
         );
+        CREATE TABLE IF NOT EXISTS analysis_jobs (
+            id TEXT PRIMARY KEY,
+            capability TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            schema_version INTEGER NOT NULL,
+            scope_kind TEXT NOT NULL,
+            scope_id TEXT,
+            status TEXT NOT NULL,
+            priority INTEGER NOT NULL DEFAULT 0,
+            attempt_count INTEGER NOT NULL DEFAULT 0,
+            parent_job_id TEXT REFERENCES analysis_jobs(id),
+            config_json TEXT,
+            started_at TEXT,
+            completed_at TEXT,
+            photos_total INTEGER NOT NULL DEFAULT 0,
+            photos_done INTEGER NOT NULL DEFAULT 0,
+            photos_failed INTEGER NOT NULL DEFAULT 0,
+            photos_skipped INTEGER NOT NULL DEFAULT 0,
+            error_message TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS analysis_events (
+            id TEXT PRIMARY KEY,
+            analysis_job_id TEXT NOT NULL REFERENCES analysis_jobs(id),
+            photo_id TEXT REFERENCES photos(id),
+            event_type TEXT NOT NULL,
+            message TEXT,
+            result_summary TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS analysis_results (
+            photo_id TEXT NOT NULL REFERENCES photos(id),
+            capability TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            schema_version INTEGER NOT NULL,
+            result_json TEXT NOT NULL,
+            confidence REAL,
+            job_id TEXT REFERENCES analysis_jobs(id),
+            generated_at TEXT NOT NULL,
+            PRIMARY KEY (photo_id, capability, provider_id, schema_version)
+        );
+        CREATE TABLE IF NOT EXISTS persons (
+            id TEXT PRIMARY KEY,
+            display_name TEXT,
+            rep_face_id TEXT,
+            cluster_method TEXT NOT NULL,
+            face_count INTEGER NOT NULL DEFAULT 0,
+            is_hidden INTEGER NOT NULL DEFAULT 0,
+            merged_into TEXT REFERENCES persons(id),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS faces (
+            id TEXT PRIMARY KEY,
+            photo_id TEXT NOT NULL REFERENCES photos(id),
+            detected_by TEXT NOT NULL,
+            bbox_x REAL NOT NULL,
+            bbox_y REAL NOT NULL,
+            bbox_w REAL NOT NULL,
+            bbox_h REAL NOT NULL,
+            confidence REAL NOT NULL,
+            landmarks_json TEXT,
+            embedding_path TEXT,
+            embedding_dim INTEGER,
+            person_id TEXT REFERENCES persons(id),
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS photo_faces (
+            photo_id TEXT NOT NULL REFERENCES photos(id),
+            face_id TEXT NOT NULL REFERENCES faces(id),
+            PRIMARY KEY (photo_id, face_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_analysis_jobs_status
+            ON analysis_jobs(status, priority DESC, created_at);
+        CREATE INDEX IF NOT EXISTS idx_analysis_jobs_capability
+            ON analysis_jobs(capability, provider_id);
+        CREATE INDEX IF NOT EXISTS idx_analysis_events_job
+            ON analysis_events(analysis_job_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_analysis_results_capability
+            ON analysis_results(capability, provider_id);
+        CREATE INDEX IF NOT EXISTS idx_faces_photo ON faces(photo_id);
+        CREATE INDEX IF NOT EXISTS idx_faces_person
+            ON faces(person_id) WHERE person_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_persons_name
+            ON persons(display_name) WHERE display_name IS NOT NULL;
         "#,
     )
     .map_err(|e| format!("Failed to create new tables: {}", e))?;
@@ -1189,4 +1361,157 @@ pub fn get_album_photos(conn: &Connection, album_id: &str, limit: i64, offset: i
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("Failed to collect album photos: {}", e))?;
     Ok(photos)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    fn open_memory() -> Connection {
+        Connection::open_in_memory().expect("open in-memory sqlite")
+    }
+
+    fn table_exists(conn: &Connection, name: &str) -> bool {
+        conn.query_row(
+            "SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name = ?1",
+            params![name],
+            |_| Ok(()),
+        )
+        .is_ok()
+    }
+
+    fn current_version(conn: &Connection) -> i32 {
+        conn.query_row("SELECT version FROM schema_version", [], |row| row.get(0))
+            .expect("read schema_version")
+    }
+
+    #[test]
+    fn fresh_initialize_creates_v7_capability_tables() {
+        let conn = open_memory();
+        initialize_schema(&conn).expect("initialize schema");
+
+        assert_eq!(current_version(&conn), SCHEMA_VERSION);
+        for table in [
+            "analysis_jobs",
+            "analysis_events",
+            "analysis_results",
+            "faces",
+            "persons",
+            "photo_faces",
+        ] {
+            assert!(table_exists(&conn, table), "missing table {}", table);
+        }
+    }
+
+    #[test]
+    fn migrate_from_v6_adds_capability_tables_and_keeps_existing_rows() {
+        let conn = open_memory();
+        // Build a minimal v6-shaped database: schema_version row + a sources / photos row.
+        conn.execute_batch(
+            r#"
+            CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+            CREATE TABLE sources (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                root_path TEXT NOT NULL UNIQUE,
+                source_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                last_scan_started_at TEXT,
+                last_scan_completed_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE photos (
+                id TEXT PRIMARY KEY,
+                source_id TEXT NOT NULL REFERENCES sources(id),
+                relative_path TEXT NOT NULL,
+                absolute_path_snapshot TEXT NOT NULL,
+                file_name TEXT NOT NULL,
+                extension TEXT NOT NULL,
+                file_size INTEGER NOT NULL,
+                file_mtime INTEGER NOT NULL,
+                width INTEGER,
+                height INTEGER,
+                captured_at TEXT,
+                camera_make TEXT,
+                camera_model TEXT,
+                lens_model TEXT,
+                gps_latitude REAL,
+                gps_longitude REAL,
+                status TEXT NOT NULL,
+                favorited_at TEXT,
+                hidden_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(source_id, relative_path)
+            );
+            INSERT INTO schema_version (version) VALUES (6);
+            INSERT INTO sources (id, name, root_path, source_type, status, created_at, updated_at)
+            VALUES ('src-1', 'Test', '/tmp/src', 'local', 'online', '2026-05-27', '2026-05-27');
+            INSERT INTO photos
+              (id, source_id, relative_path, absolute_path_snapshot, file_name, extension,
+               file_size, file_mtime, status, created_at, updated_at)
+            VALUES
+              ('p-1', 'src-1', 'a.jpg', '/tmp/src/a.jpg', 'a.jpg', 'jpg',
+               1024, 0, 'indexed', '2026-05-27', '2026-05-27');
+            "#,
+        )
+        .expect("seed v6 schema");
+
+        migrate_schema(&conn).expect("migrate schema to v7");
+
+        assert_eq!(current_version(&conn), SCHEMA_VERSION);
+        for table in [
+            "analysis_jobs",
+            "analysis_events",
+            "analysis_results",
+            "faces",
+            "persons",
+            "photo_faces",
+        ] {
+            assert!(table_exists(&conn, table), "missing table {}", table);
+        }
+
+        // Pre-existing photo row preserved.
+        let photo_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM photos", [], |row| row.get(0))
+            .expect("count photos");
+        assert_eq!(photo_count, 1);
+    }
+
+    #[test]
+    fn migrate_is_idempotent() {
+        let conn = open_memory();
+        initialize_schema(&conn).expect("initialize schema");
+        migrate_schema(&conn).expect("first migrate");
+        migrate_schema(&conn).expect("second migrate is a no-op");
+        assert_eq!(current_version(&conn), SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn analysis_results_pk_blocks_duplicates() {
+        let conn = open_memory();
+        initialize_schema(&conn).expect("initialize schema");
+        conn.execute(
+            "INSERT INTO sources (id, name, root_path, source_type, status, created_at, updated_at) \
+             VALUES ('s', 't', '/x', 'local', 'online', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO photos (id, source_id, relative_path, absolute_path_snapshot, file_name, \
+             extension, file_size, file_mtime, status, created_at, updated_at) \
+             VALUES ('p', 's', 'a.jpg', '/x/a.jpg', 'a.jpg', 'jpg', 1, 0, 'indexed', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+
+        let insert = "INSERT INTO analysis_results \
+             (photo_id, capability, provider_id, schema_version, result_json, generated_at) \
+             VALUES ('p', 'face.detect', 'macos.vision.v1', 1, '{}', 'now')";
+        conn.execute(insert, []).expect("first insert");
+        let dup = conn.execute(insert, []);
+        assert!(dup.is_err(), "duplicate key should fail");
+    }
 }
