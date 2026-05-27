@@ -4,7 +4,7 @@
 >
 > 上层定位见 [core-image-analysis-platform.md](core-image-analysis-platform.md)；底层 schema 与扫描流程见 [data-and-control-design.md](data-and-control-design.md)。
 >
-> Status: **Draft v0** · Last updated 2026-05-27
+> Status: **Draft v0.1** · Last updated 2026-05-27 (5 open questions resolved)
 
 ---
 
@@ -420,17 +420,25 @@ V0 不开 MCP，但接口要为后续暴露留口子。
 
 ---
 
-## 9. Open Questions
+## 9. Open Questions — Resolved (2026-05-27)
 
-1. **Provider 优先级表的位置**：写死在 toml 还是放进 settings？倾向 toml（开发者）+ settings overrides（用户偏好）。
-2. **Artifact 存储路径根**：跟着 thumbnail 走 `data/artifacts/` 还是分开？倾向同一根目录便于备份。
-3. **job 调度器**：手写 tokio task pool 还是引入 `apalis` / `lapin`？V0 手写够用；M3 重评估。
-4. **人脸聚类阈值的用户可调性**：暴露给用户像 Similar Review 那样滑动还是黑盒？V0 黑盒（写死 0.55 cosine），V1 看反馈。
-5. **GPU 可选性**：Apple Silicon 默认走 Neural Engine（Vision 自动）；Intel macOS / Linux 上 ONNX 默认 CPU。GPU 路径 V2 再开。
+1. **Provider 优先级表的位置** → `assets/capability-priority.toml`（开发者默认顺序）+ user settings overrides（高级用户可调）。代码层 fallback 必须存在以防 toml 缺失。
+2. **Artifact 存储路径根** → 同根 `data/artifacts/<photo_id>/<capability>/<provider>/<id>.bin`，与 thumbnail 共用顶层目录便于备份脚本扫描。若以后需要分保留策略，再切表里加 `retention_policy` 字段而不是分目录。
+3. **Job 调度器** → V0 手写 tokio task pool（~100-200 行 Rust）。M3 上子进程 provider 时再评估 `apalis` / 自研 work queue。不引入 Redis 等外部依赖。
+4. **聚类阈值的用户可调性** → V0 写死 `cosine = 0.55`，不暴露 UI。等真实用户反馈再决定是否暴露。
+5. **GPU 路径** → V0 只走 Apple Silicon Neural Engine（macOS Vision 自动）+ CPU（ONNX 兜底）。Metal / CUDA 推迟到 M2 评估，避免踩 GPU 驱动适配坑。
+
+## 10. Open Questions（未来）
+
+留给 M2/M3 阶段决策的事项：
+
+- **Metal / CUDA backend**：何时开 ONNX GPU runtime？需要先看 face.embed 在 CPU 上的 P50 / P95 latency。
+- **聚类阈值暴露形态**：slider / 预设 chip / 高级设置开关？取决于用户实测投诉量。
+- **Provider 自动选择策略**：现在按优先级取第一个能用的；将来要不要按 device load / battery 自动切换？
 
 ---
 
-## 10. 相关文档
+## 11. 相关文档
 
 - [technical-architecture.md](technical-architecture.md) — 五层架构总纲
 - [core-image-analysis-platform.md](core-image-analysis-platform.md) — 能力层定位
