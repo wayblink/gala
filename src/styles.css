@@ -2035,6 +2035,124 @@ a {
 }
 
 
+/* ── People view (M1.3a — NoopProvider scaffold) ─ */
+.people-view {
+  padding: 32px 40px;
+  overflow-y: auto;
+  color: var(--paper-100);
+}
+
+.people-view__header {
+  align-items: flex-end;
+  border-bottom: 1px solid var(--ink-700);
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  margin-bottom: 22px;
+  padding-bottom: 14px;
+}
+
+.people-view__header h2 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 22px;
+  font-weight: 650;
+  margin: 0;
+}
+
+.people-view__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.people-view__actions button {
+  background: var(--ink-800);
+  border: 1px solid var(--ink-700);
+  border-radius: 6px;
+  color: var(--paper-200);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 7px 14px;
+}
+
+.people-view__actions button:hover:not(:disabled) {
+  background: var(--ink-700);
+}
+
+.people-view__actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.people-view__providers {
+  background: var(--ink-900);
+  border: 1px solid var(--ink-700);
+  border-radius: 8px;
+  color: var(--stone-400);
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+}
+
+.people-view__providers strong {
+  color: var(--paper-200);
+  display: block;
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.people-view__summary {
+  background: rgba(201, 151, 77, 0.1);
+  border: 1px solid rgba(201, 151, 77, 0.3);
+  border-radius: 8px;
+  color: var(--paper-100);
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 12px;
+  margin-bottom: 18px;
+  padding: 10px 14px;
+}
+
+.people-view__results h3 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  margin: 0 0 10px;
+  text-transform: uppercase;
+}
+
+.people-view__results ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.people-view__results li {
+  background: var(--ink-900);
+  border: 1px solid var(--ink-700);
+  border-radius: 6px;
+  color: var(--stone-400);
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 11px;
+  overflow-x: auto;
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+
+.people-view__results li strong {
+  color: var(--amber-dust);
+  font-family: inherit;
+  margin-right: 8px;
+}
+
 /* ── Similar Review workflow surface (variant C) ─ */
 .similar-review-view {
   display: grid;

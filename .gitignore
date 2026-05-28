@@ -13,3 +13,9 @@ src-tauri/gen/schemas/
 test-photos/
 test-photos-*/
 .gstack/
+
+# Local agent / editor noise
+.DS_Store
+.claude/
+.codex/
+.vscode/
