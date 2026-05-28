@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(printenv USING_MEMORY_CONFIG)",
+      "Skill(design-consultation)",
+      "Skill(plan-eng-review)",
+      "Skill(document-release)"
+    ]
+  }
+}

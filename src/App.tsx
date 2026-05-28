@@ -4,6 +4,7 @@ import { PhotoSurface } from './components/PhotoSurface'
 import { PhotoViewer } from './components/PhotoViewer'
 import { TopBar } from './components/TopBar'
 import { SimilarReviewView } from './features/similar-review/SimilarReviewView'
+import { PeopleView } from './features/people/PeopleView'
 import { buildSimilarReviewQueue, DEFAULT_WINDOW_MS } from './features/similar-review/similarReviewModel'
 import { getTimelinePhotos } from './desktop/photos'
 import { pickPhotoFolder, scanPhotoSource } from './desktop/library'
@@ -213,6 +214,7 @@ export default function App() {
     (k) => (view.smartFilter as Record<string, unknown>)[k] !== undefined,
   )
   const isSimilarReviewSelected = view.filter?.type === 'view' && view.filter.viewId === 'similar'
+  const isPeopleSelected = view.filter?.type === 'view' && view.filter.viewId === 'people'
   const similarReviewCards = useMemo(
     () => buildSimilarReviewQueue(similarReviewPhotos, { windowMs: similarReviewWindowMs }),
     [similarReviewPhotos, similarReviewWindowMs],
@@ -406,6 +408,8 @@ export default function App() {
             onClearSelection={selection.clearSelected}
             onZoomPhotos={(photos, index) => setSimilarReviewViewerState({ photos, index })}
           />
+        ) : isPeopleSelected ? (
+          <PeopleView />
         ) : (
           <PhotoSurface
             filter={view.filter}
