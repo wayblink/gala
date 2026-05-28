@@ -231,4 +231,69 @@ mod tests {
             out.confidence
         );
     }
+
+    /// One-off sanity sweep over the face fixture set. Run with:
+    ///   cargo test --lib capability::macos_vision::tests::vision_sweep -- --nocapture --ignored
+    /// Ignored by default because it depends on test-photos-faces/ which is
+    /// developer-local. Output lists per-file face count and confidence so
+    /// we can spot whether AI-generated faces (StyleGAN) survive Vision and
+    /// how well multi-face shots like Solvay 1927 perform.
+    #[tokio::test]
+    #[ignore]
+    async fn vision_sweep() {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let dir = PathBuf::from(manifest_dir)
+            .parent()
+            .unwrap()
+            .join("test-photos-faces");
+        if !dir.exists() {
+            eprintln!("[vision-sweep] {} missing — skipping", dir.display());
+            return;
+        }
+        let mut files: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("jpg"))
+            .collect();
+        files.sort();
+        let provider = MacosVisionFaceProvider::new();
+        for path in files {
+            let input = AnalyzeInput {
+                photo_id: path.file_stem().unwrap().to_string_lossy().into_owned(),
+                image_path: path.clone(),
+                thumbnail_path: None,
+                hint_dimensions: None,
+            };
+            let ctx = AnalyzeContext {
+                job_id: "vision-sweep".into(),
+                cancel: tokio_util::sync::CancellationToken::new(),
+                config: serde_json::json!({}),
+            };
+            match provider.analyze(&ctx, FACE_DETECT, &input).await {
+                Ok(o) => {
+                    let faces = o
+                        .result
+                        .get("faces")
+                        .and_then(|f| f.as_array())
+                        .map(|a| a.len())
+                        .unwrap_or(0);
+                    let conf = o.confidence.unwrap_or(0.0);
+                    eprintln!(
+                        "[vision-sweep] {:<22} {:3} face(s)  best_conf={:.2}",
+                        path.file_name().unwrap().to_string_lossy(),
+                        faces,
+                        conf,
+                    );
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[vision-sweep] {:<22} ERROR: {}",
+                        path.file_name().unwrap().to_string_lossy(),
+                        e
+                    );
+                }
+            }
+        }
+    }
 }

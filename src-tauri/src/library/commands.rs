@@ -24,7 +24,7 @@ use tauri::{AppHandle, Emitter, Manager};
 const MAX_VIEWER_ORIGINAL_BYTES: u64 = 50 * 1024 * 1024;
 const SCAN_PROGRESS_EVENT: &str = "gala://scan-progress";
 
-fn get_db_path(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn get_db_path(app: &AppHandle) -> Result<PathBuf, String> {
     let app_data_dir = app
         .path()
         .app_data_dir()

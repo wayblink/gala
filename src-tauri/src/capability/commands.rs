@@ -10,7 +10,7 @@ use std::sync::{Arc, OnceLock};
 use chrono::{DateTime, Utc};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::library::storage::{initialize_schema, migrate_schema, open_database};
@@ -51,23 +51,12 @@ fn registry() -> Arc<CapabilityRegistry> {
         .clone()
 }
 
-fn db_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let data_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| format!("Failed to resolve app data dir: {}", e))?;
-    Ok(data_dir.join("library.db"))
-}
-
 fn ensure_db(app: &AppHandle) -> Result<PathBuf, String> {
-    let path = db_path(app)?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create data dir: {}", e))?;
-    }
-    // Bootstrap the DB lazily so capability commands don't require the user
-    // to have scanned a source first. Empty-library is a valid state — the
-    // orchestrator will simply produce a 0/0/0 RunSummary.
+    // Reuse the library layer's DB path so photos/sources/faces all
+    // live in one file. Previously this pointed at a separate
+    // "library.db" via app_local_data_dir which caused scope=All to
+    // return 0 photos even though the library had scanned 50.
+    let path = crate::library::commands::get_db_path(app)?;
     let conn = open_database(&path)?;
     initialize_schema(&conn)?;
     migrate_schema(&conn)?;
