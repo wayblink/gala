@@ -24,7 +24,7 @@ use super::provider::CapabilityProvider;
 use super::registry::CapabilityRegistry;
 use super::store;
 use super::types::{
-    AnalyzeContext, AnalyzeInput, AnalyzeOutput, AnalysisRequest, CapabilityError, JobStatus,
+    AnalysisRequest, AnalyzeContext, AnalyzeInput, AnalyzeOutput, CapabilityError, JobStatus,
 };
 
 /// Tuning knobs the caller may pass through.
@@ -35,9 +35,7 @@ pub struct OrchestratorConfig {
 
 impl Default for OrchestratorConfig {
     fn default() -> Self {
-        Self {
-            max_concurrency: 4,
-        }
+        Self { max_concurrency: 4 }
     }
 }
 
@@ -313,7 +311,14 @@ fn write_success(
         .map_err(|e| CapabilityError::Storage(format!("open db: {}", e)))?;
     store::upsert_result(&conn, photo_id, job_id, out)?;
     let summary = serde_json::to_string(&out.result).ok();
-    store::append_event(&conn, job_id, Some(photo_id), "result", None, summary.as_deref())?;
+    store::append_event(
+        &conn,
+        job_id,
+        Some(photo_id),
+        "result",
+        None,
+        summary.as_deref(),
+    )?;
     Ok(())
 }
 

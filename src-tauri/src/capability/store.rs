@@ -9,7 +9,7 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
-use super::types::{AnalyzeOutput, AnalysisRequest, CapabilityError, JobStatus};
+use super::types::{AnalysisRequest, AnalyzeOutput, CapabilityError, JobStatus};
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -222,10 +222,7 @@ pub fn count_events(conn: &Connection, job_id: &str) -> Result<i64, CapabilityEr
 }
 
 #[cfg(test)]
-pub fn count_results(
-    conn: &Connection,
-    job_id: &str,
-) -> Result<i64, CapabilityError> {
+pub fn count_results(conn: &Connection, job_id: &str) -> Result<i64, CapabilityError> {
     let n: i64 = conn.query_row(
         "SELECT COUNT(*) FROM analysis_results WHERE job_id = ?1",
         params![job_id],

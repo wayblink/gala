@@ -189,7 +189,10 @@ fn scan_photo_source_inner(app: &AppHandle, root_path: String) -> Result<ScanSum
     for upserted_photo in needs_work {
         let photo_id = &upserted_photo.id;
         let photo_path = &upserted_photo.absolute_path;
-        eprintln!("[scan_photo_source] Generating thumbnails for: {}", photo_path);
+        eprintln!(
+            "[scan_photo_source] Generating thumbnails for: {}",
+            photo_path
+        );
         let current_file = PathBuf::from(photo_path)
             .file_name()
             .and_then(|f| f.to_str())
@@ -198,12 +201,21 @@ fn scan_photo_source_inner(app: &AppHandle, root_path: String) -> Result<ScanSum
         match thumbnail_gen.generate_all(photo_id, &PathBuf::from(photo_path)) {
             Ok(paths) => {
                 thumbnail_ready_count += 1;
-                eprintln!("[scan_photo_source] Generated thumbnails: small={}, medium={}, large={}",
-                    paths.small, paths.medium, paths.large);
-                if let Err(e) = upsert_photo_assets(&conn, photo_id, &paths.small, &paths.medium, &paths.large) {
+                eprintln!(
+                    "[scan_photo_source] Generated thumbnails: small={}, medium={}, large={}",
+                    paths.small, paths.medium, paths.large
+                );
+                if let Err(e) =
+                    upsert_photo_assets(&conn, photo_id, &paths.small, &paths.medium, &paths.large)
+                {
                     eprintln!("Failed to save thumbnail paths for {}: {}", photo_id, e);
                 }
-                if let Err(e) = update_photo_dimensions(&conn, photo_id, paths.original_width, paths.original_height) {
+                if let Err(e) = update_photo_dimensions(
+                    &conn,
+                    photo_id,
+                    paths.original_width,
+                    paths.original_height,
+                ) {
                     eprintln!("Failed to save dimensions for {}: {}", photo_id, e);
                 }
             }
@@ -219,10 +231,14 @@ fn scan_photo_source_inner(app: &AppHandle, root_path: String) -> Result<ScanSum
         match extract_exif_metadata(&PathBuf::from(photo_path)) {
             Ok(metadata) => {
                 if let Err(e) = update_photo_exif_metadata(
-                    &conn, photo_id,
-                    metadata.captured_at.as_deref(), metadata.camera_make.as_deref(),
-                    metadata.camera_model.as_deref(), metadata.lens_model.as_deref(),
-                    metadata.gps_latitude, metadata.gps_longitude,
+                    &conn,
+                    photo_id,
+                    metadata.captured_at.as_deref(),
+                    metadata.camera_make.as_deref(),
+                    metadata.camera_model.as_deref(),
+                    metadata.lens_model.as_deref(),
+                    metadata.gps_latitude,
+                    metadata.gps_longitude,
                 ) {
                     eprintln!("Failed to save EXIF metadata for {}: {}", photo_id, e);
                 }
@@ -514,7 +530,11 @@ fn open_conn(app: &AppHandle) -> Result<rusqlite::Connection, String> {
 pub fn toggle_photo_hidden_cmd(app: AppHandle, photo_id: String) -> Result<bool, String> {
     let conn = open_conn(&app)?;
     let current: Option<String> = conn
-        .query_row("SELECT hidden_at FROM photos WHERE id = ?1", params![photo_id], |row| row.get(0))
+        .query_row(
+            "SELECT hidden_at FROM photos WHERE id = ?1",
+            params![photo_id],
+            |row| row.get(0),
+        )
         .map_err(|e| format!("Failed to query photo: {}", e))?;
     let new_state = current.is_none();
     set_photo_hidden(&conn, &photo_id, new_state)?;
@@ -522,9 +542,15 @@ pub fn toggle_photo_hidden_cmd(app: AppHandle, photo_id: String) -> Result<bool,
 }
 
 #[tauri::command]
-pub fn get_hidden_photos_cmd(app: AppHandle, limit: i64, offset: i64) -> Result<Vec<TimelinePhoto>, String> {
+pub fn get_hidden_photos_cmd(
+    app: AppHandle,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<TimelinePhoto>, String> {
     let db_path = get_db_path(&app)?;
-    if !db_path.exists() { return Ok(vec![]); }
+    if !db_path.exists() {
+        return Ok(vec![]);
+    }
     let conn = open_database(&db_path)?;
     initialize_schema(&conn)?;
     migrate_schema(&conn)?;
@@ -550,21 +576,31 @@ pub fn get_filtered_photos_cmd(
     extensions: Vec<String>,
 ) -> Result<Vec<TimelinePhoto>, String> {
     let db_path = get_db_path(&app)?;
-    if !db_path.exists() { return Ok(vec![]); }
+    if !db_path.exists() {
+        return Ok(vec![]);
+    }
     let conn = open_database(&db_path)?;
     initialize_schema(&conn)?;
     migrate_schema(&conn)?;
     get_filtered_photos(
-        &conn, limit, offset,
-        source_id.as_deref(), folder_path.as_deref(),
-        &cameras, date_from.as_deref(), date_to.as_deref(), &extensions,
+        &conn,
+        limit,
+        offset,
+        source_id.as_deref(),
+        folder_path.as_deref(),
+        &cameras,
+        date_from.as_deref(),
+        date_to.as_deref(),
+        &extensions,
     )
 }
 
 #[tauri::command]
 pub fn get_albums_cmd(app: AppHandle) -> Result<Vec<Album>, String> {
     let db_path = get_db_path(&app)?;
-    if !db_path.exists() { return Ok(vec![]); }
+    if !db_path.exists() {
+        return Ok(vec![]);
+    }
     let conn = open_database(&db_path)?;
     initialize_schema(&conn)?;
     migrate_schema(&conn)?;
@@ -590,13 +626,21 @@ pub fn rename_album_cmd(app: AppHandle, album_id: String, new_name: String) -> R
 }
 
 #[tauri::command]
-pub fn add_photo_to_album_cmd(app: AppHandle, album_id: String, photo_id: String) -> Result<(), String> {
+pub fn add_photo_to_album_cmd(
+    app: AppHandle,
+    album_id: String,
+    photo_id: String,
+) -> Result<(), String> {
     let conn = open_conn(&app)?;
     add_photo_to_album(&conn, &album_id, &photo_id)
 }
 
 #[tauri::command]
-pub fn remove_photo_from_album_cmd(app: AppHandle, album_id: String, photo_id: String) -> Result<(), String> {
+pub fn remove_photo_from_album_cmd(
+    app: AppHandle,
+    album_id: String,
+    photo_id: String,
+) -> Result<(), String> {
     let conn = open_conn(&app)?;
     remove_photo_from_album(&conn, &album_id, &photo_id)
 }
@@ -609,7 +653,9 @@ pub fn get_album_photos_cmd(
     offset: i64,
 ) -> Result<Vec<TimelinePhoto>, String> {
     let db_path = get_db_path(&app)?;
-    if !db_path.exists() { return Ok(vec![]); }
+    if !db_path.exists() {
+        return Ok(vec![]);
+    }
     let conn = open_database(&db_path)?;
     initialize_schema(&conn)?;
     migrate_schema(&conn)?;
@@ -735,7 +781,9 @@ pub fn set_photo_tags_cmd(
 #[tauri::command]
 pub fn get_all_tags_cmd(app: AppHandle) -> Result<Vec<Tag>, String> {
     let db_path = get_db_path(&app)?;
-    if !db_path.exists() { return Ok(vec![]); }
+    if !db_path.exists() {
+        return Ok(vec![]);
+    }
     let conn = open_database(&db_path)?;
     initialize_schema(&conn)?;
     migrate_schema(&conn)?;
@@ -750,7 +798,9 @@ pub fn get_photos_by_tag_cmd(
     offset: i64,
 ) -> Result<Vec<TimelinePhoto>, String> {
     let db_path = get_db_path(&app)?;
-    if !db_path.exists() { return Ok(vec![]); }
+    if !db_path.exists() {
+        return Ok(vec![]);
+    }
     let conn = open_database(&db_path)?;
     initialize_schema(&conn)?;
     migrate_schema(&conn)?;

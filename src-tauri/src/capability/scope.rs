@@ -53,7 +53,10 @@ fn fetch_one(conn: &Connection, photo_id: &str) -> Result<Option<AnalyzeInput>, 
     .map_err(CapabilityError::from)
 }
 
-fn fetch_by_source(conn: &Connection, source_id: &str) -> Result<Vec<AnalyzeInput>, CapabilityError> {
+fn fetch_by_source(
+    conn: &Connection,
+    source_id: &str,
+) -> Result<Vec<AnalyzeInput>, CapabilityError> {
     let mut stmt = conn.prepare(
         "SELECT p.id, s.root_path, p.relative_path, pa.thumbnail_medium_path, p.width, p.height \
          FROM photos p \

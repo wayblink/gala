@@ -1,8 +1,9 @@
 use gala_lib::library::scanner::discover_photos;
 use gala_lib::library::storage::{
-    get_library_summary, get_source_folders, get_timeline_photos, initialize_schema,
-    migrate_schema, open_database, replace_source_photos, search_photos, update_photo_dimensions,
-    update_photo_exif_metadata, upsert_photo_assets, upsert_source,
+    get_library_summary, get_photo_tags, get_source_folders, get_timeline_photos,
+    initialize_schema, migrate_schema, open_database, replace_source_photos, search_photos,
+    set_photo_tags, update_photo_dimensions, update_photo_exif_metadata, upsert_photo_assets,
+    upsert_source,
 };
 use std::fs;
 use tempfile::TempDir;
@@ -42,6 +43,27 @@ fn test_initializes_schema() {
     assert!(photo_columns.contains(&"lens_model".to_string()));
     assert!(photo_columns.contains(&"gps_latitude".to_string()));
     assert!(photo_columns.contains(&"gps_longitude".to_string()));
+    assert!(photo_columns.contains(&"content_hash".to_string()));
+    assert!(photo_columns.contains(&"fingerprint".to_string()));
+    assert!(photo_columns.contains(&"logical_id".to_string()));
+
+    let content_hash_index: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_photos_content_hash'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(content_hash_index, 1);
+
+    let photo_tag_sources_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='photo_tag_sources'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(photo_tag_sources_count, 1);
 }
 
 #[test]
@@ -91,6 +113,139 @@ fn test_migrates_legacy_v3_schema_missing_exif_columns() {
     assert!(photo_columns.contains(&"lens_model".to_string()));
     assert!(photo_columns.contains(&"gps_latitude".to_string()));
     assert!(photo_columns.contains(&"gps_longitude".to_string()));
+    assert!(photo_columns.contains(&"content_hash".to_string()));
+    assert!(photo_columns.contains(&"fingerprint".to_string()));
+    assert!(photo_columns.contains(&"logical_id".to_string()));
+}
+
+#[test]
+fn test_migration_backfills_fingerprint_for_existing_rows() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    let conn = open_database(&db_path).unwrap();
+    conn.execute_batch(
+        r#"
+        CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+        INSERT INTO schema_version (version) VALUES (7);
+
+        CREATE TABLE photos (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL,
+            relative_path TEXT NOT NULL,
+            absolute_path_snapshot TEXT NOT NULL,
+            file_name TEXT NOT NULL,
+            extension TEXT NOT NULL,
+            file_size INTEGER NOT NULL,
+            file_mtime INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        INSERT INTO photos
+          (id, source_id, relative_path, absolute_path_snapshot, file_name, extension,
+           file_size, file_mtime, status, created_at, updated_at)
+        VALUES
+          ('p-1', 'src-1', 'a.jpg', '/tmp/src/a.jpg', 'a.jpg', 'jpg',
+           2048, 12345, 'indexed', '2026-05-28', '2026-05-28');
+        "#,
+    )
+    .unwrap();
+
+    migrate_schema(&conn).unwrap();
+
+    let fingerprint: String = conn
+        .query_row(
+            "SELECT fingerprint FROM photos WHERE id = 'p-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(fingerprint, "2048:12345");
+}
+
+#[test]
+fn test_migrates_legacy_photo_tag_sources() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+
+    let conn = open_database(&db_path).unwrap();
+    conn.execute_batch(
+        r#"
+        CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+        INSERT INTO schema_version (version) VALUES (8);
+
+        CREATE TABLE photos (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL,
+            relative_path TEXT NOT NULL,
+            absolute_path_snapshot TEXT NOT NULL,
+            file_name TEXT NOT NULL,
+            extension TEXT NOT NULL,
+            file_size INTEGER NOT NULL,
+            file_mtime INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE tags (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            tag_type TEXT NOT NULL,
+            confidence REAL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE photo_tags (
+            photo_id TEXT NOT NULL,
+            tag_id TEXT NOT NULL,
+            source TEXT NOT NULL,
+            confidence REAL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(photo_id, tag_id, source)
+        );
+        INSERT INTO photos
+          (id, source_id, relative_path, absolute_path_snapshot, file_name, extension,
+           file_size, file_mtime, status, created_at, updated_at)
+        VALUES
+          ('p-1', 'src-1', 'a.jpg', '/tmp/src/a.jpg', 'a.jpg', 'jpg',
+           2048, 12345, 'indexed', '2026-05-28', '2026-05-28');
+        INSERT INTO tags (id, name, tag_type, confidence, created_at)
+        VALUES ('t-1', 'portrait', 'manual', NULL, '2026-05-28');
+        INSERT INTO photo_tags (photo_id, tag_id, source, confidence, created_at)
+        VALUES
+          ('p-1', 't-1', 'manual', NULL, '2026-05-28T10:00:00Z'),
+          ('p-1', 't-1', 'ai', 0.87, '2026-05-28T11:00:00Z');
+        "#,
+    )
+    .unwrap();
+
+    migrate_schema(&conn).unwrap();
+
+    let photo_tag_columns: Vec<String> = conn
+        .prepare("PRAGMA table_info(photo_tags)")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(1))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert!(!photo_tag_columns.contains(&"source".to_string()));
+
+    let link_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM photo_tags", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(link_count, 1);
+
+    let sources: Vec<(String, Option<f64>)> = conn
+        .prepare("SELECT source, confidence FROM photo_tag_sources ORDER BY source")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(
+        sources,
+        vec![("ai".to_string(), Some(0.87)), ("manual".to_string(), None)]
+    );
 }
 
 #[test]
@@ -142,6 +297,66 @@ fn test_inserts_discovered_photos_for_source() {
         )
         .unwrap();
     assert_eq!(count, 2);
+
+    let fingerprints: Vec<(i64, i64, String)> = conn
+        .prepare("SELECT file_size, file_mtime, fingerprint FROM photos ORDER BY file_name")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(fingerprints.len(), 2);
+    for (file_size, file_mtime, fingerprint) in fingerprints {
+        assert_eq!(fingerprint, format!("{}:{}", file_size, file_mtime));
+    }
+}
+
+#[test]
+fn test_set_photo_tags_keeps_non_manual_tag_sources() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let source_path = temp_dir.path().join("photos");
+    fs::create_dir(&source_path).unwrap();
+    fs::write(source_path.join("photo1.jpg"), b"fake").unwrap();
+
+    let mut conn = open_database(&db_path).unwrap();
+    initialize_schema(&conn).unwrap();
+    migrate_schema(&conn).unwrap();
+
+    let source = upsert_source(&conn, &source_path).unwrap();
+    let photos = discover_photos(&source_path).unwrap();
+    replace_source_photos(&mut conn, &source.id, &source_path, &photos).unwrap();
+
+    let photo_id: String = conn
+        .query_row("SELECT id FROM photos LIMIT 1", [], |row| row.get(0))
+        .unwrap();
+
+    set_photo_tags(&conn, &photo_id, &["portrait".to_string()]).unwrap();
+    let tag_id: String = conn
+        .query_row("SELECT id FROM tags WHERE name = 'portrait'", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    conn.execute(
+        "INSERT OR IGNORE INTO photo_tag_sources \
+            (photo_id, tag_id, source, confidence, added_at) \
+         VALUES (?1, ?2, 'ai', 0.82, '2026-05-28T12:00:00Z')",
+        [&photo_id, &tag_id],
+    )
+    .unwrap();
+
+    set_photo_tags(&conn, &photo_id, &[]).unwrap();
+
+    assert_eq!(get_photo_tags(&conn, &photo_id).unwrap(), vec!["portrait"]);
+
+    let sources: Vec<String> = conn
+        .prepare("SELECT source FROM photo_tag_sources ORDER BY source")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(sources, vec!["ai".to_string()]);
 }
 
 #[test]

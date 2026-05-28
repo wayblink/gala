@@ -12,12 +12,12 @@ Review 反馈汇总。按优先级与领域组织，逐项消化后迁移到对�
 
 ### 工程 / 数据
 
-- [ ] **`content_hash` vs `fingerprint` 的语义区分**
+- [x] **`content_hash` vs `fingerprint` 的语义区分**
   - 明确：`content_hash = SHA-256(全文件)` 作为强身份；`fingerprint = size+mtime+header` 作为快速筛选。
   - 给 `content_hash` 加非唯一索引，用于跨 source 去重查询。
   - 更新 `data-and-control-design.md` 的 photos 表注释与扫描 pipeline 说明。
 
-- [ ] **`photos.logical_id TEXT NULL` 字段预留**
+- [x] **`photos.logical_id TEXT NULL` 字段预留**
   - V0 不填写，V1 由 RAW+JPG 自动关联流程填写。
   - 避免 V1 落地时全表 migration。
   - 同时预留 `photo_groups` 表的草稿 schema（可在 TODOS.md 内先画 draft）。
@@ -68,10 +68,10 @@ Review 反馈汇总。按优先级与领域组织，逐项消化后迁移到对�
   - 或者引入 `strategy_type=user_rule` 作为占位 strategy？
   - 在 `data-and-control-design.md` 的 schema 注释里明确。
 
-- [ ] **`photo_tags` 的 PK 与 source 语义**
+- [x] **`photo_tags` 的 PK 与 source 语义**
   - 当前 `PRIMARY KEY(photo_id, tag_id, source)` 会让同一 tag 的 manual/ai 双来源各存一条。
   - 方案 A：改为 `PRIMARY KEY(photo_id, tag_id)`，`source` 改为 JSON 数组。
-  - 方案 B：拆出 `photo_tag_sources(photo_id, tag_id, source, confidence)` 关联表。
+  - 方案 B：拆出 `photo_tag_sources(photo_id, tag_id, source, confidence)` 关联表。（已选）
   - 选一个并更新 schema。
 
 - [ ] **扫描并发与锁策略**

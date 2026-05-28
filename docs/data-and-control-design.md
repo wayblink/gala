@@ -123,6 +123,7 @@ CREATE TABLE photos (
   file_mtime INTEGER NOT NULL,
   content_hash TEXT,
   fingerprint TEXT NOT NULL,
+  logical_id TEXT,
   width INTEGER,
   height INTEGER,
   orientation INTEGER,
@@ -142,6 +143,24 @@ Expected `status` values:
 - `changed`
 - `unsupported`
 - `corrupted`
+
+Identity fields:
+
+- `content_hash = SHA-256(full file)` is the strong identity for exact-byte duplicate detection across sources. It is nullable because V0 may defer full-file hashing to avoid slowing initial scans; when present, it must not be unique because the same original can legitimately appear in multiple sources.
+- `fingerprint = file_size + file_mtime + lightweight header sample` is the fast scan hint used to decide whether a path probably changed before heavier parsing or hashing. The V0 implementation currently stores `file_size:file_mtime` and can extend the value with a header digest without changing the schema.
+- `logical_id` is reserved for V1 logical photo sets such as RAW+JPEG pairs or user-merged variants. V0 leaves it NULL.
+
+Draft V1 grouping table:
+
+```sql
+CREATE TABLE photo_groups (
+  id TEXT PRIMARY KEY,
+  representative_photo_id TEXT REFERENCES photos(id),
+  rule_type TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+```
 
 ### photo_metadata
 
@@ -205,9 +224,16 @@ CREATE TABLE tags (
 CREATE TABLE photo_tags (
   photo_id TEXT NOT NULL REFERENCES photos(id),
   tag_id TEXT NOT NULL REFERENCES tags(id),
+  added_at TEXT NOT NULL,
+  PRIMARY KEY(photo_id, tag_id)
+);
+
+CREATE TABLE photo_tag_sources (
+  photo_id TEXT NOT NULL REFERENCES photos(id),
+  tag_id TEXT NOT NULL REFERENCES tags(id),
   source TEXT NOT NULL,
   confidence REAL,
-  created_at TEXT NOT NULL,
+  added_at TEXT NOT NULL,
   PRIMARY KEY(photo_id, tag_id, source)
 );
 ```
@@ -217,6 +243,8 @@ Expected `tag_type` values:
 - `manual`
 - `ai`
 - `system`
+
+`photo_tags` stores the canonical photo/tag relationship exactly once. `photo_tag_sources` stores source-level provenance, so the same tag can be both manual and AI-derived without duplicating the visible relationship. Removing a manual tag only deletes the `manual` source row; the canonical relationship remains while any other source still exists.
 
 ### people and photo_people
 
@@ -401,12 +429,14 @@ CREATE TABLE photo_embeddings (
 CREATE INDEX idx_photos_source_relative_path ON photos(source_id, relative_path);
 CREATE INDEX idx_photos_captured_at ON photos(captured_at);
 CREATE INDEX idx_photos_status ON photos(status);
+CREATE INDEX idx_photos_content_hash ON photos(content_hash) WHERE content_hash IS NOT NULL;
 CREATE INDEX idx_photos_fingerprint ON photos(file_size, file_mtime, fingerprint);
 CREATE INDEX idx_photo_metadata_camera ON photo_metadata(camera_model);
 CREATE INDEX idx_photo_metadata_gps ON photo_metadata(gps_lat, gps_lng);
 CREATE INDEX idx_view_items_instance_sort ON view_items(view_instance_id, sort_order);
 CREATE INDEX idx_view_items_photo ON view_items(photo_id);
 CREATE INDEX idx_photo_tags_tag_photo ON photo_tags(tag_id, photo_id);
+CREATE INDEX idx_photo_tag_sources_source ON photo_tag_sources(source, tag_id, photo_id);
 CREATE INDEX idx_photo_people_person_photo ON photo_people(person_id, photo_id);
 CREATE INDEX idx_photo_places_place_photo ON photo_places(place_id, photo_id);
 CREATE INDEX idx_scan_jobs_source_status ON scan_jobs(source_id, status);
@@ -426,7 +456,7 @@ ScanJob
   ├── fingerprint file
   |     ├── unchanged -> skip
   |     ├── new -> parse
-  |     └── changed -> re-index
+  |     └── changed -> re-index and clear stale content_hash
   |
   ├── parse metadata
   |     ├── EXIF ok
@@ -442,8 +472,9 @@ ScanJob
 
 ### Incremental Scan Rules
 
-- If `relative_path + file_size + file_mtime` are unchanged, skip parsing.
+- If `relative_path + file_size + file_mtime + fingerprint` are unchanged, skip parsing.
 - If the path is unchanged but size or mtime changed, mark the photo `changed` and re-index.
+- If a changed file previously had `content_hash`, clear it until the strong hash is recomputed.
 - If the source is online and a file disappears, mark the photo `missing`.
 - If the source root is offline, mark the source `offline`; do not mark photos missing.
 - If a file reappears, restore it to `indexed` after a successful scan.

@@ -19,6 +19,6 @@ pub use provider::{CapabilityProvider, NoopProvider};
 pub use registry::CapabilityRegistry;
 pub use scope::resolve_scope;
 pub use types::{
-    AnalyzeContext, AnalyzeInput, AnalyzeOutput, AnalysisRequest, Artifact, CapabilityError,
+    AnalysisRequest, AnalyzeContext, AnalyzeInput, AnalyzeOutput, Artifact, CapabilityError,
     CapabilityId, JobStatus, ProviderId, ScopeKind,
 };

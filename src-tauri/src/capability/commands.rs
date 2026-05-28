@@ -54,9 +54,13 @@ fn db_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 fn ensure_db(app: &AppHandle) -> Result<PathBuf, String> {
     let path = db_path(app)?;
-    if !path.exists() {
-        return Err("Photo library not initialized".to_string());
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create data dir: {}", e))?;
     }
+    // Bootstrap the DB lazily so capability commands don't require the user
+    // to have scanned a source first. Empty-library is a valid state — the
+    // orchestrator will simply produce a 0/0/0 RunSummary.
     let conn = open_database(&path)?;
     initialize_schema(&conn)?;
     migrate_schema(&conn)?;
@@ -160,13 +164,8 @@ pub async fn analysis_request_cmd(
             .map_err(|e| e.to_string())?
     };
 
-    let orchestrator = Orchestrator::new(
-        path,
-        registry(),
-        OrchestratorConfig {
-            max_concurrency: 4,
-        },
-    );
+    let orchestrator =
+        Orchestrator::new(path, registry(), OrchestratorConfig { max_concurrency: 4 });
     let summary = orchestrator
         .run(internal, inputs, CancellationToken::new())
         .await
