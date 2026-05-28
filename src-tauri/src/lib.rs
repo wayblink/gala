@@ -59,6 +59,8 @@ pub fn run() {
             capability::commands::analysis_job_cmd,
             capability::commands::analysis_results_cmd,
             capability::commands::capabilities_list_cmd,
+            capability::commands::faces_list_cmd,
+            capability::commands::faces_summary_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Gala desktop app");

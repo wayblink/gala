@@ -12,11 +12,14 @@ mod scope;
 mod store;
 mod types;
 
+mod materializer;
+
 #[cfg(target_os = "macos")]
 mod macos_vision;
 
 pub mod commands;
 
+pub use materializer::materialize_face_detect;
 pub use orchestrator::{Orchestrator, OrchestratorConfig, RunOutcome, RunSummary};
 pub use provider::{CapabilityProvider, NoopProvider};
 pub use registry::CapabilityRegistry;

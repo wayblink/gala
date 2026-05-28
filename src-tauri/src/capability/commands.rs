@@ -172,11 +172,24 @@ pub async fn analysis_request_cmd(
     };
 
     let orchestrator =
-        Orchestrator::new(path, registry(), OrchestratorConfig { max_concurrency: 4 });
+        Orchestrator::new(path.clone(), registry(), OrchestratorConfig { max_concurrency: 4 });
     let summary = orchestrator
         .run(internal, inputs, CancellationToken::new())
         .await
         .map_err(|e| e.to_string())?;
+
+    // Capability-specific materializer hook. For face.detect we reflect the
+    // ledger rows into the `faces` domain table so the UI can render them
+    // without re-parsing JSON. Best-effort: failures here don't fail the
+    // command, they just leave the ledger as the source of truth.
+    if capability == FACE_DETECT && summary.photos_done > 0 {
+        if let Ok(mut conn) = open_database(&path) {
+            match super::materialize_face_detect(&mut conn, &summary.job_id) {
+                Ok(n) => eprintln!("[materializer] face.detect job {} -> {} faces", summary.job_id, n),
+                Err(e) => eprintln!("[materializer] face.detect job {} failed: {}", summary.job_id, e),
+            }
+        }
+    }
 
     Ok(RunSummaryDto {
         job_id: summary.job_id,
@@ -301,4 +314,93 @@ pub fn capabilities_list_cmd() -> Vec<CapabilityDescriptorDto> {
             capabilities,
         })
         .collect()
+}
+
+#[derive(Debug, Serialize)]
+pub struct FaceDto {
+    pub id: String,
+    pub photo_id: String,
+    pub detected_by: String,
+    pub bbox_x: f64,
+    pub bbox_y: f64,
+    pub bbox_w: f64,
+    pub bbox_h: f64,
+    pub confidence: f64,
+    pub person_id: Option<String>,
+    pub thumbnail_path: Option<String>,
+    pub file_name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FaceSummaryDto {
+    pub total_faces: i64,
+    pub photos_with_faces: i64,
+    pub unassigned_faces: i64,
+}
+
+#[tauri::command]
+pub fn faces_list_cmd(app: AppHandle, limit: Option<i64>) -> Result<Vec<FaceDto>, String> {
+    let path = ensure_db(&app)?;
+    let conn = open_database(&path)?;
+    let lim = limit.unwrap_or(100);
+    let mut stmt = conn
+        .prepare(
+            "SELECT f.id, f.photo_id, f.detected_by, f.bbox_x, f.bbox_y, f.bbox_w, f.bbox_h, \
+                    f.confidence, f.person_id, pa.thumbnail_medium_path, p.file_name \
+             FROM faces f \
+             LEFT JOIN photos p ON p.id = f.photo_id \
+             LEFT JOIN photo_assets pa ON pa.photo_id = f.photo_id \
+             WHERE f.status = 'active' \
+             ORDER BY f.confidence DESC, f.created_at DESC \
+             LIMIT ?1",
+        )
+        .map_err(|e| format!("Failed to prepare faces query: {}", e))?;
+    let rows = stmt
+        .query_map(params![lim], |row| {
+            Ok(FaceDto {
+                id: row.get(0)?,
+                photo_id: row.get(1)?,
+                detected_by: row.get(2)?,
+                bbox_x: row.get(3)?,
+                bbox_y: row.get(4)?,
+                bbox_w: row.get(5)?,
+                bbox_h: row.get(6)?,
+                confidence: row.get(7)?,
+                person_id: row.get(8)?,
+                thumbnail_path: row.get(9)?,
+                file_name: row.get(10)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query faces: {}", e))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| format!("Failed to collect faces: {}", e))?;
+    Ok(rows)
+}
+
+#[tauri::command]
+pub fn faces_summary_cmd(app: AppHandle) -> Result<FaceSummaryDto, String> {
+    let path = ensure_db(&app)?;
+    let conn = open_database(&path)?;
+    let total_faces: i64 = conn
+        .query_row("SELECT COUNT(*) FROM faces WHERE status = 'active'", [], |r| r.get(0))
+        .map_err(|e| format!("Failed to count faces: {}", e))?;
+    let photos_with_faces: i64 = conn
+        .query_row(
+            "SELECT COUNT(DISTINCT photo_id) FROM faces WHERE status = 'active'",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("Failed to count photos: {}", e))?;
+    let unassigned_faces: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM faces WHERE status = 'active' AND person_id IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("Failed to count unassigned: {}", e))?;
+    Ok(FaceSummaryDto {
+        total_faces,
+        photos_with_faces,
+        unassigned_faces,
+    })
 }

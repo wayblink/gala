@@ -56,6 +56,26 @@ export interface CapabilityDescriptor {
   capabilities: string[]
 }
 
+export interface FaceSummary {
+  total_faces: number
+  photos_with_faces: number
+  unassigned_faces: number
+}
+
+export interface Face {
+  id: string
+  photo_id: string
+  detected_by: string
+  bbox_x: number
+  bbox_y: number
+  bbox_w: number
+  bbox_h: number
+  confidence: number
+  person_id: string | null
+  thumbnail_path: string | null
+  file_name: string | null
+}
+
 export async function analysisRequest(request: AnalysisRequest): Promise<RunSummary> {
   if (!isTauriAvailable()) {
     throw new Error('Tauri not available')
@@ -90,4 +110,18 @@ export async function capabilitiesList(): Promise<CapabilityDescriptor[]> {
     return []
   }
   return await invoke<CapabilityDescriptor[]>('capabilities_list_cmd')
+}
+
+export async function facesSummary(): Promise<FaceSummary> {
+  if (!isTauriAvailable()) {
+    return { total_faces: 0, photos_with_faces: 0, unassigned_faces: 0 }
+  }
+  return await invoke<FaceSummary>('faces_summary_cmd')
+}
+
+export async function facesList(limit?: number): Promise<Face[]> {
+  if (!isTauriAvailable()) {
+    return []
+  }
+  return await invoke<Face[]>('faces_list_cmd', { limit })
 }
