@@ -12,6 +12,9 @@ mod scope;
 mod store;
 mod types;
 
+#[cfg(target_os = "macos")]
+mod macos_vision;
+
 pub mod commands;
 
 pub use orchestrator::{Orchestrator, OrchestratorConfig, RunOutcome, RunSummary};
@@ -22,3 +25,6 @@ pub use types::{
     AnalysisRequest, AnalyzeContext, AnalyzeInput, AnalyzeOutput, Artifact, CapabilityError,
     CapabilityId, JobStatus, ProviderId, ScopeKind,
 };
+
+#[cfg(target_os = "macos")]
+pub use macos_vision::MacosVisionFaceProvider;

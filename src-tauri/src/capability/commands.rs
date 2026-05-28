@@ -31,9 +31,16 @@ fn registry() -> Arc<CapabilityRegistry> {
     REGISTRY
         .get_or_init(|| {
             let mut reg = CapabilityRegistry::new();
-            // M1.3a: only NoopProvider, advertising the three face capabilities
-            // so we can exercise the full request → result → UI pipeline before
-            // the macOS Vision provider lands in M1.3b.
+            // On macOS register the Vision face detector first so it wins
+            // registry::select() for face.detect (V0 priority = first wins).
+            // Noop is registered last as the fallback / advertising provider
+            // for face.embed + face.cluster (still stubbed until M1.4/M1.5).
+            #[cfg(target_os = "macos")]
+            {
+                use super::macos_vision::MacosVisionFaceProvider;
+                let vision = Arc::new(MacosVisionFaceProvider::new());
+                reg.register(vision);
+            }
             let noop = Arc::new(NoopProvider::new(
                 "noop.v1",
                 &[FACE_DETECT, FACE_EMBED, FACE_CLUSTER],
