@@ -659,6 +659,38 @@ pub fn persons_list_cmd(app: AppHandle, limit: Option<i64>) -> Result<Vec<Person
     Ok(rows)
 }
 
+#[tauri::command]
+pub fn set_person_name_cmd(
+    app: AppHandle,
+    person_id: String,
+    name: Option<String>,
+) -> Result<(), String> {
+    let path = ensure_db(&app)?;
+    let conn = open_database(&path)?;
+    // Trim + treat empty string as "clear the name". This matches the
+    // ergonomic expectation: deleting the text in the UI input + saving
+    // should reset to the synthetic 'Person · <id6>' fallback rather than
+    // leaving an empty string display_name in the DB.
+    let normalized: Option<String> = match name {
+        Some(s) => {
+            let t = s.trim();
+            if t.is_empty() { None } else { Some(t.to_string()) }
+        }
+        None => None,
+    };
+    let now = chrono::Utc::now().to_rfc3339();
+    let n = conn
+        .execute(
+            "UPDATE persons SET display_name = ?1, updated_at = ?2 WHERE id = ?3",
+            params![normalized, now, person_id],
+        )
+        .map_err(|e| format!("Failed to set person name: {}", e))?;
+    if n == 0 {
+        return Err(format!("person not found: {}", person_id));
+    }
+    Ok(())
+}
+
 struct PhotoBatch {
     photo_id: String,
     image_path: PathBuf,

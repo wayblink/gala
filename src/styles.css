@@ -2294,6 +2294,58 @@ a {
   outline-offset: 2px;
 }
 
+.person-card--editing {
+  border-color: var(--amber-dust);
+}
+
+.person-card__edit-btn {
+  align-items: center;
+  background: rgba(20, 22, 26, 0.78);
+  border: 1px solid var(--ink-700);
+  border-radius: 999px;
+  color: var(--paper-200);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 12px;
+  height: 24px;
+  justify-content: center;
+  opacity: 0;
+  padding: 0;
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+  width: 24px;
+  z-index: 2;
+}
+
+.person-card:hover .person-card__edit-btn,
+.person-card--clickable:focus-within .person-card__edit-btn {
+  opacity: 1;
+}
+
+.person-card__edit-btn:hover {
+  background: var(--amber-dust);
+  color: #17130f;
+}
+
+.person-card__rename-input {
+  background: var(--ink-800);
+  border: 1px solid var(--amber-dust);
+  border-radius: 4px;
+  color: var(--paper-100);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 4px 6px;
+  width: 100%;
+}
+
+.person-card__rename-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--amber-dust);
+}
+
 .person-card__photo {
   aspect-ratio: 1 / 1;
   background: var(--ink-800);

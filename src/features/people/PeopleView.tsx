@@ -8,6 +8,7 @@ import {
   facesList,
   facesSummary,
   personsList,
+  setPersonName,
 } from '../../desktop/capability'
 import type {
   CapabilityDescriptor,
@@ -182,6 +183,10 @@ export function PeopleView({
                 key={p.id}
                 person={p}
                 onClick={onSelectPerson ? () => onSelectPerson(p.id, p.display_name) : undefined}
+                onRename={async (next) => {
+                  await setPersonName(p.id, next)
+                  await refresh()
+                }}
               />
             ))}
           </div>
@@ -209,7 +214,18 @@ export function PeopleView({
   )
 }
 
-function PersonCard({ person, onClick }: { person: Person; onClick?: () => void }) {
+function PersonCard({
+  person,
+  onClick,
+  onRename,
+}: {
+  person: Person
+  onClick?: () => void
+  onRename?: (name: string | null) => Promise<void> | void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(person.display_name ?? '')
+  const [saving, setSaving] = useState(false)
   const src = person.rep_thumbnail_path ? convertFileSrc(person.rep_thumbnail_path) : null
   const hasBbox =
     person.rep_bbox_x != null &&
@@ -225,9 +241,88 @@ function PersonCard({ person, onClick }: { person: Person; onClick?: () => void 
       }
     : {}
   const label = person.display_name ?? `Person · ${person.id.slice(0, 6)}`
-  const interactive = Boolean(onClick)
-  const className = `person-card${interactive ? ' person-card--clickable' : ''}`
-  const meta = (
+
+  const beginEdit = () => {
+    setDraft(person.display_name ?? '')
+    setEditing(true)
+  }
+  const cancelEdit = () => setEditing(false)
+  const commitEdit = async () => {
+    if (!onRename) {
+      setEditing(false)
+      return
+    }
+    setSaving(true)
+    try {
+      const trimmed = draft.trim()
+      await onRename(trimmed.length === 0 ? null : trimmed)
+    } finally {
+      setSaving(false)
+      setEditing(false)
+    }
+  }
+
+  const photoBlock = (
+    <>
+      {src ? <img src={src} alt={label} /> : <span className="person-card__placeholder" />}
+      {hasBbox && <span className="person-card__bbox" style={overlayStyle} />}
+      {onRename && !editing && (
+        <button
+          type="button"
+          className="person-card__edit-btn"
+          aria-label={`Rename ${label}`}
+          title="Rename"
+          onClick={(e) => {
+            e.stopPropagation()
+            beginEdit()
+          }}
+        >
+          ✎
+        </button>
+      )}
+    </>
+  )
+
+  const captionBlock = editing ? (
+    <span
+      className="person-card__caption"
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <input
+        type="text"
+        className="person-card__rename-input"
+        autoFocus
+        value={draft}
+        disabled={saving}
+        placeholder="Name this person"
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            void commitEdit()
+          } else if (e.key === 'Escape') {
+            e.preventDefault()
+            cancelEdit()
+          }
+        }}
+        onBlur={() => {
+          // Commit if anything actually changed; otherwise just close.
+          const trimmed = draft.trim()
+          const current = person.display_name ?? ''
+          if (trimmed !== current) {
+            void commitEdit()
+          } else {
+            cancelEdit()
+          }
+        }}
+      />
+      <span className="person-card__meta">
+        {person.face_count} {person.face_count === 1 ? 'face' : 'faces'} · {person.photo_count}{' '}
+        {person.photo_count === 1 ? 'photo' : 'photos'}
+      </span>
+    </span>
+  ) : (
     <>
       <span className="person-card__name">{label}</span>
       <span className="person-card__meta">
@@ -236,14 +331,14 @@ function PersonCard({ person, onClick }: { person: Person; onClick?: () => void 
       </span>
     </>
   )
+
+  const interactive = Boolean(onClick) && !editing
+  const className = `person-card${interactive ? ' person-card--clickable' : ''}${editing ? ' person-card--editing' : ''}`
   if (!interactive) {
     return (
       <figure className={className} title={label}>
-        <div className="person-card__photo">
-          {src ? <img src={src} alt={label} /> : <span className="person-card__placeholder" />}
-          {hasBbox && <span className="person-card__bbox" style={overlayStyle} />}
-        </div>
-        <figcaption className="person-card__caption">{meta}</figcaption>
+        <div className="person-card__photo">{photoBlock}</div>
+        <figcaption className="person-card__caption">{captionBlock}</figcaption>
       </figure>
     )
   }
@@ -255,11 +350,8 @@ function PersonCard({ person, onClick }: { person: Person; onClick?: () => void 
       aria-label={`View photos of ${label}`}
       title={label}
     >
-      <span className="person-card__photo">
-        {src ? <img src={src} alt={label} /> : <span className="person-card__placeholder" />}
-        {hasBbox && <span className="person-card__bbox" style={overlayStyle} />}
-      </span>
-      <span className="person-card__caption">{meta}</span>
+      <span className="person-card__photo">{photoBlock}</span>
+      <span className="person-card__caption">{captionBlock}</span>
     </button>
   )
 }

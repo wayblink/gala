@@ -181,3 +181,10 @@ export async function personsList(limit?: number): Promise<Person[]> {
   }
   return await invoke<Person[]>('persons_list_cmd', { limit })
 }
+
+export async function setPersonName(personId: string, name: string | null): Promise<void> {
+  if (!isTauriAvailable()) {
+    return
+  }
+  await invoke('set_person_name_cmd', { personId, name })
+}
