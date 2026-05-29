@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import {
+  analysisEmbedFaces,
   analysisRequest,
   capabilitiesList,
   facesList,
@@ -12,16 +13,20 @@ import type {
   FaceSummary,
 } from '../../desktop/capability'
 
+const EMPTY_SUMMARY: FaceSummary = {
+  total_faces: 0,
+  photos_with_faces: 0,
+  unassigned_faces: 0,
+  faces_with_embedding: 0,
+}
+
 export function PeopleView() {
   const [providers, setProviders] = useState<CapabilityDescriptor[]>([])
-  const [running, setRunning] = useState(false)
+  const [detecting, setDetecting] = useState(false)
+  const [embedding, setEmbedding] = useState(false)
   const [summary, setSummary] = useState<string | null>(null)
   const [faces, setFaces] = useState<Face[]>([])
-  const [stats, setStats] = useState<FaceSummary>({
-    total_faces: 0,
-    photos_with_faces: 0,
-    unassigned_faces: 0,
-  })
+  const [stats, setStats] = useState<FaceSummary>(EMPTY_SUMMARY)
 
   const refreshFaces = async () => {
     try {
@@ -39,7 +44,7 @@ export function PeopleView() {
   }, [])
 
   const handleRunDetection = async () => {
-    setRunning(true)
+    setDetecting(true)
     setSummary(null)
     try {
       const run = await analysisRequest({
@@ -49,18 +54,37 @@ export function PeopleView() {
         force: false,
       })
       setSummary(
-        `Job ${run.job_id.slice(0, 8)}… ${run.outcome} · ` +
+        `Detect ${run.job_id.slice(0, 8)}… ${run.outcome} · ` +
           `${run.photos_done} done, ${run.photos_failed} failed, ${run.photos_skipped} skipped`,
       )
       await refreshFaces()
     } catch (err) {
       setSummary(`Error: ${String(err)}`)
     } finally {
-      setRunning(false)
+      setDetecting(false)
     }
   }
 
-  const visionProvider = providers.find((p) => p.provider_id.startsWith('macos.vision'))
+  const handleGenerateEmbeddings = async () => {
+    setEmbedding(true)
+    setSummary(null)
+    try {
+      const run = await analysisEmbedFaces()
+      setSummary(
+        `Embed · ${run.photos_processed} photos · ${run.faces_embedded} embedded, ` +
+          `${run.faces_failed} failed, ${run.faces_skipped} skipped`,
+      )
+      await refreshFaces()
+    } catch (err) {
+      setSummary(`Error: ${String(err)}`)
+    } finally {
+      setEmbedding(false)
+    }
+  }
+
+  const visionDetect = providers.find((p) => p.provider_id === 'macos.vision.v1')
+  const visionEmbed = providers.find((p) => p.provider_id === 'macos.vision.embed.v1')
+  const pendingEmbeds = Math.max(0, stats.total_faces - stats.faces_with_embedding)
 
   return (
     <div className="people-view">
@@ -68,14 +92,23 @@ export function PeopleView() {
         <div>
           <h2>People</h2>
           <p className="people-view__subtitle">
-            {visionProvider
-              ? `Powered by ${visionProvider.provider_id} (macOS Vision Neural Engine)`
-              : 'No face provider registered'}
+            {visionDetect && visionEmbed
+              ? 'Powered by macOS Vision (face.detect + face.embed via Neural Engine)'
+              : visionDetect
+                ? `Powered by ${visionDetect.provider_id} (face.detect only)`
+                : 'No face provider registered'}
           </p>
         </div>
         <div className="people-view__actions">
-          <button onClick={handleRunDetection} disabled={running}>
-            {running ? 'Detecting…' : 'Run face detection'}
+          <button onClick={handleRunDetection} disabled={detecting || embedding}>
+            {detecting ? 'Detecting…' : 'Run face detection'}
+          </button>
+          <button
+            onClick={handleGenerateEmbeddings}
+            disabled={detecting || embedding || pendingEmbeds === 0}
+            title={pendingEmbeds === 0 ? 'All faces already embedded' : `${pendingEmbeds} faces pending`}
+          >
+            {embedding ? 'Embedding…' : `Generate embeddings${pendingEmbeds ? ` (${pendingEmbeds})` : ''}`}
           </button>
           <button onClick={() => void refreshFaces()}>Refresh</button>
         </div>
@@ -89,6 +122,10 @@ export function PeopleView() {
         <div className="people-view__stat">
           <span className="people-view__stat-value">{stats.photos_with_faces}</span>
           <span className="people-view__stat-label">photos</span>
+        </div>
+        <div className="people-view__stat">
+          <span className="people-view__stat-value">{stats.faces_with_embedding}</span>
+          <span className="people-view__stat-label">embedded</span>
         </div>
         <div className="people-view__stat">
           <span className="people-view__stat-value">{stats.unassigned_faces}</span>
@@ -127,11 +164,13 @@ function FaceTile({ face }: { face: Face }) {
     width: `${face.bbox_w * 100}%`,
     height: `${face.bbox_h * 100}%`,
   }
+  const hasEmbedding = Boolean(face.embedding_dim)
   return (
     <figure className="face-tile" title={face.file_name ?? face.photo_id}>
       <div className="face-tile__photo">
         {src ? <img src={src} alt={face.file_name ?? face.photo_id} /> : <span className="face-tile__placeholder" />}
         <span className="face-tile__bbox" style={overlayStyle} />
+        {hasEmbedding && <span className="face-tile__embed-badge" title="embedding ready">★</span>}
       </div>
       <figcaption className="face-tile__caption">
         <span className="face-tile__name">{face.file_name ?? face.photo_id}</span>

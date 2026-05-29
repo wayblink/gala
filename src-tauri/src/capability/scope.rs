@@ -108,6 +108,7 @@ fn map_row(row: &rusqlite::Row<'_>) -> AnalyzeInput {
             (Some(w), Some(h)) if w > 0 && h > 0 => Some((w as u32, h as u32)),
             _ => None,
         },
+        meta: serde_json::Value::Null,
     }
 }
 

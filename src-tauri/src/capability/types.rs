@@ -83,6 +83,10 @@ pub struct AnalyzeInput {
     pub image_path: PathBuf,
     pub thumbnail_path: Option<PathBuf>,
     pub hint_dimensions: Option<(u32, u32)>,
+    /// Free-form per-input metadata that the calling command can use to
+    /// pass capability-specific state (e.g. face bboxes for face.embed).
+    /// Providers ignore unknown fields. Defaults to `Value::Null`.
+    pub meta: serde_json::Value,
 }
 
 #[derive(Debug, Clone)]

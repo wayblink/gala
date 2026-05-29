@@ -210,6 +210,7 @@ mod tests {
             image_path: path,
             thumbnail_path: None,
             hint_dimensions: None,
+            meta: serde_json::Value::Null,
         };
         let ctx = AnalyzeContext {
             job_id: "test-job".into(),
@@ -264,6 +265,7 @@ mod tests {
                 image_path: path.clone(),
                 thumbnail_path: None,
                 hint_dimensions: None,
+                meta: serde_json::Value::Null,
             };
             let ctx = AnalyzeContext {
                 job_id: "vision-sweep".into(),

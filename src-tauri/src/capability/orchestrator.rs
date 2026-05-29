@@ -368,6 +368,7 @@ mod tests {
                 image_path: PathBuf::from(format!("/tmp/src/{}.jpg", i)),
                 thumbnail_path: None,
                 hint_dimensions: None,
+                meta: serde_json::Value::Null,
             })
             .collect()
     }

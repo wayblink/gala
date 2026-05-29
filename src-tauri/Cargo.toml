@@ -37,11 +37,13 @@ objc2-foundation = { version = "0.3", features = [
   "NSArray",
   "NSValue",
   "NSGeometry",
+  "NSData",
 ] }
 objc2-vision = { version = "0.3", features = [
   "VNRequest",
   "VNRequestHandler",
   "VNDetectFaceRectanglesRequest",
+  "VNGenerateImageFeaturePrintRequest",
   "VNObservation",
   "VNTypes",
   "VNGeometry",

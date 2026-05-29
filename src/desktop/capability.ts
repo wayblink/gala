@@ -60,6 +60,14 @@ export interface FaceSummary {
   total_faces: number
   photos_with_faces: number
   unassigned_faces: number
+  faces_with_embedding: number
+}
+
+export interface EmbedSummary {
+  photos_processed: number
+  faces_embedded: number
+  faces_failed: number
+  faces_skipped: number
 }
 
 export interface Face {
@@ -74,6 +82,7 @@ export interface Face {
   person_id: string | null
   thumbnail_path: string | null
   file_name: string | null
+  embedding_dim: number | null
 }
 
 export async function analysisRequest(request: AnalysisRequest): Promise<RunSummary> {
@@ -114,7 +123,12 @@ export async function capabilitiesList(): Promise<CapabilityDescriptor[]> {
 
 export async function facesSummary(): Promise<FaceSummary> {
   if (!isTauriAvailable()) {
-    return { total_faces: 0, photos_with_faces: 0, unassigned_faces: 0 }
+    return {
+      total_faces: 0,
+      photos_with_faces: 0,
+      unassigned_faces: 0,
+      faces_with_embedding: 0,
+    }
   }
   return await invoke<FaceSummary>('faces_summary_cmd')
 }
@@ -124,4 +138,11 @@ export async function facesList(limit?: number): Promise<Face[]> {
     return []
   }
   return await invoke<Face[]>('faces_list_cmd', { limit })
+}
+
+export async function analysisEmbedFaces(limit?: number): Promise<EmbedSummary> {
+  if (!isTauriAvailable()) {
+    return { photos_processed: 0, faces_embedded: 0, faces_failed: 0, faces_skipped: 0 }
+  }
+  return await invoke<EmbedSummary>('analysis_embed_faces_cmd', { limit })
 }

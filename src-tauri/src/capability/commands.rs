@@ -19,7 +19,7 @@ use super::orchestrator::{Orchestrator, OrchestratorConfig};
 use super::provider::NoopProvider;
 use super::registry::CapabilityRegistry;
 use super::resolve_scope;
-use super::types::{AnalysisRequest, ScopeKind};
+use super::types::{AnalysisRequest, AnalyzeContext, AnalyzeInput, ScopeKind};
 
 const FACE_DETECT: &str = "face.detect";
 const FACE_EMBED: &str = "face.embed";
@@ -31,16 +31,19 @@ fn registry() -> Arc<CapabilityRegistry> {
     REGISTRY
         .get_or_init(|| {
             let mut reg = CapabilityRegistry::new();
-            // On macOS register the Vision face detector first so it wins
-            // registry::select() for face.detect (V0 priority = first wins).
-            // Noop is registered last as the fallback / advertising provider
-            // for face.embed + face.cluster (still stubbed until M1.4/M1.5).
+            // On macOS register Vision providers first so they win
+            // registry::select() for their respective capabilities (V0
+            // priority = first registered wins).
             #[cfg(target_os = "macos")]
             {
                 use super::macos_vision::MacosVisionFaceProvider;
-                let vision = Arc::new(MacosVisionFaceProvider::new());
-                reg.register(vision);
+                use super::macos_vision_embed::MacosVisionEmbedProvider;
+                reg.register(Arc::new(MacosVisionFaceProvider::new()));
+                reg.register(Arc::new(MacosVisionEmbedProvider::new()));
             }
+            // NoopProvider stays as the fallback / advertiser for
+            // face.cluster (still stubbed until M1.5) and as the
+            // non-macOS face.detect / face.embed implementation.
             let noop = Arc::new(NoopProvider::new(
                 "noop.v1",
                 &[FACE_DETECT, FACE_EMBED, FACE_CLUSTER],
@@ -318,6 +321,7 @@ pub struct FaceDto {
     pub person_id: Option<String>,
     pub thumbnail_path: Option<String>,
     pub file_name: Option<String>,
+    pub embedding_dim: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -325,6 +329,7 @@ pub struct FaceSummaryDto {
     pub total_faces: i64,
     pub photos_with_faces: i64,
     pub unassigned_faces: i64,
+    pub faces_with_embedding: i64,
 }
 
 #[tauri::command]
@@ -335,7 +340,8 @@ pub fn faces_list_cmd(app: AppHandle, limit: Option<i64>) -> Result<Vec<FaceDto>
     let mut stmt = conn
         .prepare(
             "SELECT f.id, f.photo_id, f.detected_by, f.bbox_x, f.bbox_y, f.bbox_w, f.bbox_h, \
-                    f.confidence, f.person_id, pa.thumbnail_medium_path, p.file_name \
+                    f.confidence, f.person_id, pa.thumbnail_medium_path, p.file_name, \
+                    f.embedding_dim \
              FROM faces f \
              LEFT JOIN photos p ON p.id = f.photo_id \
              LEFT JOIN photo_assets pa ON pa.photo_id = f.photo_id \
@@ -358,6 +364,7 @@ pub fn faces_list_cmd(app: AppHandle, limit: Option<i64>) -> Result<Vec<FaceDto>
                 person_id: row.get(8)?,
                 thumbnail_path: row.get(9)?,
                 file_name: row.get(10)?,
+                embedding_dim: row.get(11)?,
             })
         })
         .map_err(|e| format!("Failed to query faces: {}", e))?
@@ -387,9 +394,288 @@ pub fn faces_summary_cmd(app: AppHandle) -> Result<FaceSummaryDto, String> {
             |r| r.get(0),
         )
         .map_err(|e| format!("Failed to count unassigned: {}", e))?;
+    let faces_with_embedding: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM faces WHERE status = 'active' \
+             AND embedding_path IS NOT NULL AND embedding_path != ''",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("Failed to count embedded faces: {}", e))?;
     Ok(FaceSummaryDto {
         total_faces,
         photos_with_faces,
         unassigned_faces,
+        faces_with_embedding,
     })
+}
+
+#[derive(Debug, Serialize)]
+pub struct EmbedSummaryDto {
+    pub photos_processed: i64,
+    pub faces_embedded: i64,
+    pub faces_failed: i64,
+    pub faces_skipped: i64,
+}
+
+/// Generate face embeddings for any active faces row whose embedding_path
+/// is still NULL. Bypasses the orchestrator because (a) face.embed needs
+/// per-photo bbox bundles that don't fit the scope resolver, and (b) the
+/// orchestrator currently drops Artifact bytes — embeddings have to land
+/// on disk synchronously inside this command.
+///
+/// Artifact layout (RFC §3.3):
+///   data/artifacts/<photo_id>/face.embed/<provider_id>/<face_id>.bin
+#[tauri::command]
+pub async fn analysis_embed_faces_cmd(
+    app: AppHandle,
+    limit: Option<i64>,
+) -> Result<EmbedSummaryDto, String> {
+    let db_path = ensure_db(&app)?;
+    let artifact_root = artifact_dir(&app)?;
+    let cap_per_photo = limit.unwrap_or(500);
+
+    // Pick the embed provider explicitly so we don't accidentally invoke
+    // NoopProvider on platforms where the Vision provider didn't register.
+    let provider = registry().select(FACE_EMBED).ok_or_else(|| {
+        "no provider registered for face.embed".to_string()
+    })?;
+    let provider_id = provider.id();
+    let schema_version = provider.schema_version(FACE_EMBED);
+
+    // Gather pending faces grouped by photo. Each photo becomes one
+    // AnalyzeInput; the meta.faces array carries the bbox list.
+    let pending = collect_pending_face_embeds(&db_path, &provider_id, cap_per_photo)?;
+    if pending.is_empty() {
+        return Ok(EmbedSummaryDto {
+            photos_processed: 0,
+            faces_embedded: 0,
+            faces_failed: 0,
+            faces_skipped: 0,
+        });
+    }
+
+    let cancel = CancellationToken::new();
+    let ctx = AnalyzeContext {
+        job_id: format!("embed-{}", uuid::Uuid::new_v4()),
+        cancel: cancel.clone(),
+        config: serde_json::json!({}),
+    };
+
+    let mut photos_processed = 0_i64;
+    let mut faces_embedded = 0_i64;
+    let mut faces_failed = 0_i64;
+
+    for batch in pending {
+        photos_processed += 1;
+        let face_count = batch.faces.len() as i64;
+        let input = AnalyzeInput {
+            photo_id: batch.photo_id.clone(),
+            image_path: batch.image_path.clone(),
+            thumbnail_path: None,
+            hint_dimensions: None,
+            meta: serde_json::json!({ "faces": batch.faces_meta() }),
+        };
+
+        let output = match provider.analyze(&ctx, FACE_EMBED, &input).await {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!("[embed] {} provider error: {}", batch.photo_id, e);
+                faces_failed += face_count;
+                continue;
+            }
+        };
+
+        // Match each artifact to its face_id by walking embeddings_info.
+        let info = output
+            .result
+            .get("embeddings")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let mut artifact_iter = output.artifacts.into_iter();
+        for entry in info {
+            let face_id = entry
+                .get("face_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let dim = entry.get("dim").and_then(|v| v.as_u64()).unwrap_or(0);
+            if dim == 0 {
+                faces_failed += 1;
+                continue;
+            }
+            let artifact = match artifact_iter.next() {
+                Some(a) => a,
+                None => {
+                    faces_failed += 1;
+                    continue;
+                }
+            };
+            let target = artifact_root
+                .join(&batch.photo_id)
+                .join("face.embed")
+                .join(&provider_id)
+                .join(format!("{}.bin", face_id));
+            if let Some(parent) = target.parent() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    eprintln!("[embed] mkdir {}: {}", parent.display(), e);
+                    faces_failed += 1;
+                    continue;
+                }
+            }
+            if let Err(e) = std::fs::write(&target, &artifact.bytes) {
+                eprintln!("[embed] write {}: {}", target.display(), e);
+                faces_failed += 1;
+                continue;
+            }
+            // Persist embedding pointer on the face row.
+            let conn = open_database(&db_path)?;
+            let updated = conn
+                .execute(
+                    "UPDATE faces SET embedding_path = ?1, embedding_dim = ?2 WHERE id = ?3",
+                    params![target.to_string_lossy().to_string(), dim as i64, face_id],
+                )
+                .map_err(|e| format!("Failed to update face {}: {}", face_id, e))?;
+            if updated == 0 {
+                faces_failed += 1;
+                continue;
+            }
+            faces_embedded += 1;
+        }
+        // Any remaining artifacts (shouldn't happen) — log and drop.
+        for orphan in artifact_iter {
+            eprintln!(
+                "[embed] orphan artifact ({} bytes) for {} dropped",
+                orphan.bytes.len(),
+                batch.photo_id
+            );
+        }
+
+        // Append a single ledger row per photo recording the run.
+        let conn = open_database(&db_path)?;
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT OR REPLACE INTO analysis_results \
+             (photo_id, capability, provider_id, schema_version, result_json, confidence, job_id, generated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7)",
+            params![
+                batch.photo_id,
+                FACE_EMBED,
+                provider_id,
+                schema_version as i64,
+                output.result.to_string(),
+                output.confidence.map(|c| c as f64),
+                now,
+            ],
+        )
+        .map_err(|e| format!("Failed to insert analysis_results: {}", e))?;
+    }
+
+    let faces_skipped = 0; // collect_pending_face_embeds already filters
+
+    Ok(EmbedSummaryDto {
+        photos_processed,
+        faces_embedded,
+        faces_failed,
+        faces_skipped,
+    })
+}
+
+struct PhotoBatch {
+    photo_id: String,
+    image_path: PathBuf,
+    faces: Vec<(String, [f64; 4])>, // (face_id, bbox)
+}
+
+impl PhotoBatch {
+    fn faces_meta(&self) -> serde_json::Value {
+        serde_json::Value::Array(
+            self.faces
+                .iter()
+                .map(|(id, b)| {
+                    serde_json::json!({
+                        "face_id": id,
+                        "bbox": [b[0], b[1], b[2], b[3]],
+                    })
+                })
+                .collect(),
+        )
+    }
+}
+
+fn collect_pending_face_embeds(
+    db_path: &PathBuf,
+    provider_id: &str,
+    cap_per_photo: i64,
+) -> Result<Vec<PhotoBatch>, String> {
+    let conn = open_database(db_path)?;
+    // Pull (photo_id, root_path, relative_path, face_id, bbox_*) for any
+    // active face that lacks an embedding from THIS provider.
+    let mut stmt = conn
+        .prepare(
+            "SELECT f.id, f.photo_id, f.bbox_x, f.bbox_y, f.bbox_w, f.bbox_h, \
+                    s.root_path, p.relative_path \
+             FROM faces f \
+             INNER JOIN photos p ON p.id = f.photo_id \
+             INNER JOIN sources s ON s.id = p.source_id \
+             WHERE f.status = 'active' \
+               AND (f.embedding_path IS NULL OR f.embedding_path = '') \
+             ORDER BY f.photo_id, f.created_at",
+        )
+        .map_err(|e| format!("Failed to prepare pending faces query: {}", e))?;
+    let rows = stmt
+        .query_map([], |row| {
+            let face_id: String = row.get(0)?;
+            let photo_id: String = row.get(1)?;
+            let bx: f64 = row.get(2)?;
+            let by: f64 = row.get(3)?;
+            let bw: f64 = row.get(4)?;
+            let bh: f64 = row.get(5)?;
+            let root_path: String = row.get(6)?;
+            let relative_path: String = row.get(7)?;
+            Ok((face_id, photo_id, [bx, by, bw, bh], root_path, relative_path))
+        })
+        .map_err(|e| format!("Failed to query pending faces: {}", e))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| format!("Failed to collect pending faces: {}", e))?;
+
+    let _ = provider_id; // reserved for future per-provider caches; kept on
+                         // the signature so callers can scope by provider.
+
+    let mut batches: Vec<PhotoBatch> = Vec::new();
+    for (face_id, photo_id, bbox, root_path, relative_path) in rows {
+        let absolute = if relative_path.is_empty() {
+            PathBuf::from(&root_path)
+        } else {
+            std::path::Path::new(&root_path).join(&relative_path)
+        };
+        match batches.last_mut() {
+            Some(last) if last.photo_id == photo_id => {
+                if (last.faces.len() as i64) < cap_per_photo {
+                    last.faces.push((face_id, bbox));
+                }
+            }
+            _ => {
+                batches.push(PhotoBatch {
+                    photo_id: photo_id.clone(),
+                    image_path: absolute,
+                    faces: vec![(face_id, bbox)],
+                });
+            }
+        }
+    }
+    Ok(batches)
+}
+
+fn artifact_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    use tauri::Manager;
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    let dir = app_data_dir.join("artifacts");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Failed to create artifacts dir: {}", e))?;
+    Ok(dir)
 }

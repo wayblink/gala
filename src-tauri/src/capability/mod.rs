@@ -17,6 +17,9 @@ mod materializer;
 #[cfg(target_os = "macos")]
 mod macos_vision;
 
+#[cfg(target_os = "macos")]
+mod macos_vision_embed;
+
 pub mod commands;
 
 pub use materializer::materialize_face_detect;
@@ -31,3 +34,6 @@ pub use types::{
 
 #[cfg(target_os = "macos")]
 pub use macos_vision::MacosVisionFaceProvider;
+
+#[cfg(target_os = "macos")]
+pub use macos_vision_embed::MacosVisionEmbedProvider;

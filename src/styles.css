@@ -2210,6 +2210,22 @@ a {
   position: absolute;
 }
 
+.face-tile__embed-badge {
+  align-items: center;
+  background: rgba(20, 22, 26, 0.75);
+  border: 1px solid var(--amber-dust);
+  border-radius: 999px;
+  bottom: 6px;
+  color: var(--amber-dust);
+  display: inline-flex;
+  font-size: 10px;
+  height: 18px;
+  justify-content: center;
+  position: absolute;
+  right: 6px;
+  width: 18px;
+}
+
 .face-tile__caption {
   align-items: center;
   display: flex;
