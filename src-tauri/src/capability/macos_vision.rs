@@ -81,8 +81,16 @@ impl CapabilityProvider for MacosVisionFaceProvider {
         }
         self.calls.fetch_add(1, Ordering::SeqCst);
 
-        let faces = detect_faces_sync(&input.image_path)
-            .map_err(|msg| CapabilityError::Inference(msg))?;
+        // Vision's performRequests blocks the calling thread. Move it onto
+        // the blocking pool so a large face.detect job doesn't starve the
+        // tokio worker threads. The objc2 objects live entirely inside
+        // detect_faces_sync (created + dropped there); only the owned
+        // PathBuf crosses in and the Send Vec<Value> crosses out.
+        let path = input.image_path.clone();
+        let faces = tokio::task::spawn_blocking(move || detect_faces_sync(&path))
+            .await
+            .map_err(|e| CapabilityError::Inference(format!("join error: {}", e)))?
+            .map_err(CapabilityError::Inference)?;
 
         let face_count = faces.len();
         let result = json!({

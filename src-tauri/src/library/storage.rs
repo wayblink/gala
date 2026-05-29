@@ -196,6 +196,8 @@ pub fn initialize_schema(conn: &Connection) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS idx_faces_photo ON faces(photo_id);
         CREATE INDEX IF NOT EXISTS idx_faces_person
             ON faces(person_id) WHERE person_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_faces_person_photo
+            ON faces(person_id, photo_id) WHERE person_id IS NOT NULL AND status = 'active';
         CREATE INDEX IF NOT EXISTS idx_persons_name
             ON persons(display_name) WHERE display_name IS NOT NULL;
         -- Indexes on columns added by migrate_schema (content_hash,
@@ -368,6 +370,8 @@ pub fn migrate_schema(conn: &Connection) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS idx_faces_photo ON faces(photo_id);
         CREATE INDEX IF NOT EXISTS idx_faces_person
             ON faces(person_id) WHERE person_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_faces_person_photo
+            ON faces(person_id, photo_id) WHERE person_id IS NOT NULL AND status = 'active';
         CREATE INDEX IF NOT EXISTS idx_persons_name
             ON persons(display_name) WHERE display_name IS NOT NULL;
         CREATE INDEX IF NOT EXISTS idx_photos_content_hash
@@ -1735,17 +1739,24 @@ pub fn get_photos_by_person(
     limit: i64,
     offset: i64,
 ) -> Result<Vec<TimelinePhoto>, String> {
-    // DISTINCT photos: a face's person_id matches across multiple faces in
-    // one photo group shots, so SELECT DISTINCT to avoid duplicates.
+    // EXISTS over the faces table avoids the multi-row JOIN expansion that
+    // SELECT DISTINCT would have to dedupe. SQLite's planner can also
+    // short-circuit on the first matching face per photo when faces has
+    // an index on (person_id, photo_id). Result set is the photo, not
+    // (photo, face) cartesian product.
     let mut stmt = conn
         .prepare(&format!(
-            "SELECT DISTINCT {cols} \
+            "SELECT {cols} \
              FROM photos p \
              INNER JOIN sources s ON p.source_id = s.id \
              INNER JOIN photo_assets pa ON p.id = pa.photo_id \
-             INNER JOIN faces f ON f.photo_id = p.id \
              WHERE {asset} AND p.hidden_at IS NULL \
-               AND f.status = 'active' AND f.person_id = ?3 \
+               AND EXISTS ( \
+                 SELECT 1 FROM faces f \
+                 WHERE f.photo_id = p.id \
+                   AND f.status = 'active' \
+                   AND f.person_id = ?3 \
+               ) \
              ORDER BY p.captured_at DESC, p.created_at DESC \
              LIMIT ?1 OFFSET ?2",
             cols = PHOTO_COLS,

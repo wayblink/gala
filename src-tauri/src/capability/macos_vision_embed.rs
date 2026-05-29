@@ -84,59 +84,77 @@ impl CapabilityProvider for MacosVisionEmbedProvider {
             });
         }
 
-        let mut embeddings_info = Vec::new();
-        let mut artifacts = Vec::new();
-
-        for face in faces_meta {
-            let face_id = face
-                .get("face_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-            let bbox = face.get("bbox").and_then(|v| v.as_array());
-            let bbox = match bbox {
-                Some(b) if b.len() == 4 => [
-                    b[0].as_f64().unwrap_or(0.0),
-                    b[1].as_f64().unwrap_or(0.0),
-                    b[2].as_f64().unwrap_or(0.0),
-                    b[3].as_f64().unwrap_or(0.0),
-                ],
-                _ => {
+        // Parse the face list into owned (face_id, bbox) pairs in the async
+        // context (cheap serde reads), then hand the heavy Vision crops +
+        // feature-print loop to the blocking pool in one shot so a big
+        // embed job doesn't tie up a tokio worker. objc2 objects live
+        // entirely inside generate_embedding; only owned Send values cross
+        // the spawn_blocking boundary.
+        let total = faces_meta.len();
+        // Parse into owned (face_id, bbox) pairs, severing the borrow on
+        // `input` so the owned data can move into spawn_blocking. The
+        // metadata array is tiny (a handful of faces), so this collect is
+        // negligible compared to the Vision crops it feeds.
+        let parsed: Vec<(String, [f64; 4])> = faces_meta
+            .iter()
+            .filter_map(|face| {
+                let face_id = face.get("face_id").and_then(|v| v.as_str())?.to_string();
+                let b = face.get("bbox").and_then(|v| v.as_array())?;
+                if b.len() != 4 {
                     eprintln!("[embed] skipping face {} — invalid bbox", face_id);
-                    continue;
+                    return None;
                 }
-            };
-
-            match generate_embedding(&input.image_path, bbox) {
-                Ok((bytes, dim)) => {
-                    embeddings_info.push(json!({
-                        "face_id": face_id,
-                        "dim": dim,
-                        "element_type": "float32",
-                    }));
-                    artifacts.push(Artifact {
-                        kind: "embedding",
-                        bytes,
-                        mime: "application/octet-stream",
-                    });
-                }
-                Err(e) => {
-                    eprintln!("[embed] face {} failed: {}", face_id, e);
-                    embeddings_info.push(json!({
-                        "face_id": face_id,
-                        "error": e,
-                    }));
+                Some((
+                    face_id,
+                    [
+                        b[0].as_f64().unwrap_or(0.0),
+                        b[1].as_f64().unwrap_or(0.0),
+                        b[2].as_f64().unwrap_or(0.0),
+                        b[3].as_f64().unwrap_or(0.0),
+                    ],
+                ))
+            })
+            .collect();
+        let image_path = input.image_path.clone();
+        let (embeddings_info, artifacts) = tokio::task::spawn_blocking(move || {
+            let mut embeddings_info: Vec<serde_json::Value> = Vec::new();
+            let mut artifacts: Vec<Artifact> = Vec::new();
+            for (face_id, bbox) in parsed {
+                match generate_embedding(&image_path, bbox) {
+                    Ok((bytes, dim)) => {
+                        embeddings_info.push(json!({
+                            "face_id": face_id,
+                            "dim": dim,
+                            "element_type": "float32",
+                        }));
+                        artifacts.push(Artifact {
+                            kind: "embedding",
+                            bytes,
+                            mime: "application/octet-stream",
+                        });
+                    }
+                    Err(e) => {
+                        eprintln!("[embed] face {} failed: {}", face_id, e);
+                        embeddings_info.push(json!({
+                            "face_id": face_id,
+                            "error": e,
+                        }));
+                    }
                 }
             }
-        }
+            (embeddings_info, artifacts)
+        })
+        .await
+        .map_err(|e| CapabilityError::Inference(format!("join error: {}", e)))?;
 
         let successful = embeddings_info
             .iter()
             .filter(|e| e.get("dim").is_some())
             .count();
-        let confidence = if faces_meta.is_empty() {
+        let confidence = if total == 0 {
             None
         } else {
-            Some(successful as f32 / faces_meta.len() as f32)
+            Some(successful as f32 / total as f32)
         };
 
         Ok(AnalyzeOutput {

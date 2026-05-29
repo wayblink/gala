@@ -50,6 +50,11 @@ struct LoadedFace {
     id: String,
     confidence: f32,
     embedding: Vec<f32>,
+    /// person_id this face was assigned to BEFORE this clustering run.
+    /// Used to vote for a stable person identity so re-clustering keeps
+    /// the same UUID (and thus user-assigned display_name / is_hidden)
+    /// for clusters that stay coherent.
+    old_person_id: Option<String>,
 }
 
 pub fn cluster_faces(conn: &mut Connection) -> Result<ClusterSummary, CapabilityError> {
@@ -73,17 +78,25 @@ pub fn cluster_faces(conn: &mut Connection) -> Result<ClusterSummary, Capability
         .unwrap_or(0);
 
     let tx = conn.transaction()?;
-    // Wipe prior auto-clustered persons. We DO NOT touch persons whose
-    // cluster_method is 'manual' (future user-named entities) — their
-    // membership stays glued to the corresponding face rows via faces.person_id
-    // even after re-clustering.
+
+    // Snapshot existing auto-clustered persons so we can reuse their UUIDs
+    // (and the user-assigned display_name / is_hidden riding on them) when a
+    // re-cluster produces a coherent successor cluster. Manual persons
+    // (cluster_method != hnsw) are never touched here.
+    let existing_persons: HashMap<String, ()> = {
+        let mut stmt = tx.prepare(
+            "SELECT id FROM persons WHERE cluster_method = ?1",
+        )?;
+        let ids = stmt
+            .query_map(params![PROVIDER_ID], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ids.into_iter().map(|id| (id, ())).collect()
+    };
+
+    // Detach faces from their auto-clustered persons. We re-assign below.
     tx.execute(
         "UPDATE faces SET person_id = NULL WHERE person_id IN \
          (SELECT id FROM persons WHERE cluster_method = ?1)",
-        params![PROVIDER_ID],
-    )?;
-    tx.execute(
-        "DELETE FROM persons WHERE cluster_method = ?1",
         params![PROVIDER_ID],
     )?;
 
@@ -94,12 +107,13 @@ pub fn cluster_faces(conn: &mut Connection) -> Result<ClusterSummary, Capability
 
     let now = Utc::now().to_rfc3339();
     let mut persons_created = 0_i64;
+    let mut persons_reused = 0_i64;
+    let mut claimed: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for members in by_cluster.iter() {
         if members.is_empty() {
             continue;
         }
-        let person_id = Uuid::new_v4().to_string();
         // Representative face: highest confidence within the cluster.
         let rep = members
             .iter()
@@ -113,13 +127,49 @@ pub fn cluster_faces(conn: &mut Connection) -> Result<ClusterSummary, Capability
             .map(|i| faces[i].id.clone())
             .unwrap_or_default();
 
-        tx.execute(
-            "INSERT INTO persons \
-             (id, display_name, rep_face_id, cluster_method, face_count, is_hidden, \
-              merged_into, created_at, updated_at) \
-             VALUES (?1, NULL, ?2, ?3, ?4, 0, NULL, ?5, ?5)",
-            params![person_id, rep, PROVIDER_ID, members.len() as i64, now],
-        )?;
+        // Vote for a stable identity: of the faces in this cluster, which
+        // prior person_id appears most often? That person "inherits" this
+        // cluster, keeping its UUID + display_name. Skip ids that were
+        // already claimed by an earlier cluster this run (a split) or that
+        // no longer exist.
+        let mut votes: HashMap<&str, usize> = HashMap::new();
+        for &idx in members {
+            if let Some(pid) = faces[idx].old_person_id.as_deref() {
+                if existing_persons.contains_key(pid) && !claimed.contains(pid) {
+                    *votes.entry(pid).or_insert(0) += 1;
+                }
+            }
+        }
+        let inherited = votes
+            .into_iter()
+            .max_by_key(|(_, count)| *count)
+            .map(|(pid, _)| pid.to_string());
+
+        let person_id = match inherited {
+            Some(pid) => {
+                tx.execute(
+                    "UPDATE persons SET rep_face_id = ?1, face_count = ?2, updated_at = ?3 \
+                     WHERE id = ?4",
+                    params![rep, members.len() as i64, now, pid],
+                )?;
+                persons_reused += 1;
+                claimed.insert(pid.clone());
+                pid
+            }
+            None => {
+                let pid = Uuid::new_v4().to_string();
+                tx.execute(
+                    "INSERT INTO persons \
+                     (id, display_name, rep_face_id, cluster_method, face_count, is_hidden, \
+                      merged_into, created_at, updated_at) \
+                     VALUES (?1, NULL, ?2, ?3, ?4, 0, NULL, ?5, ?5)",
+                    params![pid, rep, PROVIDER_ID, members.len() as i64, now],
+                )?;
+                persons_created += 1;
+                claimed.insert(pid.clone());
+                pid
+            }
+        };
 
         for &idx in members {
             tx.execute(
@@ -127,7 +177,24 @@ pub fn cluster_faces(conn: &mut Connection) -> Result<ClusterSummary, Capability
                 params![person_id, faces[idx].id],
             )?;
         }
-        persons_created += 1;
+    }
+
+    // Delete any prior auto-clustered persons that no successor cluster
+    // claimed (their faces dropped out, e.g. embeddings deleted).
+    {
+        let mut stmt = tx.prepare(
+            "SELECT id FROM persons WHERE cluster_method = ?1",
+        )?;
+        let stale: Vec<String> = stmt
+            .query_map(params![PROVIDER_ID], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .filter(|id| !claimed.contains(id))
+            .collect();
+        drop(stmt);
+        for id in stale {
+            tx.execute("DELETE FROM persons WHERE id = ?1", params![id])?;
+        }
     }
 
     tx.commit()?;
@@ -136,7 +203,7 @@ pub fn cluster_faces(conn: &mut Connection) -> Result<ClusterSummary, Capability
         faces_loaded,
         faces_failed: 0,
         persons_created,
-        persons_existing: count_existing_persons(conn)? - persons_created,
+        persons_existing: persons_reused,
     })
 }
 
