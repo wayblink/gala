@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use uuid::Uuid;
 
-const SCHEMA_VERSION: i32 = 9;
+const SCHEMA_VERSION: i32 = 10;
 
 const PHOTO_COLS: &str = "p.id, p.file_name, p.relative_path, p.file_mtime, p.file_size, \
     s.name, s.status, pa.thumbnail_medium_path, p.favorited_at, p.width, p.height, \
@@ -185,6 +185,14 @@ pub fn initialize_schema(conn: &Connection) -> Result<(), String> {
             face_id TEXT NOT NULL REFERENCES faces(id),
             PRIMARY KEY (photo_id, face_id)
         );
+        CREATE TABLE IF NOT EXISTS photo_embeddings (
+            photo_id TEXT NOT NULL REFERENCES photos(id),
+            model_name TEXT NOT NULL,
+            embedding_path TEXT NOT NULL,
+            dimensions INTEGER NOT NULL,
+            generated_at TEXT NOT NULL,
+            PRIMARY KEY (photo_id, model_name)
+        );
         CREATE INDEX IF NOT EXISTS idx_analysis_jobs_status
             ON analysis_jobs(status, priority DESC, created_at);
         CREATE INDEX IF NOT EXISTS idx_analysis_jobs_capability
@@ -358,6 +366,14 @@ pub fn migrate_schema(conn: &Connection) -> Result<(), String> {
             photo_id TEXT NOT NULL REFERENCES photos(id),
             face_id TEXT NOT NULL REFERENCES faces(id),
             PRIMARY KEY (photo_id, face_id)
+        );
+        CREATE TABLE IF NOT EXISTS photo_embeddings (
+            photo_id TEXT NOT NULL REFERENCES photos(id),
+            model_name TEXT NOT NULL,
+            embedding_path TEXT NOT NULL,
+            dimensions INTEGER NOT NULL,
+            generated_at TEXT NOT NULL,
+            PRIMARY KEY (photo_id, model_name)
         );
         CREATE INDEX IF NOT EXISTS idx_analysis_jobs_status
             ON analysis_jobs(status, priority DESC, created_at);

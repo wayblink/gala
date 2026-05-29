@@ -199,7 +199,7 @@ fn generate_embedding(image_path: &Path, bbox: [f64; 4]) -> Result<(Vec<u8>, usi
     result
 }
 
-fn run_feature_print(image_path: &Path) -> Result<(Vec<u8>, usize), String> {
+pub(super) fn run_feature_print(image_path: &Path) -> Result<(Vec<u8>, usize), String> {
     let path_str = image_path
         .to_str()
         .ok_or_else(|| "non-UTF8 path".to_string())?;

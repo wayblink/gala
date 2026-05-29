@@ -24,6 +24,7 @@ use super::types::{AnalysisRequest, AnalyzeContext, AnalyzeInput, ScopeKind};
 const FACE_DETECT: &str = "face.detect";
 const FACE_EMBED: &str = "face.embed";
 const FACE_CLUSTER: &str = "face.cluster";
+const PHOTO_EMBED: &str = "photo.embed";
 
 static REGISTRY: OnceLock<Arc<CapabilityRegistry>> = OnceLock::new();
 
@@ -38,15 +39,17 @@ fn registry() -> Arc<CapabilityRegistry> {
             {
                 use super::macos_vision::MacosVisionFaceProvider;
                 use super::macos_vision_embed::MacosVisionEmbedProvider;
+                use super::macos_vision_photo_embed::MacosVisionPhotoEmbedProvider;
                 reg.register(Arc::new(MacosVisionFaceProvider::new()));
                 reg.register(Arc::new(MacosVisionEmbedProvider::new()));
+                reg.register(Arc::new(MacosVisionPhotoEmbedProvider::new()));
             }
             // NoopProvider stays as the fallback / advertiser for
             // face.cluster (still stubbed until M1.5) and as the
             // non-macOS face.detect / face.embed implementation.
             let noop = Arc::new(NoopProvider::new(
                 "noop.v1",
-                &[FACE_DETECT, FACE_EMBED, FACE_CLUSTER],
+                &[FACE_DETECT, FACE_EMBED, FACE_CLUSTER, PHOTO_EMBED],
             ));
             reg.register(noop);
             Arc::new(reg)
@@ -134,6 +137,7 @@ fn map_capability(name: &str) -> Result<&'static str, String> {
         "face.detect" => Ok(FACE_DETECT),
         "face.embed" => Ok(FACE_EMBED),
         "face.cluster" => Ok(FACE_CLUSTER),
+        "photo.embed" => Ok(PHOTO_EMBED),
         other => Err(format!("unknown capability: {}", other)),
     }
 }
@@ -291,7 +295,7 @@ pub fn capabilities_list_cmd() -> Vec<CapabilityDescriptorDto> {
     let reg = registry();
     // Group capabilities by provider for a stable JSON shape.
     let mut by_provider: std::collections::BTreeMap<String, Vec<String>> = Default::default();
-    for cap in [FACE_DETECT, FACE_EMBED, FACE_CLUSTER] {
+    for cap in [FACE_DETECT, FACE_EMBED, FACE_CLUSTER, PHOTO_EMBED] {
         for provider_id in reg.providers_for(cap) {
             by_provider
                 .entry(provider_id)
@@ -959,4 +963,273 @@ fn artifact_dir(app: &AppHandle) -> Result<PathBuf, String> {
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("Failed to create artifacts dir: {}", e))?;
     Ok(dir)
+}
+
+#[derive(Debug, Serialize)]
+pub struct PhotoEmbedSummaryDto {
+    pub photos_processed: i64,
+    pub photos_embedded: i64,
+    pub photos_failed: i64,
+    pub photos_skipped: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PhotoEmbeddingDto {
+    pub photo_id: String,
+    pub model_name: String,
+    pub embedding_path: String,
+    pub dimensions: i64,
+    pub generated_at: String,
+}
+
+#[tauri::command]
+pub async fn analysis_embed_photos_cmd(
+    app: AppHandle,
+    limit: Option<i64>,
+    force: Option<bool>,
+) -> Result<PhotoEmbedSummaryDto, String> {
+    let db_path = ensure_db(&app)?;
+    let artifact_root = artifact_dir(&app)?;
+    let force = force.unwrap_or(false);
+
+    let provider = registry()
+        .select(PHOTO_EMBED)
+        .ok_or_else(|| "no provider registered for photo.embed".to_string())?;
+    let provider_id = provider.id();
+    let schema_version = provider.schema_version(PHOTO_EMBED);
+
+    // Pick photos: indexed, ready thumbnails, and (unless force) not already
+    // embedded by this provider. Cap on each invocation so the UI can batch
+    // and the user can interrupt by closing the app.
+    let pending: Vec<(String, std::path::PathBuf)> = {
+        let conn = open_database(&db_path)?;
+        let lim = limit.unwrap_or(500);
+        let sql = if force {
+            "SELECT p.id, s.root_path, p.relative_path \
+             FROM photos p INNER JOIN sources s ON s.id = p.source_id \
+             WHERE p.status = 'indexed' AND p.hidden_at IS NULL \
+             LIMIT ?1"
+                .to_string()
+        } else {
+            "SELECT p.id, s.root_path, p.relative_path \
+             FROM photos p INNER JOIN sources s ON s.id = p.source_id \
+             WHERE p.status = 'indexed' AND p.hidden_at IS NULL \
+               AND NOT EXISTS ( \
+                 SELECT 1 FROM photo_embeddings pe \
+                 WHERE pe.photo_id = p.id AND pe.model_name = ?2 \
+               ) \
+             LIMIT ?1"
+                .to_string()
+        };
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| format!("Failed to prepare pending photos query: {}", e))?;
+        let rows: Vec<(String, String, String)> = if force {
+            stmt.query_map(params![lim], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+            })
+            .map_err(|e| format!("Failed to query pending photos: {}", e))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| format!("Failed to collect pending photos: {}", e))?
+        } else {
+            stmt.query_map(params![lim, provider_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+            })
+            .map_err(|e| format!("Failed to query pending photos: {}", e))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| format!("Failed to collect pending photos: {}", e))?
+        };
+        rows.into_iter()
+            .map(|(id, root, rel)| {
+                let abs = if rel.is_empty() {
+                    std::path::PathBuf::from(root)
+                } else {
+                    std::path::Path::new(&root).join(&rel)
+                };
+                (id, abs)
+            })
+            .collect()
+    };
+
+    if pending.is_empty() {
+        return Ok(PhotoEmbedSummaryDto {
+            photos_processed: 0,
+            photos_embedded: 0,
+            photos_failed: 0,
+            photos_skipped: 0,
+        });
+    }
+
+    let cancel = CancellationToken::new();
+    let ctx = AnalyzeContext {
+        job_id: format!("photo-embed-{}", uuid::Uuid::new_v4()),
+        cancel: cancel.clone(),
+        config: serde_json::json!({}),
+    };
+
+    let mut processed = 0_i64;
+    let mut embedded = 0_i64;
+    let mut failed = 0_i64;
+
+    for (photo_id, image_path) in pending {
+        processed += 1;
+        let input = AnalyzeInput {
+            photo_id: photo_id.clone(),
+            image_path,
+            thumbnail_path: None,
+            hint_dimensions: None,
+            meta: serde_json::Value::Null,
+        };
+        let output = match provider.analyze(&ctx, PHOTO_EMBED, &input).await {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!("[photo.embed] {} failed: {}", photo_id, e);
+                failed += 1;
+                continue;
+            }
+        };
+
+        let dim = output
+            .result
+            .get("dim")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let artifact = match output.artifacts.into_iter().next() {
+            Some(a) => a,
+            None => {
+                failed += 1;
+                continue;
+            }
+        };
+        let target = artifact_root
+            .join(&photo_id)
+            .join("photo.embed")
+            .join(&provider_id)
+            .join("embedding.bin");
+        if let Some(parent) = target.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                eprintln!("[photo.embed] mkdir {}: {}", parent.display(), e);
+                failed += 1;
+                continue;
+            }
+        }
+        if let Err(e) = std::fs::write(&target, &artifact.bytes) {
+            eprintln!("[photo.embed] write {}: {}", target.display(), e);
+            failed += 1;
+            continue;
+        }
+
+        let conn = open_database(&db_path)?;
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT OR REPLACE INTO photo_embeddings \
+             (photo_id, model_name, embedding_path, dimensions, generated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                photo_id,
+                provider_id,
+                target.to_string_lossy().to_string(),
+                dim as i64,
+                now,
+            ],
+        )
+        .map_err(|e| format!("Failed to upsert photo_embeddings: {}", e))?;
+
+        // Audit row in analysis_results too so the ledger stays uniform.
+        conn.execute(
+            "INSERT OR REPLACE INTO analysis_results \
+             (photo_id, capability, provider_id, schema_version, result_json, confidence, job_id, generated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7)",
+            params![
+                photo_id,
+                PHOTO_EMBED,
+                provider_id,
+                schema_version as i64,
+                output.result.to_string(),
+                output.confidence.map(|c| c as f64),
+                now,
+            ],
+        )
+        .map_err(|e| format!("Failed to insert analysis_results: {}", e))?;
+        embedded += 1;
+    }
+
+    Ok(PhotoEmbedSummaryDto {
+        photos_processed: processed,
+        photos_embedded: embedded,
+        photos_failed: failed,
+        photos_skipped: 0,
+    })
+}
+
+#[tauri::command]
+pub fn photo_embeddings_by_ids_cmd(
+    app: AppHandle,
+    photo_ids: Vec<String>,
+    model_name: Option<String>,
+) -> Result<Vec<PhotoEmbeddingDto>, String> {
+    let path = ensure_db(&app)?;
+    if photo_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let conn = open_database(&path)?;
+    // Build "?,?,?" placeholders for the IN clause.
+    let placeholders = std::iter::repeat("?").take(photo_ids.len()).collect::<Vec<_>>().join(",");
+    let model = model_name.unwrap_or_else(|| {
+        // Default to the macOS Vision provider id; matches what
+        // analysis_embed_photos_cmd writes today.
+        #[cfg(target_os = "macos")]
+        { super::macos_vision_photo_embed::PROVIDER_ID.to_string() }
+        #[cfg(not(target_os = "macos"))]
+        { "noop.v1".to_string() }
+    });
+    let sql = format!(
+        "SELECT photo_id, model_name, embedding_path, dimensions, generated_at \
+         FROM photo_embeddings \
+         WHERE model_name = ? AND photo_id IN ({})",
+        placeholders
+    );
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("Failed to prepare embeddings query: {}", e))?;
+    let mut bound: Vec<rusqlite::types::Value> = Vec::with_capacity(photo_ids.len() + 1);
+    bound.push(rusqlite::types::Value::Text(model));
+    for id in photo_ids {
+        bound.push(rusqlite::types::Value::Text(id));
+    }
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(bound.iter()), |row| {
+            Ok(PhotoEmbeddingDto {
+                photo_id: row.get(0)?,
+                model_name: row.get(1)?,
+                embedding_path: row.get(2)?,
+                dimensions: row.get(3)?,
+                generated_at: row.get(4)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query embeddings: {}", e))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| format!("Failed to collect embeddings: {}", e))?;
+    Ok(rows)
+}
+
+#[tauri::command]
+pub fn photo_embeddings_summary_cmd(app: AppHandle) -> Result<(i64, i64), String> {
+    let path = ensure_db(&app)?;
+    let conn = open_database(&path)?;
+    let total: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM photos WHERE status = 'indexed' AND hidden_at IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("Failed to count photos: {}", e))?;
+    let embedded: i64 = conn
+        .query_row(
+            "SELECT COUNT(DISTINCT photo_id) FROM photo_embeddings",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("Failed to count embeddings: {}", e))?;
+    Ok((total, embedded))
 }

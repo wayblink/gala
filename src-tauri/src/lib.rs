@@ -69,6 +69,9 @@ pub fn run() {
             capability::commands::set_person_hidden_cmd,
             capability::commands::merge_persons_cmd,
             capability::commands::split_face_to_new_person_cmd,
+            capability::commands::analysis_embed_photos_cmd,
+            capability::commands::photo_embeddings_by_ids_cmd,
+            capability::commands::photo_embeddings_summary_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Gala desktop app");
