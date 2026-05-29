@@ -188,3 +188,24 @@ export async function setPersonName(personId: string, name: string | null): Prom
   }
   await invoke('set_person_name_cmd', { personId, name })
 }
+
+export async function setPersonHidden(personId: string, hidden: boolean): Promise<void> {
+  if (!isTauriAvailable()) {
+    return
+  }
+  await invoke('set_person_hidden_cmd', { personId, hidden })
+}
+
+export async function mergePersons(sourceId: string, targetId: string): Promise<number> {
+  if (!isTauriAvailable()) {
+    return 0
+  }
+  return await invoke<number>('merge_persons_cmd', { sourceId, targetId })
+}
+
+export async function splitFaceToNewPerson(faceId: string): Promise<string> {
+  if (!isTauriAvailable()) {
+    return ''
+  }
+  return await invoke<string>('split_face_to_new_person_cmd', { faceId })
+}

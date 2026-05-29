@@ -7,8 +7,11 @@ import {
   capabilitiesList,
   facesList,
   facesSummary,
+  mergePersons,
   personsList,
+  setPersonHidden,
   setPersonName,
+  splitFaceToNewPerson,
 } from '../../desktop/capability'
 import type {
   CapabilityDescriptor,
@@ -37,6 +40,8 @@ export function PeopleView({
   const [persons, setPersons] = useState<Person[]>([])
   const [faces, setFaces] = useState<Face[]>([])
   const [stats, setStats] = useState<FaceSummary>(EMPTY_SUMMARY)
+  const [mergeMode, setMergeMode] = useState(false)
+  const [mergeSelection, setMergeSelection] = useState<string[]>([])
 
   const refresh = async () => {
     try {
@@ -105,7 +110,7 @@ export function PeopleView({
     try {
       const run = await analysisClusterFaces()
       setSummary(
-        `Cluster · ${run.faces_loaded} faces → ${run.persons_created} persons`,
+        `Cluster · ${run.faces_loaded} faces → ${run.persons_created} new persons, ${run.persons_existing} reused`,
       )
       await refresh()
     } catch (err) {
@@ -115,10 +120,66 @@ export function PeopleView({
     }
   }
 
+  const handleTogglePersonInMerge = (id: string) => {
+    setMergeSelection((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    )
+  }
+
+  const handleCommitMerge = async () => {
+    if (mergeSelection.length < 2) return
+    const [target, ...sources] = mergeSelection
+    setSummary(null)
+    try {
+      let total = 0
+      for (const source of sources) {
+        total += await mergePersons(source, target)
+      }
+      setSummary(`Merged ${sources.length} person(s) into target · ${total} face(s) moved`)
+      setMergeSelection([])
+      setMergeMode(false)
+      await refresh()
+    } catch (err) {
+      setSummary(`Error: ${String(err)}`)
+    }
+  }
+
+  const handleHidePerson = async (personId: string, hidden: boolean) => {
+    setSummary(null)
+    try {
+      await setPersonHidden(personId, hidden)
+      await refresh()
+    } catch (err) {
+      setSummary(`Error: ${String(err)}`)
+    }
+  }
+
+  const handleRenamePerson = async (personId: string, name: string | null) => {
+    setSummary(null)
+    try {
+      await setPersonName(personId, name)
+      await refresh()
+    } catch (err) {
+      setSummary(`Error: ${String(err)}`)
+    }
+  }
+
+  const handleSplitFace = async (faceId: string) => {
+    setSummary(null)
+    try {
+      const newId = await splitFaceToNewPerson(faceId)
+      setSummary(`Split face → new person ${newId.slice(0, 6)}`)
+      await refresh()
+    } catch (err) {
+      setSummary(`Error: ${String(err)}`)
+    }
+  }
+
   const visionDetect = providers.find((p) => p.provider_id === 'macos.vision.v1')
   const visionEmbed = providers.find((p) => p.provider_id === 'macos.vision.embed.v1')
   const pendingEmbeds = Math.max(0, stats.total_faces - stats.faces_with_embedding)
   const canCluster = stats.faces_with_embedding > 0
+  const canMerge = mergeSelection.length >= 2
 
   return (
     <div className="people-view">
@@ -176,19 +237,67 @@ export function PeopleView({
 
       {persons.length > 0 ? (
         <section className="people-view__section">
-          <h3 className="people-view__section-title">People</h3>
+          <div className="people-view__section-head">
+            <h3 className="people-view__section-title">People</h3>
+            {mergeMode ? (
+              <div className="people-view__merge-bar">
+                <span>
+                  {mergeSelection.length === 0
+                    ? 'Pick the target person first, then the ones to merge into it'
+                    : mergeSelection.length === 1
+                      ? '1 selected · target locked. Pick at least one to merge.'
+                      : `${mergeSelection.length} selected · target is the first one`}
+                </span>
+                <button onClick={() => void handleCommitMerge()} disabled={!canMerge}>
+                  Merge {mergeSelection.length > 1 ? `(${mergeSelection.length - 1} → 1)` : ''}
+                </button>
+                <button
+                  onClick={() => {
+                    setMergeMode(false)
+                    setMergeSelection([])
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                className="people-view__section-action"
+                onClick={() => setMergeMode(true)}
+                disabled={persons.length < 2}
+              >
+                Merge…
+              </button>
+            )}
+          </div>
           <div className="people-view__persons">
-            {persons.map((p) => (
-              <PersonCard
-                key={p.id}
-                person={p}
-                onClick={onSelectPerson ? () => onSelectPerson(p.id, p.display_name) : undefined}
-                onRename={async (next) => {
-                  await setPersonName(p.id, next)
-                  await refresh()
-                }}
-              />
-            ))}
+            {persons.map((p) => {
+              const selectedIdx = mergeSelection.indexOf(p.id)
+              return (
+                <PersonCard
+                  key={p.id}
+                  person={p}
+                  onClick={
+                    mergeMode
+                      ? () => handleTogglePersonInMerge(p.id)
+                      : onSelectPerson
+                        ? () => onSelectPerson(p.id, p.display_name)
+                        : undefined
+                  }
+                  onRename={mergeMode ? undefined : (next) => handleRenamePerson(p.id, next)}
+                  onToggleHidden={mergeMode ? undefined : () => handleHidePerson(p.id, true)}
+                  mergeBadge={
+                    mergeMode
+                      ? selectedIdx === -1
+                        ? null
+                        : selectedIdx === 0
+                          ? 'target'
+                          : 'merge'
+                      : null
+                  }
+                />
+              )
+            })}
           </div>
         </section>
       ) : null}
@@ -205,7 +314,7 @@ export function PeopleView({
           <h3 className="people-view__section-title">All faces</h3>
           <div className="people-view__grid">
             {faces.map((face) => (
-              <FaceTile key={face.id} face={face} />
+              <FaceTile key={face.id} face={face} onSplit={() => void handleSplitFace(face.id)} />
             ))}
           </div>
         </section>
@@ -218,10 +327,14 @@ function PersonCard({
   person,
   onClick,
   onRename,
+  onToggleHidden,
+  mergeBadge,
 }: {
   person: Person
   onClick?: () => void
   onRename?: (name: string | null) => Promise<void> | void
+  onToggleHidden?: () => Promise<void> | void
+  mergeBadge?: 'target' | 'merge' | null
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(person.display_name ?? '')
@@ -266,6 +379,14 @@ function PersonCard({
     <>
       {src ? <img src={src} alt={label} /> : <span className="person-card__placeholder" />}
       {hasBbox && <span className="person-card__bbox" style={overlayStyle} />}
+      {mergeBadge && (
+        <span
+          className={`person-card__merge-badge person-card__merge-badge--${mergeBadge}`}
+          aria-hidden
+        >
+          {mergeBadge === 'target' ? 'TARGET' : '+'}
+        </span>
+      )}
       {onRename && !editing && (
         <button
           type="button"
@@ -278,6 +399,20 @@ function PersonCard({
           }}
         >
           ✎
+        </button>
+      )}
+      {onToggleHidden && (
+        <button
+          type="button"
+          className="person-card__hide-btn"
+          aria-label={`Hide ${label}`}
+          title="Hide person"
+          onClick={(e) => {
+            e.stopPropagation()
+            void onToggleHidden()
+          }}
+        >
+          ⊘
         </button>
       )}
     </>
@@ -307,7 +442,6 @@ function PersonCard({
           }
         }}
         onBlur={() => {
-          // Commit if anything actually changed; otherwise just close.
           const trimmed = draft.trim()
           const current = person.display_name ?? ''
           if (trimmed !== current) {
@@ -333,7 +467,7 @@ function PersonCard({
   )
 
   const interactive = Boolean(onClick) && !editing
-  const className = `person-card${interactive ? ' person-card--clickable' : ''}${editing ? ' person-card--editing' : ''}`
+  const className = `person-card${interactive ? ' person-card--clickable' : ''}${editing ? ' person-card--editing' : ''}${mergeBadge ? ' person-card--merge-selected' : ''}`
   if (!interactive) {
     return (
       <figure className={className} title={label}>
@@ -356,7 +490,7 @@ function PersonCard({
   )
 }
 
-function FaceTile({ face }: { face: Face }) {
+function FaceTile({ face, onSplit }: { face: Face; onSplit?: () => void }) {
   const src = face.thumbnail_path ? convertFileSrc(face.thumbnail_path) : null
   const overlayStyle: React.CSSProperties = {
     left: `${face.bbox_x * 100}%`,
@@ -374,6 +508,20 @@ function FaceTile({ face }: { face: Face }) {
         {hasPerson && <span className="face-tile__person-badge" title="assigned to a person">●</span>}
         {hasEmbedding && !hasPerson && (
           <span className="face-tile__embed-badge" title="embedding ready">★</span>
+        )}
+        {hasPerson && onSplit && (
+          <button
+            type="button"
+            className="face-tile__split-btn"
+            aria-label="Split into own person"
+            title="Split into own person"
+            onClick={(e) => {
+              e.stopPropagation()
+              onSplit()
+            }}
+          >
+            ⤴
+          </button>
         )}
       </div>
       <figcaption className="face-tile__caption">

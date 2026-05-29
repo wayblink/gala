@@ -691,6 +691,178 @@ pub fn set_person_name_cmd(
     Ok(())
 }
 
+#[tauri::command]
+pub fn set_person_hidden_cmd(
+    app: AppHandle,
+    person_id: String,
+    hidden: bool,
+) -> Result<(), String> {
+    let path = ensure_db(&app)?;
+    let conn = open_database(&path)?;
+    let now = chrono::Utc::now().to_rfc3339();
+    let n = conn
+        .execute(
+            "UPDATE persons SET is_hidden = ?1, updated_at = ?2 WHERE id = ?3",
+            params![if hidden { 1 } else { 0 }, now, person_id],
+        )
+        .map_err(|e| format!("Failed to toggle hidden: {}", e))?;
+    if n == 0 {
+        return Err(format!("person not found: {}", person_id));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn merge_persons_cmd(
+    app: AppHandle,
+    source_id: String,
+    target_id: String,
+) -> Result<i64, String> {
+    if source_id == target_id {
+        return Err("cannot merge a person into itself".to_string());
+    }
+    let path = ensure_db(&app)?;
+    let mut conn = open_database(&path)?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("merge tx: {}", e))?;
+
+    // Confirm both rows exist before mutating anything.
+    let target_exists: bool = tx
+        .query_row(
+            "SELECT 1 FROM persons WHERE id = ?1",
+            params![target_id],
+            |_| Ok(()),
+        )
+        .is_ok();
+    let source_exists: bool = tx
+        .query_row(
+            "SELECT 1 FROM persons WHERE id = ?1",
+            params![source_id],
+            |_| Ok(()),
+        )
+        .is_ok();
+    if !target_exists {
+        return Err(format!("target person not found: {}", target_id));
+    }
+    if !source_exists {
+        return Err(format!("source person not found: {}", source_id));
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // Move every active face from source to target.
+    let moved = tx
+        .execute(
+            "UPDATE faces SET person_id = ?1 WHERE person_id = ?2 AND status = 'active'",
+            params![target_id, source_id],
+        )
+        .map_err(|e| format!("merge faces: {}", e))?;
+
+    // Tombstone the source row so persons_list_cmd's
+    // `merged_into IS NULL` filter hides it. Keeping the row (instead of
+    // DELETE) means re-clustering later can still detect the merge via
+    // its old_person_id votes.
+    tx.execute(
+        "UPDATE persons \
+         SET merged_into = ?1, is_hidden = 1, face_count = 0, rep_face_id = NULL, updated_at = ?2 \
+         WHERE id = ?3",
+        params![target_id, now, source_id],
+    )
+    .map_err(|e| format!("merge tombstone: {}", e))?;
+
+    // Refresh target's face_count.
+    let target_count: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM faces WHERE person_id = ?1 AND status = 'active'",
+            params![target_id],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    tx.execute(
+        "UPDATE persons SET face_count = ?1, updated_at = ?2 WHERE id = ?3",
+        params![target_count, now, target_id],
+    )
+    .map_err(|e| format!("merge target update: {}", e))?;
+
+    tx.commit().map_err(|e| format!("merge commit: {}", e))?;
+    Ok(moved as i64)
+}
+
+#[tauri::command]
+pub fn split_face_to_new_person_cmd(
+    app: AppHandle,
+    face_id: String,
+) -> Result<String, String> {
+    let path = ensure_db(&app)?;
+    let mut conn = open_database(&path)?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("split tx: {}", e))?;
+
+    // Read the face we're splitting; we need the confidence for the new
+    // person's rep_face_id sanity (single face → it's automatically rep).
+    let (current_person_id, _confidence): (Option<String>, f64) = tx
+        .query_row(
+            "SELECT person_id, confidence FROM faces WHERE id = ?1 AND status = 'active'",
+            params![face_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|e| format!("face not found: {}", e))?;
+
+    let new_person_id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // 'manual' cluster_method: re-clustering's vote logic only inherits
+    // identity within hnsw.v1 rows (see clusterer.rs), so split persons
+    // survive re-cluster as their own permanent entity. The user can
+    // still rename / hide / re-merge from the UI.
+    tx.execute(
+        "INSERT INTO persons \
+         (id, display_name, rep_face_id, cluster_method, face_count, is_hidden, \
+          merged_into, created_at, updated_at) \
+         VALUES (?1, NULL, ?2, 'manual', 1, 0, NULL, ?3, ?3)",
+        params![new_person_id, face_id, now],
+    )
+    .map_err(|e| format!("create split person: {}", e))?;
+
+    tx.execute(
+        "UPDATE faces SET person_id = ?1 WHERE id = ?2",
+        params![new_person_id, face_id],
+    )
+    .map_err(|e| format!("reassign face: {}", e))?;
+
+    // Decrement the old person's face_count so the grid stays accurate
+    // until the next cluster run.
+    if let Some(old_pid) = current_person_id {
+        let remaining: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM faces WHERE person_id = ?1 AND status = 'active'",
+                params![old_pid],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        if remaining == 0 {
+            // Old person is empty — tombstone so it disappears from the grid.
+            tx.execute(
+                "UPDATE persons SET face_count = 0, is_hidden = 1, rep_face_id = NULL, \
+                 updated_at = ?1 WHERE id = ?2",
+                params![now, old_pid],
+            )
+            .map_err(|e| format!("empty old person: {}", e))?;
+        } else {
+            tx.execute(
+                "UPDATE persons SET face_count = ?1, updated_at = ?2 WHERE id = ?3",
+                params![remaining, now, old_pid],
+            )
+            .map_err(|e| format!("decrement old person: {}", e))?;
+        }
+    }
+
+    tx.commit().map_err(|e| format!("split commit: {}", e))?;
+    Ok(new_person_id)
+}
+
 struct PhotoBatch {
     photo_id: String,
     image_path: PathBuf,

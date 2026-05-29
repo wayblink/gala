@@ -2346,6 +2346,163 @@ a {
   box-shadow: 0 0 0 1px var(--amber-dust);
 }
 
+.person-card__hide-btn {
+  align-items: center;
+  background: rgba(20, 22, 26, 0.78);
+  border: 1px solid var(--ink-700);
+  border-radius: 999px;
+  color: var(--paper-200);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 13px;
+  height: 24px;
+  justify-content: center;
+  left: 8px;
+  opacity: 0;
+  padding: 0;
+  position: absolute;
+  top: 8px;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+  width: 24px;
+  z-index: 2;
+}
+
+.person-card:hover .person-card__hide-btn,
+.person-card--clickable:focus-within .person-card__hide-btn {
+  opacity: 1;
+}
+
+.person-card__hide-btn:hover {
+  background: var(--archive-red);
+  border-color: var(--archive-red);
+  color: #f7e2dd;
+}
+
+.person-card__merge-badge {
+  border-radius: 4px;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  left: 8px;
+  padding: 3px 6px;
+  position: absolute;
+  top: 8px;
+  z-index: 3;
+}
+
+.person-card__merge-badge--target {
+  background: var(--amber-dust);
+  color: #17130f;
+}
+
+.person-card__merge-badge--merge {
+  background: var(--lake-blue);
+  color: #fff;
+  font-size: 14px;
+  padding: 2px 7px;
+}
+
+.person-card--merge-selected {
+  border-color: var(--amber-dust);
+  box-shadow: 0 0 0 1px var(--amber-dust);
+}
+
+.people-view__section-head {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.people-view__section-head .people-view__section-title {
+  margin: 0;
+}
+
+.people-view__section-action {
+  background: var(--ink-800);
+  border: 1px solid var(--ink-700);
+  border-radius: 6px;
+  color: var(--paper-200);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 12px;
+}
+
+.people-view__section-action:hover:not(:disabled) {
+  background: var(--ink-700);
+}
+
+.people-view__section-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.people-view__merge-bar {
+  align-items: center;
+  background: var(--ink-900);
+  border: 1px solid var(--ink-700);
+  border-radius: 6px;
+  color: var(--paper-200);
+  display: flex;
+  font-size: 12px;
+  gap: 12px;
+  padding: 6px 12px;
+}
+
+.people-view__merge-bar button {
+  background: var(--ink-800);
+  border: 1px solid var(--ink-700);
+  border-radius: 6px;
+  color: var(--paper-100);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 10px;
+}
+
+.people-view__merge-bar button:hover:not(:disabled) {
+  background: var(--ink-700);
+}
+
+.people-view__merge-bar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.face-tile__split-btn {
+  align-items: center;
+  background: rgba(20, 22, 26, 0.78);
+  border: 1px solid var(--ink-700);
+  border-radius: 999px;
+  color: var(--paper-200);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 12px;
+  height: 22px;
+  justify-content: center;
+  left: 6px;
+  opacity: 0;
+  padding: 0;
+  position: absolute;
+  top: 6px;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+  width: 22px;
+  z-index: 2;
+}
+
+.face-tile:hover .face-tile__split-btn {
+  opacity: 1;
+}
+
+.face-tile__split-btn:hover {
+  background: var(--amber-dust);
+  border-color: var(--amber-dust);
+  color: #17130f;
+}
+
 .person-card__photo {
   aspect-ratio: 1 / 1;
   background: var(--ink-800);
