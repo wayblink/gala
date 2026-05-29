@@ -582,6 +582,83 @@ pub async fn analysis_embed_faces_cmd(
     })
 }
 
+#[derive(Debug, Serialize)]
+pub struct ClusterSummaryDto {
+    pub faces_loaded: i64,
+    pub faces_failed: i64,
+    pub persons_created: i64,
+    pub persons_existing: i64,
+}
+
+#[tauri::command]
+pub fn analysis_cluster_faces_cmd(app: AppHandle) -> Result<ClusterSummaryDto, String> {
+    let path = ensure_db(&app)?;
+    let mut conn = open_database(&path)?;
+    let summary = super::cluster_faces(&mut conn).map_err(|e| e.to_string())?;
+    Ok(ClusterSummaryDto {
+        faces_loaded: summary.faces_loaded,
+        faces_failed: summary.faces_failed,
+        persons_created: summary.persons_created,
+        persons_existing: summary.persons_existing,
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct PersonDto {
+    pub id: String,
+    pub display_name: Option<String>,
+    pub face_count: i64,
+    pub photo_count: i64,
+    pub rep_face_id: Option<String>,
+    pub rep_thumbnail_path: Option<String>,
+    pub rep_bbox_x: Option<f64>,
+    pub rep_bbox_y: Option<f64>,
+    pub rep_bbox_w: Option<f64>,
+    pub rep_bbox_h: Option<f64>,
+    pub cluster_method: String,
+}
+
+#[tauri::command]
+pub fn persons_list_cmd(app: AppHandle, limit: Option<i64>) -> Result<Vec<PersonDto>, String> {
+    let path = ensure_db(&app)?;
+    let conn = open_database(&path)?;
+    let lim = limit.unwrap_or(200);
+    let mut stmt = conn
+        .prepare(
+            "SELECT pe.id, pe.display_name, pe.face_count, pe.cluster_method, \
+                    pe.rep_face_id, pa.thumbnail_medium_path, \
+                    f.bbox_x, f.bbox_y, f.bbox_w, f.bbox_h, \
+                    (SELECT COUNT(DISTINCT photo_id) FROM faces WHERE person_id = pe.id) AS photo_count \
+             FROM persons pe \
+             LEFT JOIN faces f ON f.id = pe.rep_face_id \
+             LEFT JOIN photo_assets pa ON pa.photo_id = f.photo_id \
+             WHERE pe.is_hidden = 0 AND pe.merged_into IS NULL \
+             ORDER BY pe.face_count DESC \
+             LIMIT ?1",
+        )
+        .map_err(|e| format!("Failed to prepare persons query: {}", e))?;
+    let rows = stmt
+        .query_map(params![lim], |row| {
+            Ok(PersonDto {
+                id: row.get(0)?,
+                display_name: row.get(1)?,
+                face_count: row.get(2)?,
+                cluster_method: row.get(3)?,
+                rep_face_id: row.get(4)?,
+                rep_thumbnail_path: row.get(5)?,
+                rep_bbox_x: row.get(6)?,
+                rep_bbox_y: row.get(7)?,
+                rep_bbox_w: row.get(8)?,
+                rep_bbox_h: row.get(9)?,
+                photo_count: row.get(10)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query persons: {}", e))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| format!("Failed to collect persons: {}", e))?;
+    Ok(rows)
+}
+
 struct PhotoBatch {
     photo_id: String,
     image_path: PathBuf,

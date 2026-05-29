@@ -70,6 +70,27 @@ export interface EmbedSummary {
   faces_skipped: number
 }
 
+export interface ClusterSummary {
+  faces_loaded: number
+  faces_failed: number
+  persons_created: number
+  persons_existing: number
+}
+
+export interface Person {
+  id: string
+  display_name: string | null
+  face_count: number
+  photo_count: number
+  rep_face_id: string | null
+  rep_thumbnail_path: string | null
+  rep_bbox_x: number | null
+  rep_bbox_y: number | null
+  rep_bbox_w: number | null
+  rep_bbox_h: number | null
+  cluster_method: string
+}
+
 export interface Face {
   id: string
   photo_id: string
@@ -145,4 +166,18 @@ export async function analysisEmbedFaces(limit?: number): Promise<EmbedSummary> 
     return { photos_processed: 0, faces_embedded: 0, faces_failed: 0, faces_skipped: 0 }
   }
   return await invoke<EmbedSummary>('analysis_embed_faces_cmd', { limit })
+}
+
+export async function analysisClusterFaces(): Promise<ClusterSummary> {
+  if (!isTauriAvailable()) {
+    return { faces_loaded: 0, faces_failed: 0, persons_created: 0, persons_existing: 0 }
+  }
+  return await invoke<ClusterSummary>('analysis_cluster_faces_cmd')
+}
+
+export async function personsList(limit?: number): Promise<Person[]> {
+  if (!isTauriAvailable()) {
+    return []
+  }
+  return await invoke<Person[]>('persons_list_cmd', { limit })
 }

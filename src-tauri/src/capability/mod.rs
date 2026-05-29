@@ -12,6 +12,7 @@ mod scope;
 mod store;
 mod types;
 
+mod clusterer;
 mod materializer;
 
 #[cfg(target_os = "macos")]
@@ -23,6 +24,7 @@ mod macos_vision_embed;
 pub mod commands;
 
 pub use materializer::materialize_face_detect;
+pub use clusterer::{cluster_faces, ClusterSummary};
 pub use orchestrator::{Orchestrator, OrchestratorConfig, RunOutcome, RunSummary};
 pub use provider::{CapabilityProvider, NoopProvider};
 pub use registry::CapabilityRegistry;

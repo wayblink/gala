@@ -2226,6 +2226,102 @@ a {
   width: 18px;
 }
 
+.face-tile__person-badge {
+  align-items: center;
+  background: var(--amber-dust);
+  border-radius: 999px;
+  bottom: 6px;
+  color: #17130f;
+  display: inline-flex;
+  font-size: 9px;
+  height: 18px;
+  justify-content: center;
+  position: absolute;
+  right: 6px;
+  width: 18px;
+}
+
+.people-view__section {
+  margin-top: 28px;
+}
+
+.people-view__section-title {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  margin: 0 0 12px;
+  text-transform: uppercase;
+  color: var(--paper-200);
+}
+
+.people-view__persons {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  margin-bottom: 8px;
+}
+
+.person-card {
+  background: var(--ink-900);
+  border: 1px solid var(--ink-700);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  overflow: hidden;
+}
+
+.person-card__photo {
+  aspect-ratio: 1 / 1;
+  background: var(--ink-800);
+  overflow: hidden;
+  position: relative;
+}
+
+.person-card__photo img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.person-card__placeholder {
+  background: linear-gradient(135deg, var(--ink-800), var(--ink-700));
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.person-card__bbox {
+  border: 2px solid var(--amber-dust);
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(20, 22, 26, 0.6);
+  pointer-events: none;
+  position: absolute;
+}
+
+.person-card__caption {
+  align-items: baseline;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+}
+
+.person-card__name {
+  color: var(--paper-100);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.person-card__meta {
+  color: var(--stone-400);
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 11px;
+}
+
 .face-tile__caption {
   align-items: center;
   display: flex;
