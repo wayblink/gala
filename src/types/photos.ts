@@ -13,6 +13,8 @@ export type PhotoFilter =
   // Custom views — user-created groupings
   | { type: 'album'; albumId: string }
   | { type: 'tag'; tagName: string }
+  // People — single-person detail view (M1.6)
+  | { type: 'person'; personId: string; displayName: string | null }
   // Explore / Settings placeholders
   | { type: 'explore' }
   | { type: 'settings' }

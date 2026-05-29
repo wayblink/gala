@@ -44,6 +44,7 @@ pub fn run() {
             library::commands::add_photo_to_album_cmd,
             library::commands::remove_photo_from_album_cmd,
             library::commands::get_album_photos_cmd,
+            library::commands::get_photos_by_person_cmd,
             library::commands::add_photos_to_album_batch_cmd,
             library::commands::remove_photos_from_album_batch_cmd,
             library::commands::delete_source_cmd,

@@ -23,7 +23,11 @@ const EMPTY_SUMMARY: FaceSummary = {
   faces_with_embedding: 0,
 }
 
-export function PeopleView() {
+export function PeopleView({
+  onSelectPerson,
+}: {
+  onSelectPerson?: (personId: string, displayName: string | null) => void
+}) {
   const [providers, setProviders] = useState<CapabilityDescriptor[]>([])
   const [detecting, setDetecting] = useState(false)
   const [embedding, setEmbedding] = useState(false)
@@ -174,7 +178,11 @@ export function PeopleView() {
           <h3 className="people-view__section-title">People</h3>
           <div className="people-view__persons">
             {persons.map((p) => (
-              <PersonCard key={p.id} person={p} />
+              <PersonCard
+                key={p.id}
+                person={p}
+                onClick={onSelectPerson ? () => onSelectPerson(p.id, p.display_name) : undefined}
+              />
             ))}
           </div>
         </section>
@@ -201,7 +209,7 @@ export function PeopleView() {
   )
 }
 
-function PersonCard({ person }: { person: Person }) {
+function PersonCard({ person, onClick }: { person: Person; onClick?: () => void }) {
   const src = person.rep_thumbnail_path ? convertFileSrc(person.rep_thumbnail_path) : null
   const hasBbox =
     person.rep_bbox_x != null &&
@@ -217,20 +225,42 @@ function PersonCard({ person }: { person: Person }) {
       }
     : {}
   const label = person.display_name ?? `Person · ${person.id.slice(0, 6)}`
+  const interactive = Boolean(onClick)
+  const className = `person-card${interactive ? ' person-card--clickable' : ''}`
+  const meta = (
+    <>
+      <span className="person-card__name">{label}</span>
+      <span className="person-card__meta">
+        {person.face_count} {person.face_count === 1 ? 'face' : 'faces'} · {person.photo_count}{' '}
+        {person.photo_count === 1 ? 'photo' : 'photos'}
+      </span>
+    </>
+  )
+  if (!interactive) {
+    return (
+      <figure className={className} title={label}>
+        <div className="person-card__photo">
+          {src ? <img src={src} alt={label} /> : <span className="person-card__placeholder" />}
+          {hasBbox && <span className="person-card__bbox" style={overlayStyle} />}
+        </div>
+        <figcaption className="person-card__caption">{meta}</figcaption>
+      </figure>
+    )
+  }
   return (
-    <figure className="person-card" title={label}>
-      <div className="person-card__photo">
+    <button
+      type="button"
+      className={className}
+      onClick={onClick}
+      aria-label={`View photos of ${label}`}
+      title={label}
+    >
+      <span className="person-card__photo">
         {src ? <img src={src} alt={label} /> : <span className="person-card__placeholder" />}
         {hasBbox && <span className="person-card__bbox" style={overlayStyle} />}
-      </div>
-      <figcaption className="person-card__caption">
-        <span className="person-card__name">{label}</span>
-        <span className="person-card__meta">
-          {person.face_count} {person.face_count === 1 ? 'face' : 'faces'} · {person.photo_count}{' '}
-          {person.photo_count === 1 ? 'photo' : 'photos'}
-        </span>
-      </figcaption>
-    </figure>
+      </span>
+      <span className="person-card__caption">{meta}</span>
+    </button>
   )
 }
 

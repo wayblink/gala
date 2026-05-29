@@ -200,7 +200,9 @@ export default function App() {
             ? (albumsState.albums.find((a) => view.filter?.type === 'album' && a.id === view.filter.albumId)?.name ?? 'Album')
             : view.filter?.type === 'tag'
               ? `Tag: ${view.filter.tagName}`
-              : view.filter?.type === 'view'
+              : view.filter?.type === 'person'
+                ? (view.filter.displayName ?? `Person · ${view.filter.personId.slice(0, 6)}`)
+                : view.filter?.type === 'view'
                 ? view.filter.viewId.charAt(0).toUpperCase() + view.filter.viewId.slice(1)
                 : view.filter?.type === 'explore'
                   ? 'Explore'
@@ -409,7 +411,11 @@ export default function App() {
             onZoomPhotos={(photos, index) => setSimilarReviewViewerState({ photos, index })}
           />
         ) : isPeopleSelected ? (
-          <PeopleView />
+          <PeopleView
+            onSelectPerson={(personId, displayName) =>
+              handleSelectFilter({ type: 'person', personId, displayName })
+            }
+          />
         ) : (
           <PhotoSurface
             filter={view.filter}

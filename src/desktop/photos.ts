@@ -228,6 +228,20 @@ export async function getAlbumPhotos(
   }
 }
 
+export async function getPhotosByPerson(
+  personId: string,
+  limit: number,
+  offset: number,
+): Promise<TimelinePhoto[]> {
+  if (!isTauriAvailable()) return []
+  try {
+    return await invoke<TimelinePhoto[]>('get_photos_by_person_cmd', { personId, limit, offset })
+  } catch (error) {
+    console.error('[getPhotosByPerson] Error:', error)
+    return []
+  }
+}
+
 export async function addPhotosToAlbumBatch(albumId: string, photoIds: string[]): Promise<void> {
   if (!isTauriAvailable()) return
   await invoke('add_photos_to_album_batch_cmd', { albumId, photoIds })

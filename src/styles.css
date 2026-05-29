@@ -2272,6 +2272,28 @@ a {
   overflow: hidden;
 }
 
+.person-card--clickable {
+  background: var(--ink-900);
+  color: inherit;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 0;
+  text-align: left;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.person-card--clickable:hover {
+  border-color: var(--amber-dust);
+  box-shadow: 0 6px 16px rgba(201, 151, 77, 0.18);
+  transform: translateY(-1px);
+}
+
+.person-card--clickable:focus-visible {
+  border-color: var(--amber-dust);
+  outline: 2px solid var(--amber-dust);
+  outline-offset: 2px;
+}
+
 .person-card__photo {
   aspect-ratio: 1 / 1;
   background: var(--ink-800);

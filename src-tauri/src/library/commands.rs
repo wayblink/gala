@@ -663,6 +663,23 @@ pub fn get_album_photos_cmd(
 }
 
 #[tauri::command]
+pub fn get_photos_by_person_cmd(
+    app: AppHandle,
+    person_id: String,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<TimelinePhoto>, String> {
+    let db_path = get_db_path(&app)?;
+    if !db_path.exists() {
+        return Ok(vec![]);
+    }
+    let conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+    crate::library::storage::get_photos_by_person(&conn, &person_id, limit, offset)
+}
+
+#[tauri::command]
 pub fn add_photos_to_album_batch_cmd(
     app: AppHandle,
     album_id: String,

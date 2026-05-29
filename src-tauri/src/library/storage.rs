@@ -1729,6 +1729,37 @@ pub fn get_album_photos(
     Ok(photos)
 }
 
+pub fn get_photos_by_person(
+    conn: &Connection,
+    person_id: &str,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<TimelinePhoto>, String> {
+    // DISTINCT photos: a face's person_id matches across multiple faces in
+    // one photo group shots, so SELECT DISTINCT to avoid duplicates.
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT DISTINCT {cols} \
+             FROM photos p \
+             INNER JOIN sources s ON p.source_id = s.id \
+             INNER JOIN photo_assets pa ON p.id = pa.photo_id \
+             INNER JOIN faces f ON f.photo_id = p.id \
+             WHERE {asset} AND p.hidden_at IS NULL \
+               AND f.status = 'active' AND f.person_id = ?3 \
+             ORDER BY p.captured_at DESC, p.created_at DESC \
+             LIMIT ?1 OFFSET ?2",
+            cols = PHOTO_COLS,
+            asset = ASSET_READY_COND
+        ))
+        .map_err(|e| format!("Failed to prepare person photos query: {}", e))?;
+    let photos = stmt
+        .query_map(params![limit, offset, person_id], timeline_photo_from_row)
+        .map_err(|e| format!("Failed to query person photos: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to collect person photos: {}", e))?;
+    Ok(photos)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

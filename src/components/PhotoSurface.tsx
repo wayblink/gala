@@ -5,6 +5,7 @@ import {
   getFavoritePhotos,
   getFilteredPhotos,
   getHiddenPhotos,
+  getPhotosByPerson,
   getPhotosByTag,
   getRecentlyAddedPhotos,
   getTimelinePhotos,
@@ -57,6 +58,7 @@ function filterKey(filter: PhotoFilter | null, searchQuery: string, smartFilter:
   if (filter.type === 'hidden') return `hidden${v}`
   if (filter.type === 'album') return `album:${filter.albumId}${v}`
   if (filter.type === 'tag') return `tag:${filter.tagName}${v}`
+  if (filter.type === 'person') return `person:${filter.personId}${v}`
   if (filter.type === 'view') return `view:${filter.viewId}${v}`
   if (filter.type === 'explore') return `explore${v}`
   if (filter.type === 'settings') return `settings${v}`
@@ -176,6 +178,8 @@ export function PhotoSurface({
         newPhotos = await getAlbumPhotos(filter.albumId, PHOTOS_PER_PAGE, offset)
       } else if (filter?.type === 'tag') {
         newPhotos = await getPhotosByTag(filter.tagName, PHOTOS_PER_PAGE, offset)
+      } else if (filter?.type === 'person') {
+        newPhotos = await getPhotosByPerson(filter.personId, PHOTOS_PER_PAGE, offset)
       } else if (hasSmartFilter) {
         const sourceId = filter?.type === 'folder' ? filter.sourceId : undefined
         const folderPath = filter?.type === 'folder' ? filter.folderPath : undefined
