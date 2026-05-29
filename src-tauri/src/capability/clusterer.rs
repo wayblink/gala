@@ -21,7 +21,7 @@
 //! their person_id.
 
 use chrono::Utc;
-use hnsw_rs::prelude::{AnnT, DistCosine, Hnsw};
+use hnsw_rs::prelude::{DistCosine, Hnsw};
 use rusqlite::{params, Connection};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -214,24 +214,25 @@ fn count_existing_persons(conn: &Connection) -> Result<i64, CapabilityError> {
 
 fn load_face_embeddings(conn: &Connection) -> Result<Vec<LoadedFace>, CapabilityError> {
     let mut stmt = conn.prepare(
-        "SELECT id, confidence, embedding_path, embedding_dim \
+        "SELECT id, confidence, embedding_path, embedding_dim, person_id \
          FROM faces \
          WHERE status = 'active' \
            AND embedding_path IS NOT NULL AND embedding_path != '' \
            AND embedding_dim IS NOT NULL AND embedding_dim > 0",
     )?;
-    let rows: Vec<(String, f32, String, i64)> = stmt
+    let rows: Vec<(String, f32, String, i64, Option<String>)> = stmt
         .query_map([], |row| {
             let id: String = row.get(0)?;
             let confidence: f64 = row.get(1)?;
             let path: String = row.get(2)?;
             let dim: i64 = row.get(3)?;
-            Ok((id, confidence as f32, path, dim))
+            let old_person_id: Option<String> = row.get(4)?;
+            Ok((id, confidence as f32, path, dim, old_person_id))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
     let mut out = Vec::with_capacity(rows.len());
-    for (id, confidence, path, dim) in rows {
+    for (id, confidence, path, dim, old_person_id) in rows {
         let bytes = match std::fs::read(&path) {
             Ok(b) => b,
             Err(e) => {
@@ -258,6 +259,7 @@ fn load_face_embeddings(conn: &Connection) -> Result<Vec<LoadedFace>, Capability
             id,
             confidence,
             embedding: floats,
+            old_person_id,
         });
     }
     Ok(out)
@@ -276,7 +278,7 @@ fn run_hnsw(faces: &[LoadedFace]) -> Vec<usize> {
 
     // Build the index. Defaults from hnsw_rs README: ef_construction 200,
     // M=16, max_layer ln(N).
-    let mut hnsw: Hnsw<'_, f32, DistCosine> =
+    let hnsw: Hnsw<'_, f32, DistCosine> =
         Hnsw::new(16, n, 16, 200, DistCosine);
     let to_insert: Vec<(&[f32], usize)> =
         faces.iter().enumerate().map(|(i, f)| (f.embedding.as_slice(), i)).collect();
@@ -438,7 +440,7 @@ mod tests {
     }
 
     #[test]
-    fn re_running_resets_auto_clusters() {
+    fn re_running_keeps_stable_person_ids() {
         let (d, mut conn) = setup();
         let dir = d.path().to_path_buf();
         let e1 = write_embedding(&dir, "f1", &[1.0, 0.0]);
@@ -448,9 +450,47 @@ mod tests {
 
         let s1 = cluster_faces(&mut conn).unwrap();
         assert_eq!(s1.persons_created, 2);
+        assert_eq!(s1.persons_existing, 0, "first run creates all fresh");
+
+        let pid_f1_a: String = conn
+            .query_row("SELECT person_id FROM faces WHERE id='f1'", [], |r| r.get(0))
+            .unwrap();
+        let pid_f2_a: String = conn
+            .query_row("SELECT person_id FROM faces WHERE id='f2'", [], |r| r.get(0))
+            .unwrap();
+
+        // User names the person built around f1.
+        conn.execute(
+            "UPDATE persons SET display_name = 'Alice' WHERE id = ?1",
+            params![pid_f1_a],
+        )
+        .unwrap();
+
         let s2 = cluster_faces(&mut conn).unwrap();
-        assert_eq!(s2.persons_created, 2, "re-run should produce same number");
-        let total: i64 = conn.query_row("SELECT COUNT(*) FROM persons", [], |r| r.get(0)).unwrap();
+        assert_eq!(s2.persons_created, 0, "re-run reuses, creates nothing new");
+        assert_eq!(s2.persons_existing, 2, "both persons inherited");
+
+        let pid_f1_b: String = conn
+            .query_row("SELECT person_id FROM faces WHERE id='f1'", [], |r| r.get(0))
+            .unwrap();
+        let pid_f2_b: String = conn
+            .query_row("SELECT person_id FROM faces WHERE id='f2'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(pid_f1_a, pid_f1_b, "f1's person UUID stable across re-cluster");
+        assert_eq!(pid_f2_a, pid_f2_b, "f2's person UUID stable across re-cluster");
+
+        let name: Option<String> = conn
+            .query_row(
+                "SELECT display_name FROM persons WHERE id = ?1",
+                params![pid_f1_a],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(name.as_deref(), Some("Alice"), "display_name preserved");
+
+        let total: i64 = conn
+            .query_row("SELECT COUNT(*) FROM persons", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(total, 2, "no person duplication after re-run");
     }
 
