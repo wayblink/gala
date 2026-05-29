@@ -98,4 +98,76 @@ describe('buildSimilarReviewQueue', () => {
     expect(queue[0].timeSpanMs).toBe(5_000)
     expect(queue[0].capturedAt).toBe('2026-05-12T10:00:00.000Z')
   })
+
+  // Embedding-aware grouping (M2.2). The "scene" axis is a Float32Array of
+  // unit-magnitude vectors so cosine distance has a clean closed form.
+  const v = (...xs: number[]) => new Float32Array(xs)
+
+  it('keeps photos in same group when embeddings are close', () => {
+    const queue = buildSimilarReviewQueue(
+      [
+        at('2026-05-12T10:00:00.000Z', 'p1', 'IMG_0001.JPG'),
+        at('2026-05-12T10:00:03.000Z', 'p2', 'IMG_0002.JPG'),
+      ],
+      {
+        embeddings: new Map([
+          ['p1', v(1, 0, 0)],
+          ['p2', v(0.99, 0.01, 0)],
+        ]),
+      },
+    )
+    expect(queue.length).toBe(1)
+    expect(queue[0].photoIds).toEqual(['p1', 'p2'])
+    expect(queue[0].reason).toMatch(/scene|similar/)
+  })
+
+  it('splits photos in same time window when scenes differ', () => {
+    // Cosine distance between v(1,0,0) and v(0,1,0) is 1.0 — well above
+    // the default 0.30 threshold.
+    const queue = buildSimilarReviewQueue(
+      [
+        at('2026-05-12T10:00:00.000Z', 'p1', 'IMG_0001.JPG'),
+        at('2026-05-12T10:00:03.000Z', 'p2', 'IMG_0002.JPG'),
+      ],
+      {
+        embeddings: new Map([
+          ['p1', v(1, 0, 0)],
+          ['p2', v(0, 1, 0)],
+        ]),
+      },
+    )
+    // visually different photos should split into two single cards
+    expect(queue.length).toBe(2)
+  })
+
+  it('falls back to time-only when embedding is missing on either photo', () => {
+    const queue = buildSimilarReviewQueue(
+      [
+        at('2026-05-12T10:00:00.000Z', 'p1', 'IMG_0001.JPG'),
+        at('2026-05-12T10:00:03.000Z', 'p2', 'IMG_0002.JPG'),
+      ],
+      {
+        embeddings: new Map([['p1', v(1, 0, 0)]]),
+      },
+    )
+    expect(queue.length).toBe(1)
+    expect(queue[0].photoIds).toEqual(['p1', 'p2'])
+  })
+
+  it('honors a custom thresholdCosine', () => {
+    // Cosine distance between v(1,0,0) and v(0.7, 0.71, 0): sim ≈ 0.7/1.0 = 0.7,
+    // distance ≈ 0.3. Threshold 0.1 should split, 0.5 should merge.
+    const photos = [
+      at('2026-05-12T10:00:00.000Z', 'p1', 'IMG_0001.JPG'),
+      at('2026-05-12T10:00:03.000Z', 'p2', 'IMG_0002.JPG'),
+    ]
+    const embeddings = new Map([
+      ['p1', v(1, 0, 0)],
+      ['p2', v(0.7, 0.71, 0)],
+    ])
+    const tight = buildSimilarReviewQueue(photos, { embeddings, thresholdCosine: 0.1 })
+    expect(tight.length).toBe(2)
+    const loose = buildSimilarReviewQueue(photos, { embeddings, thresholdCosine: 0.5 })
+    expect(loose.length).toBe(1)
+  })
 })

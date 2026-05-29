@@ -5,7 +5,8 @@ import { PhotoViewer } from './components/PhotoViewer'
 import { TopBar } from './components/TopBar'
 import { SimilarReviewView } from './features/similar-review/SimilarReviewView'
 import { PeopleView } from './features/people/PeopleView'
-import { buildSimilarReviewQueue, DEFAULT_WINDOW_MS } from './features/similar-review/similarReviewModel'
+import { photoEmbeddingsByIds, photoEmbeddingsSummary, analysisEmbedPhotos, readArtifactBytes } from './desktop/capability'
+import { buildSimilarReviewQueue, DEFAULT_WINDOW_MS, DEFAULT_THRESHOLD_COSINE } from './features/similar-review/similarReviewModel'
 import { getTimelinePhotos } from './desktop/photos'
 import { pickPhotoFolder, scanPhotoSource } from './desktop/library'
 import {
@@ -30,6 +31,15 @@ export default function App() {
   const [rightCollapsed, setRightCollapsed] = useState(false)
   const [similarReviewPhotos, setSimilarReviewPhotos] = useState<Awaited<ReturnType<typeof getTimelinePhotos>>>([])
   const [similarReviewWindowMs, setSimilarReviewWindowMs] = useState<number>(DEFAULT_WINDOW_MS)
+  const [similarReviewThreshold, setSimilarReviewThreshold] = useState<number>(DEFAULT_THRESHOLD_COSINE)
+  const [similarReviewEmbeddings, setSimilarReviewEmbeddings] = useState<Map<string, Float32Array>>(
+    () => new Map(),
+  )
+  const [similarReviewEmbedStats, setSimilarReviewEmbedStats] = useState<{ total: number; embedded: number }>({
+    total: 0,
+    embedded: 0,
+  })
+  const [similarReviewEmbedBusy, setSimilarReviewEmbedBusy] = useState(false)
   const [similarReviewActiveCardId, setSimilarReviewActiveCardId] = useState<string | null>(null)
   const [similarReviewViewerState, setSimilarReviewViewerState] = useState<{
     photos: Awaited<ReturnType<typeof getTimelinePhotos>>
@@ -91,7 +101,55 @@ export default function App() {
   const handleSelectComingSoonView = (viewId: ComingSoonViewId) => {
     handleSelectFilter({ type: 'view', viewId })
     if (viewId === 'similar') {
-      void getTimelinePhotos(100, 0).then(setSimilarReviewPhotos)
+      void getTimelinePhotos(100, 0).then(async (photos) => {
+        setSimilarReviewPhotos(photos)
+        await loadSimilarReviewEmbeddings(photos.map((p) => p.id))
+        try {
+          const summary = await photoEmbeddingsSummary()
+          setSimilarReviewEmbedStats(summary)
+        } catch {
+          /* ignore */
+        }
+      })
+    }
+  }
+
+  const loadSimilarReviewEmbeddings = async (photoIds: string[]) => {
+    if (photoIds.length === 0) {
+      setSimilarReviewEmbeddings(new Map())
+      return
+    }
+    try {
+      const rows = await photoEmbeddingsByIds(photoIds)
+      const next = new Map<string, Float32Array>()
+      for (const row of rows) {
+        try {
+          const buffer = await readArtifactBytes(row.embedding_path)
+          if (buffer.byteLength === row.dimensions * 4) {
+            next.set(row.photo_id, new Float32Array(buffer))
+          }
+        } catch (err) {
+          console.warn('[similar-review] embedding read failed:', row.photo_id, err)
+        }
+      }
+      setSimilarReviewEmbeddings(next)
+    } catch (err) {
+      console.warn('[similar-review] embeddings fetch failed:', err)
+      setSimilarReviewEmbeddings(new Map())
+    }
+  }
+
+  const handleRunPhotoEmbed = async () => {
+    setSimilarReviewEmbedBusy(true)
+    try {
+      await analysisEmbedPhotos()
+      const summary = await photoEmbeddingsSummary()
+      setSimilarReviewEmbedStats(summary)
+      await loadSimilarReviewEmbeddings(similarReviewPhotos.map((p) => p.id))
+    } catch (err) {
+      console.warn('[similar-review] embed run failed:', err)
+    } finally {
+      setSimilarReviewEmbedBusy(false)
     }
   }
 
@@ -218,8 +276,12 @@ export default function App() {
   const isSimilarReviewSelected = view.filter?.type === 'view' && view.filter.viewId === 'similar'
   const isPeopleSelected = view.filter?.type === 'view' && view.filter.viewId === 'people'
   const similarReviewCards = useMemo(
-    () => buildSimilarReviewQueue(similarReviewPhotos, { windowMs: similarReviewWindowMs }),
-    [similarReviewPhotos, similarReviewWindowMs],
+    () => buildSimilarReviewQueue(similarReviewPhotos, {
+      windowMs: similarReviewWindowMs,
+      embeddings: similarReviewEmbeddings.size > 0 ? similarReviewEmbeddings : undefined,
+      thresholdCosine: similarReviewThreshold,
+    }),
+    [similarReviewPhotos, similarReviewWindowMs, similarReviewEmbeddings, similarReviewThreshold],
   )
   const similarReviewPhotosById = useMemo(
     () => new Map(similarReviewPhotos.map((p) => [p.id, p])),
@@ -409,6 +471,12 @@ export default function App() {
             onToggleSelectedId={selection.toggleSelected}
             onClearSelection={selection.clearSelected}
             onZoomPhotos={(photos, index) => setSimilarReviewViewerState({ photos, index })}
+            embeddingStats={similarReviewEmbedStats}
+            thresholdCosine={similarReviewThreshold}
+            onThresholdChange={setSimilarReviewThreshold}
+            onRunPhotoEmbed={handleRunPhotoEmbed}
+            embeddingsLoaded={similarReviewEmbeddings.size > 0}
+            embeddingsBusy={similarReviewEmbedBusy}
           />
         ) : isPeopleSelected ? (
           <PeopleView

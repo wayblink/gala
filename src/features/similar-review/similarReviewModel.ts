@@ -21,9 +21,23 @@ export type SimilarReviewPhoto = {
 
 export type BuildSimilarReviewQueueOptions = {
   windowMs?: number
+  /// Per-photo embedding lookup. Vectors are raw f32 arrays from the
+  /// macOS Vision feature print. When supplied, the model also requires
+  /// the cosine distance between consecutive photos in a time window to
+  /// fall under `thresholdCosine` before they're merged into the same
+  /// group. Photos missing an embedding fall back to time-only grouping
+  /// (so the model degrades gracefully on libraries that haven't run
+  /// photo.embed yet).
+  embeddings?: Map<string, Float32Array>
+  /// Maximum cosine distance between consecutive photos to keep them
+  /// grouped. 0 = identical, 1 = orthogonal. RFC §9 documents 0.55 for
+  /// faces; whole-photo feature print needs a tighter cut because the
+  /// landscape itself dominates the signal — 0.30 is the V0 default.
+  thresholdCosine?: number
 }
 
 export const DEFAULT_WINDOW_MS = 30_000
+export const DEFAULT_THRESHOLD_COSINE = 0.30
 const FILENAME_FALLBACK_MAX_DIFF = 3
 
 const filenameParts = (name: string): { prefix: string; seq: number } | null => {
@@ -61,6 +75,44 @@ const closeByFilename = (a: SimilarReviewPhoto, b: SimilarReviewPhoto): boolean 
   return Math.abs(aParts.seq - bParts.seq) <= FILENAME_FALLBACK_MAX_DIFF
 }
 
+/// Cosine distance = 1 - cosine similarity. Lower means more similar.
+/// Returns null if either vector is missing or zero-length.
+export function cosineDistance(a: Float32Array, b: Float32Array): number | null {
+  if (!a || !b) return null
+  if (a.length === 0 || b.length === 0) return null
+  if (a.length !== b.length) return null
+  let dot = 0
+  let na = 0
+  let nb = 0
+  for (let i = 0; i < a.length; i++) {
+    const av = a[i]
+    const bv = b[i]
+    dot += av * bv
+    na += av * av
+    nb += bv * bv
+  }
+  if (na === 0 || nb === 0) return null
+  return 1 - dot / (Math.sqrt(na) * Math.sqrt(nb))
+}
+
+const closeByEmbedding = (
+  a: SimilarReviewPhoto,
+  b: SimilarReviewPhoto,
+  embeddings: Map<string, Float32Array> | undefined,
+  thresholdCosine: number,
+): { decided: boolean; close: boolean } => {
+  // No embeddings supplied (or one of the photos is missing one) — let the
+  // caller fall through to its time-only check. We don't want missing data
+  // to look like a confident "different photo" verdict.
+  if (!embeddings) return { decided: false, close: false }
+  const va = embeddings.get(a.id)
+  const vb = embeddings.get(b.id)
+  if (!va || !vb) return { decided: false, close: false }
+  const dist = cosineDistance(va, vb)
+  if (dist === null) return { decided: false, close: false }
+  return { decided: true, close: dist <= thresholdCosine }
+}
+
 const computeTimeSpanMs = (group: SimilarReviewPhoto[]): number | null => {
   const times = group
     .map((photo) => (photo.capturedAt ? Date.parse(photo.capturedAt) : Number.NaN))
@@ -72,6 +124,7 @@ const computeTimeSpanMs = (group: SimilarReviewPhoto[]): number | null => {
 const buildBurstCard = (
   group: SimilarReviewPhoto[],
   index: number,
+  embeddingsAvailable: boolean,
 ): SimilarReviewCard => {
   const spanMs = computeTimeSpanMs(group)
   const spanLabel = spanMs == null ? 'sequence' : `${(spanMs / 1000).toFixed(spanMs < 10_000 ? 0 : 1)} seconds`
@@ -81,7 +134,9 @@ const buildBurstCard = (
     photoIds: group.map((p) => p.id),
     confidence: spanMs != null && spanMs <= 5_000 ? 0.95 : 0.78,
     title: `Burst · ${group.length} photos · ${spanLabel}`,
-    reason: 'Nearby captures within the active window.',
+    reason: embeddingsAvailable
+      ? 'Nearby captures with matching scene.'
+      : 'Nearby captures within the active window.',
     fileNameRange: { first: group[0].fileName, last: group[group.length - 1].fileName },
     timeSpanMs: spanMs,
     capturedAt: group[0].capturedAt,
@@ -91,6 +146,7 @@ const buildBurstCard = (
 const buildSameSceneCard = (
   group: SimilarReviewPhoto[],
   index: number,
+  embeddingsAvailable: boolean,
 ): SimilarReviewCard => {
   const spanMs = computeTimeSpanMs(group)
   const spanLabel = spanMs == null ? 'sequence' : `${(spanMs / 1000).toFixed(0)} seconds`
@@ -98,9 +154,11 @@ const buildSameSceneCard = (
     id: `card-${index}`,
     kind: 'same-scene',
     photoIds: group.map((p) => p.id),
-    confidence: 0.6,
+    confidence: embeddingsAvailable ? 0.75 : 0.6,
     title: `Same scene · ${group.length} photos · ${spanLabel}`,
-    reason: 'Loose grouping within the active window.',
+    reason: embeddingsAvailable
+      ? 'Visually similar within the active window.'
+      : 'Loose grouping within the active window.',
     fileNameRange: { first: group[0].fileName, last: group[group.length - 1].fileName },
     timeSpanMs: spanMs,
     capturedAt: group[0].capturedAt,
@@ -128,6 +186,9 @@ export function buildSimilarReviewQueue(
 ): SimilarReviewCard[] {
   if (photos.length === 0) return []
   const windowMs = options.windowMs ?? DEFAULT_WINDOW_MS
+  const thresholdCosine = options.thresholdCosine ?? DEFAULT_THRESHOLD_COSINE
+  const embeddings = options.embeddings
+  const embeddingsAvailable = !!embeddings && embeddings.size > 0
 
   const sorted = sortPhotos(photos)
   const cards: SimilarReviewCard[] = []
@@ -139,8 +200,8 @@ export function buildSimilarReviewQueue(
       const spanMs = computeTimeSpanMs(group)
       const isTightBurst = spanMs != null && spanMs <= Math.min(5_000, windowMs)
       const card = isTightBurst || spanMs == null
-        ? buildBurstCard(group, cards.length + 1)
-        : buildSameSceneCard(group, cards.length + 1)
+        ? buildBurstCard(group, cards.length + 1, embeddingsAvailable)
+        : buildSameSceneCard(group, cards.length + 1, embeddingsAvailable)
       cards.push(card)
     } else {
       cards.push(buildSingleCard(group[0], cards.length + 1))
@@ -154,11 +215,23 @@ export function buildSimilarReviewQueue(
       continue
     }
     const previous = group[group.length - 1]
-    if (closeByTime(previous, photo, windowMs) || closeByFilename(previous, photo)) {
+    const timeOrFilename =
+      closeByTime(previous, photo, windowMs) || closeByFilename(previous, photo)
+    if (!timeOrFilename) {
+      flush()
       group.push(photo)
       continue
     }
-    flush()
+    // Time/filename says "could be similar". Check the visual signal too
+    // when we have it: an embedding decision overrides the time hint.
+    // Missing embeddings → fall through to time-only behaviour (safe
+    // pre-M2 default).
+    const embedDecision = closeByEmbedding(previous, photo, embeddings, thresholdCosine)
+    if (embedDecision.decided && !embedDecision.close) {
+      flush()
+      group.push(photo)
+      continue
+    }
     group.push(photo)
   }
   flush()

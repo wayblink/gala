@@ -209,3 +209,62 @@ export async function splitFaceToNewPerson(faceId: string): Promise<string> {
   }
   return await invoke<string>('split_face_to_new_person_cmd', { faceId })
 }
+
+export interface PhotoEmbeddingRow {
+  photo_id: string
+  model_name: string
+  embedding_path: string
+  dimensions: number
+  generated_at: string
+}
+
+export interface PhotoEmbedSummary {
+  photos_processed: number
+  photos_embedded: number
+  photos_failed: number
+  photos_skipped: number
+}
+
+export async function analysisEmbedPhotos(
+  limit?: number,
+  force?: boolean,
+): Promise<PhotoEmbedSummary> {
+  if (!isTauriAvailable()) {
+    return { photos_processed: 0, photos_embedded: 0, photos_failed: 0, photos_skipped: 0 }
+  }
+  return await invoke<PhotoEmbedSummary>('analysis_embed_photos_cmd', { limit, force })
+}
+
+export async function photoEmbeddingsByIds(
+  photoIds: string[],
+  modelName?: string,
+): Promise<PhotoEmbeddingRow[]> {
+  if (!isTauriAvailable()) {
+    return []
+  }
+  return await invoke<PhotoEmbeddingRow[]>('photo_embeddings_by_ids_cmd', {
+    photoIds,
+    modelName,
+  })
+}
+
+export async function photoEmbeddingsSummary(): Promise<{ total: number; embedded: number }> {
+  if (!isTauriAvailable()) {
+    return { total: 0, embedded: 0 }
+  }
+  const tuple = await invoke<[number, number]>('photo_embeddings_summary_cmd')
+  return { total: tuple[0], embedded: tuple[1] }
+}
+
+/// Read raw bytes of an artifact (embedding .bin etc.) confined to the
+/// artifacts root. Frontend uses this to materialize Float32Array embeddings
+/// without dropping all of them through serde/JSON (a typical Vision feature
+/// print is 2048 floats × 100 photos = 819KB of base64 if we went JSON,
+/// vs raw bytes which arrive in a single tauri::ipc invocation).
+export async function readArtifactBytes(path: string): Promise<ArrayBuffer> {
+  if (!isTauriAvailable()) {
+    return new ArrayBuffer(0)
+  }
+  const arr = await invoke<number[]>('read_artifact_bytes_cmd', { path })
+  return new Uint8Array(arr).buffer
+}

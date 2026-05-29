@@ -1233,3 +1233,24 @@ pub fn photo_embeddings_summary_cmd(app: AppHandle) -> Result<(i64, i64), String
         .map_err(|e| format!("Failed to count embeddings: {}", e))?;
     Ok((total, embedded))
 }
+
+#[tauri::command]
+pub fn read_artifact_bytes_cmd(app: AppHandle, path: String) -> Result<Vec<u8>, String> {
+    use tauri::Manager;
+    // Confine reads to the configured artifacts directory so a path traversal
+    // from the frontend can't dump arbitrary host files. We canonicalize both
+    // sides because std::fs::read_link / symlinks could otherwise smuggle a
+    // path outside the artifacts root.
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to resolve app data dir: {}", e))?;
+    let artifacts_root = std::fs::canonicalize(app_data_dir.join("artifacts"))
+        .map_err(|e| format!("artifacts root: {}", e))?;
+    let requested = std::fs::canonicalize(&path)
+        .map_err(|e| format!("read_artifact: {}", e))?;
+    if !requested.starts_with(&artifacts_root) {
+        return Err(format!("path outside artifacts root: {}", path));
+    }
+    std::fs::read(&requested).map_err(|e| format!("read_artifact bytes: {}", e))
+}

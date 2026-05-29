@@ -18,6 +18,13 @@ type Props = {
   onToggleSelectedId: (id: string) => void
   onClearSelection: () => void
   onZoomPhotos: (photos: TimelinePhoto[], initialIndex: number) => void
+  // M2.2 — embedding progress + threshold control
+  embeddingStats?: { total: number; embedded: number }
+  thresholdCosine?: number
+  onThresholdChange?: (next: number) => void
+  onRunPhotoEmbed?: () => void | Promise<void>
+  embeddingsLoaded: boolean
+  embeddingsBusy?: boolean
 }
 
 function formatSpan(spanMs: number | null): string {
@@ -220,6 +227,12 @@ export function SimilarReviewView({
   onToggleSelectedId,
   onClearSelection,
   onZoomPhotos,
+  embeddingStats,
+  thresholdCosine,
+  onThresholdChange,
+  onRunPhotoEmbed,
+  embeddingsLoaded,
+  embeddingsBusy,
 }: Props) {
   const [decisionsByCard, setDecisionsByCard] = useState<Record<string, Record<string, Decision>>>(
     () => Object.fromEntries(cards.map((c) => [c.id, {}])),
@@ -378,6 +391,42 @@ export function SimilarReviewView({
             Review candidate groups before they become durable logical groups. {cards.length} groups,{' '}
             {completedCount} decided.
           </p>
+          <div className="sr-canvas__embed-bar">
+            <span className="sr-canvas__embed-status">
+              {embeddingsLoaded
+                ? `Visual similarity ON · ${embeddingStats?.embedded ?? 0}/${embeddingStats?.total ?? 0} photos embedded`
+                : embeddingStats && embeddingStats.embedded > 0
+                  ? `Visual similarity available · ${embeddingStats.embedded}/${embeddingStats.total}`
+                  : 'Visual similarity off — falling back to time + filename only'}
+            </span>
+            {onRunPhotoEmbed && (
+              <button
+                className="sr-canvas__embed-btn"
+                type="button"
+                onClick={() => void onRunPhotoEmbed()}
+                disabled={embeddingsBusy}
+                title="Generate full-image embeddings via macOS Vision"
+              >
+                {embeddingsBusy ? 'Embedding…' : 'Embed photos'}
+              </button>
+            )}
+            {embeddingsLoaded && onThresholdChange && (
+              <label className="sr-canvas__threshold">
+                <span>Visual threshold</span>
+                <input
+                  type="range"
+                  min={0.05}
+                  max={0.6}
+                  step={0.01}
+                  value={thresholdCosine ?? 0.3}
+                  onChange={(e) => onThresholdChange(Number(e.target.value))}
+                />
+                <span className="sr-canvas__threshold-value">
+                  {(thresholdCosine ?? 0.3).toFixed(2)}
+                </span>
+              </label>
+            )}
+          </div>
           <span className="sr-canvas__crumb">
             {activeCard ? `Group ${activeIdx + 1} of ${cards.length}` : 'No active group'}
           </span>

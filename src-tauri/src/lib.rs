@@ -72,6 +72,7 @@ pub fn run() {
             capability::commands::analysis_embed_photos_cmd,
             capability::commands::photo_embeddings_by_ids_cmd,
             capability::commands::photo_embeddings_summary_cmd,
+            capability::commands::read_artifact_bytes_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Gala desktop app");
