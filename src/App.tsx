@@ -13,13 +13,8 @@ import { SettingsView } from './features/settings/SettingsView'
 import {
   analysisClusterFaces,
   analysisEmbedFaces,
-  analysisEmbedPhotos,
   analysisRequest,
-  photoEmbeddingsByIds,
-  photoEmbeddingsSummary,
-  readArtifactBytes,
 } from './desktop/capability'
-import { buildSimilarReviewQueue, DEFAULT_WINDOW_MS, DEFAULT_THRESHOLD_COSINE } from './features/similar-review/similarReviewModel'
 import { getTimelinePhotos, materializeContentLabels } from './desktop/photos'
 import { pickPhotoFolder, scanPhotoSource } from './desktop/library'
 import {
@@ -39,28 +34,13 @@ import { useBackgroundTasks } from './state/useBackgroundTasks'
 import { useSelection } from './state/useSelection'
 import { useTags } from './state/useTags'
 import { useViewFilter } from './state/useViewFilter'
+import { useSimilarReviewWorkflow } from './features/similar-review/useSimilarReviewWorkflow'
 import type { ComingSoonViewId, PhotoFilter } from './types/photos'
-import { useEffect, useMemo, useState } from 'react'
+import { useState } from 'react'
 
 export default function App() {
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [rightCollapsed, setRightCollapsed] = useState(false)
-  const [similarReviewPhotos, setSimilarReviewPhotos] = useState<Awaited<ReturnType<typeof getTimelinePhotos>>>([])
-  const [similarReviewWindowMs, setSimilarReviewWindowMs] = useState<number>(DEFAULT_WINDOW_MS)
-  const [similarReviewThreshold, setSimilarReviewThreshold] = useState<number>(DEFAULT_THRESHOLD_COSINE)
-  const [similarReviewEmbeddings, setSimilarReviewEmbeddings] = useState<Map<string, Float32Array>>(
-    () => new Map(),
-  )
-  const [similarReviewEmbedStats, setSimilarReviewEmbedStats] = useState<{ total: number; embedded: number }>({
-    total: 0,
-    embedded: 0,
-  })
-  const [similarReviewEmbedBusy, setSimilarReviewEmbedBusy] = useState(false)
-  const [similarReviewActiveCardId, setSimilarReviewActiveCardId] = useState<string | null>(null)
-  const [similarReviewViewerState, setSimilarReviewViewerState] = useState<{
-    photos: Awaited<ReturnType<typeof getTimelinePhotos>>
-    index: number
-  } | null>(null)
 
   const appearance = useAppearance()
   const locale = useLocaleState()
@@ -73,6 +53,11 @@ export default function App() {
   const view = useViewFilter()
   const leftRailSize = useResizable({ storageKey: 'gala:leftRailW', initial: 240, min: 200, max: 480 })
   const rightPanelSize = useResizable({ storageKey: 'gala:rightPanelW', initial: 280, min: 220, max: 520 })
+  const isSimilarReviewSelected = view.filter?.type === 'view' && view.filter.viewId === 'similar'
+  const similarReview = useSimilarReviewWorkflow({
+    selected: isSimilarReviewSelected,
+    runBackgroundTask: backgroundTasks.runBackgroundTask,
+  })
 
   const handleAddFolder = async () => {
     const path = await pickPhotoFolder()
@@ -121,76 +106,7 @@ export default function App() {
   const handleSelectComingSoonView = (viewId: ComingSoonViewId) => {
     handleSelectFilter({ type: 'view', viewId })
     if (viewId === 'similar') {
-      void refreshSimilarReviewData()
-    }
-  }
-
-  const refreshSimilarReviewData = async () => {
-    const photos = await getTimelinePhotos(100, 0)
-    setSimilarReviewPhotos(photos)
-    await loadSimilarReviewEmbeddings(photos.map((p) => p.id))
-    try {
-      const summary = await photoEmbeddingsSummary()
-      setSimilarReviewEmbedStats(summary)
-    } catch {
-      /* ignore */
-    }
-    return photos
-  }
-
-  const loadSimilarReviewEmbeddings = async (photoIds: string[]) => {
-    if (photoIds.length === 0) {
-      setSimilarReviewEmbeddings(new Map())
-      return
-    }
-    try {
-      const rows = await photoEmbeddingsByIds(photoIds)
-      const next = new Map<string, Float32Array>()
-      for (const row of rows) {
-        try {
-          const buffer = await readArtifactBytes(row.embedding_path)
-          if (buffer.byteLength === row.dimensions * 4) {
-            next.set(row.photo_id, new Float32Array(buffer))
-          }
-        } catch (err) {
-          console.warn('[similar-review] embedding read failed:', row.photo_id, err)
-        }
-      }
-      setSimilarReviewEmbeddings(next)
-    } catch (err) {
-      console.warn('[similar-review] embeddings fetch failed:', err)
-      setSimilarReviewEmbeddings(new Map())
-    }
-  }
-
-  const handleRunPhotoEmbed = async () => {
-    setSimilarReviewEmbedBusy(true)
-    try {
-      await backgroundTasks.runBackgroundTask(
-        {
-          kind: 'similar',
-          title: 'Scan Similar visual embeddings',
-          description: 'Generate full-photo embeddings used by Similar Review',
-          operationPayload: { command: 'analysisEmbedPhotos', limit: null, force: false },
-        },
-        async (update) => {
-          update({ progressLabel: 'Generating embeddings…' })
-          const result = await analysisEmbedPhotos()
-          update({
-            result: `${result.photos_embedded} embedded · ${result.photos_failed} failed · ${result.photos_skipped} skipped`,
-          })
-          return result
-        },
-      )
-      const summary = await photoEmbeddingsSummary()
-      setSimilarReviewEmbedStats(summary)
-      const photos = similarReviewPhotos.length > 0 ? similarReviewPhotos : await getTimelinePhotos(100, 0)
-      if (similarReviewPhotos.length === 0) setSimilarReviewPhotos(photos)
-      await loadSimilarReviewEmbeddings(photos.map((p) => p.id))
-    } catch (err) {
-      console.warn('[similar-review] embed run failed:', err)
-    } finally {
-      setSimilarReviewEmbedBusy(false)
+      void similarReview.refresh()
     }
   }
 
@@ -384,7 +300,6 @@ export default function App() {
   const filterActive = Object.keys(view.smartFilter).some(
     (k) => (view.smartFilter as Record<string, unknown>)[k] !== undefined,
   )
-  const isSimilarReviewSelected = view.filter?.type === 'view' && view.filter.viewId === 'similar'
   const isPeopleSelected = view.filter?.type === 'view' && view.filter.viewId === 'people'
   const isReorganizeSelected = view.filter?.type === 'view' && view.filter.viewId === 'reorganize'
   const isContentRecognitionSelected = view.filter?.type === 'view' && view.filter.viewId === 'content'
@@ -400,113 +315,6 @@ export default function App() {
     isSettingsSelected
   )
   const rightPanelCollapsed = rightPanelVisible && rightCollapsed
-  const similarReviewCards = useMemo(
-    () => buildSimilarReviewQueue(similarReviewPhotos, {
-      windowMs: similarReviewWindowMs,
-      embeddings: similarReviewEmbeddings.size > 0 ? similarReviewEmbeddings : undefined,
-      thresholdCosine: similarReviewThreshold,
-    }),
-    [similarReviewPhotos, similarReviewWindowMs, similarReviewEmbeddings, similarReviewThreshold],
-  )
-  const similarReviewPhotosById = useMemo(
-    () => new Map(similarReviewPhotos.map((p) => [p.id, p])),
-    [similarReviewPhotos],
-  )
-  const similarReviewActiveCard = useMemo(() => {
-    if (similarReviewCards.length === 0) return null
-    return (
-      similarReviewCards.find((c) => c.id === similarReviewActiveCardId) ?? similarReviewCards[0]
-    )
-  }, [similarReviewCards, similarReviewActiveCardId])
-  useEffect(() => {
-    if (!isSimilarReviewSelected) return
-    const expected = similarReviewActiveCard?.id ?? null
-    if (expected !== similarReviewActiveCardId) setSimilarReviewActiveCardId(expected)
-  }, [isSimilarReviewSelected, similarReviewActiveCard, similarReviewActiveCardId])
-
-  const similarReviewInspector = isSimilarReviewSelected
-    ? (() => {
-        if (!similarReviewActiveCard) {
-          return (
-            <section>
-              <p className="eyebrow">Similar Review</p>
-              <p className="mono-muted">No active group. Widen the time window or scan a source.</p>
-            </section>
-          )
-        }
-        const card = similarReviewActiveCard
-        const firstPhoto = similarReviewPhotosById.get(card.photoIds[0])
-        const totalBytes = card.photoIds.reduce(
-          (acc, id) => acc + (similarReviewPhotosById.get(id)?.fileSize ?? 0),
-          0,
-        )
-        const totalSize =
-          totalBytes >= 1024 * 1024
-            ? `${(totalBytes / 1024 / 1024).toFixed(1)} MB`
-            : totalBytes > 0
-              ? `${Math.round(totalBytes / 1024)} KB`
-              : '—'
-        const span = card.timeSpanMs
-        const spanLabel =
-          span == null
-            ? 'sequence'
-            : span < 60_000
-              ? `${Math.max(1, Math.round(span / 1_000))} s`
-              : `${(span / 60_000).toFixed(1)} min`
-        return (
-          <section className="sr-cp-inspector">
-            <p className="eyebrow">Group Inspector</p>
-            <h3 className="cp-photo-name">{card.title}</h3>
-            <p className="cp-photo-date">
-              {card.fileNameRange.first} → {card.fileNameRange.last}
-            </p>
-            <dl className="metadata-list" aria-label="Group metadata">
-              <div>
-                <dt>Kind</dt>
-                <dd>{card.kind}</dd>
-              </div>
-              <div>
-                <dt>Photos</dt>
-                <dd>{card.photoIds.length}</dd>
-              </div>
-              <div>
-                <dt>Time span</dt>
-                <dd>{spanLabel}</dd>
-              </div>
-              <div>
-                <dt>Captured</dt>
-                <dd>
-                  {card.capturedAt
-                    ? new Date(card.capturedAt).toLocaleString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit',
-                      })
-                    : '—'}
-                </dd>
-              </div>
-              <div>
-                <dt>Camera</dt>
-                <dd>{firstPhoto?.cameraModel ?? firstPhoto?.cameraMake ?? '—'}</dd>
-              </div>
-              <div>
-                <dt>Lens</dt>
-                <dd>{firstPhoto?.lensModel ?? '—'}</dd>
-              </div>
-              <div>
-                <dt>Total size</dt>
-                <dd>{totalSize}</dd>
-              </div>
-              <div>
-                <dt>Confidence</dt>
-                <dd>{card.confidence.toFixed(2)}</dd>
-              </div>
-            </dl>
-          </section>
-        )
-      })()
-    : undefined
-
   return (
     <I18nProvider value={locale}>
     <div
@@ -528,8 +336,8 @@ export default function App() {
         selectionMode={selection.selectionMode}
         onToggleSelectionMode={selection.toggleSelectionMode}
         similarReviewMode={isSimilarReviewSelected}
-        windowMs={similarReviewWindowMs}
-        onWindowChange={setSimilarReviewWindowMs}
+        windowMs={similarReview.windowMs}
+        onWindowChange={similarReview.setWindowMs}
       />
       <div
         className={`workspace-grid${leftCollapsed ? ' workspace-grid--left-collapsed' : ''}${
@@ -585,11 +393,11 @@ export default function App() {
         )}
         {isSimilarReviewSelected ? (
           <SimilarReviewView
-            cards={similarReviewCards}
-            photosById={similarReviewPhotosById}
-            activeCardId={similarReviewActiveCard?.id ?? null}
+            cards={similarReview.cards}
+            photosById={similarReview.photosById}
+            activeCardId={similarReview.activeCard?.id ?? null}
             onSelectCard={(cardId) => {
-              setSimilarReviewActiveCardId(cardId)
+              similarReview.setActiveCardId(cardId)
               selection.setSelectedPhoto(null)
             }}
             selectedPhotoId={selection.selectedPhoto?.id ?? null}
@@ -598,13 +406,13 @@ export default function App() {
             selectedIds={selection.selectedIds}
             onToggleSelectedId={selection.toggleSelected}
             onClearSelection={selection.clearSelected}
-            onZoomPhotos={(photos, index) => setSimilarReviewViewerState({ photos, index })}
-            embeddingStats={similarReviewEmbedStats}
-            thresholdCosine={similarReviewThreshold}
-            onThresholdChange={setSimilarReviewThreshold}
-            onRunPhotoEmbed={handleRunPhotoEmbed}
-            embeddingsLoaded={similarReviewEmbeddings.size > 0}
-            embeddingsBusy={similarReviewEmbedBusy}
+            onZoomPhotos={(photos, index) => similarReview.setViewerState({ photos, index })}
+            embeddingStats={similarReview.embeddingStats}
+            thresholdCosine={similarReview.thresholdCosine}
+            onThresholdChange={similarReview.setThresholdCosine}
+            onRunPhotoEmbed={similarReview.runPhotoEmbeddingScan}
+            embeddingsLoaded={similarReview.embeddingsLoaded}
+            embeddingsBusy={similarReview.embeddingsBusy}
           />
         ) : isPeopleSelected ? (
           <PeopleView
@@ -651,7 +459,7 @@ export default function App() {
           <BackgroundTasksView
             tasks={backgroundTasks.tasks}
             onClearCompleted={backgroundTasks.clearCompleted}
-            onRunSimilarScan={() => void handleRunPhotoEmbed()}
+            onRunSimilarScan={() => void similarReview.runPhotoEmbeddingScan()}
             onRunPeopleScan={() => void handleRunPeoplePipeline()}
             onRunContentScan={() => void handleRunContentRecognition()}
           />
@@ -730,15 +538,15 @@ export default function App() {
             view.bumpDataVersion()
           }}
           similarReviewMode={isSimilarReviewSelected}
-          similarReviewInspector={similarReviewInspector}
+          similarReviewInspector={similarReview.inspector}
         />
         )}
       </div>
-      {similarReviewViewerState && (
+      {similarReview.viewerState && (
         <PhotoViewer
-          photos={similarReviewViewerState.photos}
-          initialIndex={similarReviewViewerState.index}
-          onClose={() => setSimilarReviewViewerState(null)}
+          photos={similarReview.viewerState.photos}
+          initialIndex={similarReview.viewerState.index}
+          onClose={() => similarReview.setViewerState(null)}
         />
       )}
     </div>
