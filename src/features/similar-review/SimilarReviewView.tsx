@@ -25,6 +25,8 @@ type Props = {
   onRunPhotoEmbed?: () => void | Promise<void>
   embeddingsLoaded: boolean
   embeddingsBusy?: boolean
+  onApplyDecisions?: (decisions: Record<string, Decision>) => Promise<void>
+  decisionsBusy?: boolean
 }
 
 
@@ -288,6 +290,8 @@ export function SimilarReviewView({
   onRunPhotoEmbed,
   embeddingsLoaded,
   embeddingsBusy,
+  onApplyDecisions,
+  decisionsBusy,
 }: Props) {
   const [decisionsByCard, setDecisionsByCard] = useState<Record<string, Record<string, Decision>>>(
     () => Object.fromEntries(cards.map((c) => [c.id, {}])),
@@ -328,6 +332,19 @@ export function SimilarReviewView({
       next[id] = decision
     })
     setDecisionsByCard((prev) => ({ ...prev, [activeCard.id]: next }))
+  }
+
+  const applyActiveDecisions = async () => {
+    if (!activeCard || !onApplyDecisions) {
+      advance(1)
+      return
+    }
+    const decisions = decisionsByCard[activeCard.id] ?? {}
+    const decided = activeCard.photoIds.some((id) => decisions[id] === 'keep' || decisions[id] === 'discard')
+    if (decided) {
+      await onApplyDecisions(decisions)
+    }
+    advance(1)
   }
 
   const advance = (delta: number) => {
@@ -385,6 +402,7 @@ export function SimilarReviewView({
   }
 
   const activeIdx = activeCard ? cards.findIndex((c) => c.id === activeCard.id) : -1
+  const hasNextCard = activeIdx >= 0 && activeIdx < cards.length - 1
   const selectedAcrossActive = activeCard
     ? activeCard.photoIds.reduce((acc, id) => acc + (selectedIds.has(id) ? 1 : 0), 0)
     : 0
@@ -584,10 +602,10 @@ export function SimilarReviewView({
               <button
                 type="button"
                 className="primary-button"
-                onClick={() => advance(1)}
-                disabled={activeIdx >= cards.length - 1}
+                onClick={() => void applyActiveDecisions()}
+                disabled={decisionsBusy}
               >
-                Apply &amp; Next →
+                {decisionsBusy ? 'Applying...' : hasNextCard ? 'Apply & Next ->' : 'Apply'}
               </button>
             </div>
           </div>

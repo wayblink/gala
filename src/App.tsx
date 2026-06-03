@@ -57,6 +57,12 @@ export default function App() {
   const similarReview = useSimilarReviewWorkflow({
     selected: isSimilarReviewSelected,
     runBackgroundTask: backgroundTasks.runBackgroundTask,
+    onDecisionsApplied: async () => {
+      await library.refreshSummary()
+      selection.setSelectedPhoto(null)
+      selection.clearSelected()
+      view.bumpDataVersion()
+    },
   })
 
   const handleAddFolder = async () => {
@@ -413,6 +419,8 @@ export default function App() {
             onRunPhotoEmbed={similarReview.runPhotoEmbeddingScan}
             embeddingsLoaded={similarReview.embeddingsLoaded}
             embeddingsBusy={similarReview.embeddingsBusy}
+            onApplyDecisions={similarReview.applyDecisions}
+            decisionsBusy={similarReview.decisionsBusy}
           />
         ) : isPeopleSelected ? (
           <PeopleView

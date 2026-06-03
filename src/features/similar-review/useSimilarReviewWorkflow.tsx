@@ -5,7 +5,7 @@ import {
   photoEmbeddingsSummary,
   readArtifactBytes,
 } from '../../desktop/capability'
-import { getTimelinePhotos } from '../../desktop/photos'
+import { getTimelinePhotos, setPhotosFavoriteBatch, setPhotosHiddenBatch } from '../../desktop/photos'
 import type { RunBackgroundTask } from '../../types/backgroundTasks'
 import type { TimelinePhoto } from '../../types/photos'
 import {
@@ -19,9 +19,12 @@ type SimilarReviewViewerState = {
   index: number
 }
 
+type Decision = 'keep' | 'discard'
+
 type UseSimilarReviewWorkflowOptions = {
   selected: boolean
   runBackgroundTask: RunBackgroundTask
+  onDecisionsApplied?: (decisions: Record<string, Decision>) => void | Promise<void>
 }
 
 function formatBytes(bytes: number): string {
@@ -39,6 +42,7 @@ function formatSpan(spanMs: number | null): string {
 export function useSimilarReviewWorkflow({
   selected,
   runBackgroundTask,
+  onDecisionsApplied,
 }: UseSimilarReviewWorkflowOptions) {
   const [photos, setPhotos] = useState<TimelinePhoto[]>([])
   const [windowMs, setWindowMs] = useState<number>(DEFAULT_WINDOW_MS)
@@ -49,6 +53,7 @@ export function useSimilarReviewWorkflow({
     embedded: 0,
   })
   const [embeddingsBusy, setEmbeddingsBusy] = useState(false)
+  const [decisionsBusy, setDecisionsBusy] = useState(false)
   const [activeCardId, setActiveCardId] = useState<string | null>(null)
   const [viewerState, setViewerState] = useState<SimilarReviewViewerState | null>(null)
 
@@ -118,6 +123,33 @@ export function useSimilarReviewWorkflow({
       console.warn('[similar-review] embed run failed:', err)
     } finally {
       setEmbeddingsBusy(false)
+    }
+  }
+
+  const applyDecisions = async (decisions: Record<string, Decision>) => {
+    const keepIds = Object.entries(decisions)
+      .filter(([, decision]) => decision === 'keep')
+      .map(([photoId]) => photoId)
+    const discardIds = Object.entries(decisions)
+      .filter(([, decision]) => decision === 'discard')
+      .map(([photoId]) => photoId)
+
+    if (keepIds.length === 0 && discardIds.length === 0) return
+
+    setDecisionsBusy(true)
+    try {
+      if (keepIds.length > 0) {
+        await setPhotosHiddenBatch(keepIds, false)
+        await setPhotosFavoriteBatch(keepIds, true)
+      }
+      if (discardIds.length > 0) {
+        await setPhotosFavoriteBatch(discardIds, false)
+        await setPhotosHiddenBatch(discardIds, true)
+      }
+      await onDecisionsApplied?.(decisions)
+      await refresh()
+    } finally {
+      setDecisionsBusy(false)
     }
   }
 
@@ -215,11 +247,13 @@ export function useSimilarReviewWorkflow({
   return {
     activeCard,
     cards,
+    decisionsBusy,
     embeddingStats,
     embeddingsBusy,
     embeddingsLoaded: embeddings.size > 0,
     inspector,
     photosById,
+    applyDecisions,
     refresh,
     runPhotoEmbeddingScan,
     setActiveCardId,
