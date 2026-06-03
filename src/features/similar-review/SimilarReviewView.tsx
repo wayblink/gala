@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, X, ZoomIn } from 'lucide-react'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import type { TimelinePhoto } from '../../types/photos'
@@ -25,6 +25,61 @@ type Props = {
   onRunPhotoEmbed?: () => void | Promise<void>
   embeddingsLoaded: boolean
   embeddingsBusy?: boolean
+}
+
+
+function useScrollThumb<T extends HTMLElement>(deps: React.DependencyList = []) {
+  const ref = useRef<T | null>(null)
+  const [thumb, setThumb] = useState({ visible: false, top: 0, height: 0 })
+
+  const update = useCallback(() => {
+    const el = ref.current
+    if (!el) return
+    const maxScroll = el.scrollHeight - el.clientHeight
+    if (maxScroll <= 2) {
+      setThumb({ visible: false, top: 0, height: 0 })
+      return
+    }
+    const height = Math.max(36, Math.round((el.clientHeight / el.scrollHeight) * el.clientHeight))
+    const viewportTop = Math.round((el.scrollTop / maxScroll) * (el.clientHeight - height))
+    setThumb({ visible: true, top: el.scrollTop + viewportTop, height })
+  }, [])
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    let raf = 0
+    const scheduleUpdate = () => {
+      window.cancelAnimationFrame(raf)
+      raf = window.requestAnimationFrame(update)
+    }
+    update()
+    el.addEventListener('scroll', scheduleUpdate, { passive: true })
+    window.addEventListener('resize', scheduleUpdate)
+    const Observer = typeof ResizeObserver === 'undefined' ? null : ResizeObserver
+    const observer = Observer ? new Observer(scheduleUpdate) : null
+    observer?.observe(el)
+    return () => {
+      window.cancelAnimationFrame(raf)
+      el.removeEventListener('scroll', scheduleUpdate)
+      window.removeEventListener('resize', scheduleUpdate)
+      observer?.disconnect()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [update, ...deps])
+
+  return { ref, thumb }
+}
+
+function ScrollThumb({ visible, top, height }: { visible: boolean; top: number; height: number }) {
+  if (!visible) return null
+  return (
+    <span
+      className="sr-custom-scrollbar"
+      aria-hidden="true"
+      style={{ top, height }}
+    />
+  )
 }
 
 function formatSpan(spanMs: number | null): string {
@@ -333,10 +388,13 @@ export function SimilarReviewView({
   const selectedAcrossActive = activeCard
     ? activeCard.photoIds.reduce((acc, id) => acc + (selectedIds.has(id) ? 1 : 0), 0)
     : 0
+  const queueScroll = useScrollThumb<HTMLElement>([cards.length])
+  const canvasScroll = useScrollThumb<HTMLElement>([activeCardId, cards.length])
 
   return (
     <main className="similar-review-view" aria-label="Similar review workflow">
-      <aside className="sr-queue" aria-label="Review queue">
+      <aside className="sr-queue" aria-label="Review queue" ref={queueScroll.ref}>
+        <ScrollThumb {...queueScroll.thumb} />
         <div className="sr-queue__head">
           <span className="sr-queue__title">Review queue</span>
           <span className="sr-queue__count">{cards.length}</span>
@@ -383,14 +441,12 @@ export function SimilarReviewView({
         )}
       </aside>
 
-      <section className="sr-canvas">
+      <section className="sr-canvas" ref={canvasScroll.ref}>
+        <ScrollThumb {...canvasScroll.thumb} />
         <header className="sr-canvas__head">
           <p className="sr-canvas__eyebrow">Workflow</p>
           <h1>Similar Review</h1>
-          <p className="sr-canvas__sub">
-            Review candidate groups before they become durable logical groups. {cards.length} groups,{' '}
-            {completedCount} decided.
-          </p>
+          <span className="sr-canvas__summary">{cards.length} groups · {completedCount} decided</span>
           <div className="sr-canvas__embed-bar">
             <span className="sr-canvas__embed-status">
               {embeddingsLoaded

@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { Album, FilterOptions, PhotoFilter, SmartFilter, SourceFolder, Tag, TimelinePhoto } from '../types/photos'
+import type { Album, FilterOptions, PhotoFilter, SmartFilter, SourceFolder, Tag, Label, TimelinePhoto } from '../types/photos'
 import { isTauriAvailable } from './tauri'
 
 export async function getTimelinePhotos(
@@ -309,6 +309,53 @@ export async function getPhotosByTag(
     console.error('[getPhotosByTag] Error:', error)
     return []
   }
+}
+
+
+
+export type ContentLabelMaterializeSummary = {
+  photosProcessed: number
+  labelsWritten: number
+}
+
+export async function materializeContentLabels(
+  minConfidence = 0.35,
+  sourceId?: string,
+): Promise<ContentLabelMaterializeSummary> {
+  if (!isTauriAvailable()) return { photosProcessed: 0, labelsWritten: 0 }
+  return await invoke<ContentLabelMaterializeSummary>('materialize_content_labels_cmd', {
+    minConfidence,
+    sourceId: sourceId ?? null,
+  })
+}
+
+export async function getLabels(kind?: string): Promise<Label[]> {
+  if (!isTauriAvailable()) return []
+  try {
+    return await invoke<Label[]>('get_labels_cmd', { kind: kind ?? null })
+  } catch (error) {
+    console.error('[getLabels] Error:', error)
+    return []
+  }
+}
+
+export async function getPhotosByLabel(
+  labelId: string,
+  limit: number,
+  offset: number,
+): Promise<TimelinePhoto[]> {
+  if (!isTauriAvailable()) return []
+  try {
+    return await invoke<TimelinePhoto[]>('get_photos_by_label_cmd', { labelId, limit, offset })
+  } catch (error) {
+    console.error('[getPhotosByLabel] Error:', error)
+    return []
+  }
+}
+
+export async function syncPersonLabels(): Promise<number> {
+  if (!isTauriAvailable()) return 0
+  return await invoke<number>('sync_person_labels_cmd')
 }
 
 export async function revealInFinder(photoId: string): Promise<void> {

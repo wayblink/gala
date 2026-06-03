@@ -1,13 +1,26 @@
+import { BackgroundTasksView } from './components/BackgroundTasksView'
 import { ContextPanel } from './components/ContextPanel'
 import { LeftRail } from './components/LeftRail'
 import { PhotoSurface } from './components/PhotoSurface'
 import { PhotoViewer } from './components/PhotoViewer'
 import { TopBar } from './components/TopBar'
 import { SimilarReviewView } from './features/similar-review/SimilarReviewView'
+import { ContentRecognitionView } from './features/explore/ContentRecognitionView'
+import { LabelsView } from './features/explore/LabelsView'
 import { PeopleView } from './features/people/PeopleView'
-import { photoEmbeddingsByIds, photoEmbeddingsSummary, analysisEmbedPhotos, readArtifactBytes } from './desktop/capability'
+import { ReorganizeView } from './features/reorganize/ReorganizeView'
+import { SettingsView } from './features/settings/SettingsView'
+import {
+  analysisClusterFaces,
+  analysisEmbedFaces,
+  analysisEmbedPhotos,
+  analysisRequest,
+  photoEmbeddingsByIds,
+  photoEmbeddingsSummary,
+  readArtifactBytes,
+} from './desktop/capability'
 import { buildSimilarReviewQueue, DEFAULT_WINDOW_MS, DEFAULT_THRESHOLD_COSINE } from './features/similar-review/similarReviewModel'
-import { getTimelinePhotos } from './desktop/photos'
+import { getTimelinePhotos, materializeContentLabels } from './desktop/photos'
 import { pickPhotoFolder, scanPhotoSource } from './desktop/library'
 import {
   addTagsToPhotosBatch,
@@ -18,8 +31,11 @@ import {
   togglePhotoHidden,
 } from './desktop/photos'
 import { useAlbums } from './state/useAlbums'
+import { useAppearance } from './state/useAppearance'
 import { useLibrary } from './state/useLibrary'
+import { I18nProvider, useLocaleState } from './state/useLocale'
 import { useResizable } from './state/useResizable'
+import { useBackgroundTasks } from './state/useBackgroundTasks'
 import { useSelection } from './state/useSelection'
 import { useTags } from './state/useTags'
 import { useViewFilter } from './state/useViewFilter'
@@ -46,7 +62,11 @@ export default function App() {
     index: number
   } | null>(null)
 
+  const appearance = useAppearance()
+  const locale = useLocaleState()
+  const { t } = locale
   const library = useLibrary()
+  const backgroundTasks = useBackgroundTasks()
   const albumsState = useAlbums()
   const tagsState = useTags()
   const selection = useSelection()
@@ -101,17 +121,21 @@ export default function App() {
   const handleSelectComingSoonView = (viewId: ComingSoonViewId) => {
     handleSelectFilter({ type: 'view', viewId })
     if (viewId === 'similar') {
-      void getTimelinePhotos(100, 0).then(async (photos) => {
-        setSimilarReviewPhotos(photos)
-        await loadSimilarReviewEmbeddings(photos.map((p) => p.id))
-        try {
-          const summary = await photoEmbeddingsSummary()
-          setSimilarReviewEmbedStats(summary)
-        } catch {
-          /* ignore */
-        }
-      })
+      void refreshSimilarReviewData()
     }
+  }
+
+  const refreshSimilarReviewData = async () => {
+    const photos = await getTimelinePhotos(100, 0)
+    setSimilarReviewPhotos(photos)
+    await loadSimilarReviewEmbeddings(photos.map((p) => p.id))
+    try {
+      const summary = await photoEmbeddingsSummary()
+      setSimilarReviewEmbedStats(summary)
+    } catch {
+      /* ignore */
+    }
+    return photos
   }
 
   const loadSimilarReviewEmbeddings = async (photoIds: string[]) => {
@@ -142,10 +166,27 @@ export default function App() {
   const handleRunPhotoEmbed = async () => {
     setSimilarReviewEmbedBusy(true)
     try {
-      await analysisEmbedPhotos()
+      await backgroundTasks.runBackgroundTask(
+        {
+          kind: 'similar',
+          title: 'Scan Similar visual embeddings',
+          description: 'Generate full-photo embeddings used by Similar Review',
+          operationPayload: { command: 'analysisEmbedPhotos', limit: null, force: false },
+        },
+        async (update) => {
+          update({ progressLabel: 'Generating embeddings…' })
+          const result = await analysisEmbedPhotos()
+          update({
+            result: `${result.photos_embedded} embedded · ${result.photos_failed} failed · ${result.photos_skipped} skipped`,
+          })
+          return result
+        },
+      )
       const summary = await photoEmbeddingsSummary()
       setSimilarReviewEmbedStats(summary)
-      await loadSimilarReviewEmbeddings(similarReviewPhotos.map((p) => p.id))
+      const photos = similarReviewPhotos.length > 0 ? similarReviewPhotos : await getTimelinePhotos(100, 0)
+      if (similarReviewPhotos.length === 0) setSimilarReviewPhotos(photos)
+      await loadSimilarReviewEmbeddings(photos.map((p) => p.id))
     } catch (err) {
       console.warn('[similar-review] embed run failed:', err)
     } finally {
@@ -153,8 +194,76 @@ export default function App() {
     }
   }
 
+  const handleRunPeoplePipeline = async () => {
+    await backgroundTasks.runBackgroundTask(
+      {
+        kind: 'people',
+        title: 'Scan People pipeline',
+        description: 'Detect faces, embed them, then cluster people',
+        operationPayload: { pipeline: ['face.detect', 'face.embed', 'face.cluster'], scopeKind: 'all' },
+      },
+      async (update) => {
+        update({ progressLabel: '1/3 Detecting faces…' })
+        const detected = await analysisRequest({
+          capability: 'face.detect',
+          scope_kind: 'all',
+          priority: 0,
+          force: false,
+        })
+        update({
+          progressLabel: '2/3 Embedding faces…',
+          detail: `${detected.photos_done} photos detected · ${detected.photos_failed} failed`,
+        })
+        const embedded = await analysisEmbedFaces()
+        update({
+          progressLabel: '3/3 Clustering people…',
+          detail: `${embedded.faces_embedded} faces embedded · ${embedded.faces_failed} failed`,
+        })
+        const clustered = await analysisClusterFaces()
+        const result = `${clustered.persons_created} new persons · ${clustered.persons_existing} reused`
+        update({ result })
+        return result
+      },
+    )
+  }
+
+  const handleRunContentRecognition = async () => {
+    await backgroundTasks.runBackgroundTask(
+      {
+        kind: 'content',
+        title: 'Scan Content Recognition',
+        description: 'Classify photos into subject labels for Explore',
+        operationPayload: {
+          capability: 'content.classify',
+          provider: 'macos.vision.classify.v1',
+          scopeKind: 'all',
+          config: { maxLabels: 8, minConfidence: 0.2, materializeConfidence: 0.35 },
+        },
+      },
+      async (update) => {
+        update({ progressLabel: 'Classifying photos…', detail: 'Running on-device Vision image classification' })
+        const classified = await analysisRequest({
+          capability: 'content.classify',
+          scope_kind: 'all',
+          priority: 0,
+          force: false,
+          config: { maxLabels: 8, minConfidence: 0.2 },
+        })
+        update({
+          progressLabel: 'Writing subject labels…',
+          detail: `${classified.photos_done} classified · ${classified.photos_failed} failed · ${classified.photos_skipped} skipped`,
+        })
+        const materialized = await materializeContentLabels(0.35)
+        const result = `${materialized.labelsWritten} labels across ${materialized.photosProcessed} photos`
+        update({ result })
+        return result
+      },
+    )
+  }
+
   const handleSelectExplore = () => handleSelectFilter({ type: 'explore' })
   const handleSelectSettings = () => handleSelectFilter({ type: 'settings' })
+  const handleSelectTasks = () => handleSelectFilter({ type: 'tasks' })
 
   const handleSearchChange = (query: string) => {
     view.setSearchQuery(query)
@@ -249,32 +358,48 @@ export default function App() {
   const photoViewTitle = trimmedSearchQuery
     ? `Search: "${trimmedSearchQuery}"`
     : view.filter?.type === 'recent'
-      ? 'Recently Added'
+      ? t('nav.recentlyAdded')
       : view.filter?.type === 'favorites'
-        ? 'Favorites'
+        ? t('nav.favorites')
         : view.filter?.type === 'hidden'
-          ? 'Hidden'
+          ? t('nav.hidden')
           : view.filter?.type === 'album'
             ? (albumsState.albums.find((a) => view.filter?.type === 'album' && a.id === view.filter.albumId)?.name ?? 'Album')
             : view.filter?.type === 'tag'
               ? `Tag: ${view.filter.tagName}`
+              : view.filter?.type === 'label'
+                ? `${view.filter.labelKind}: ${view.filter.labelName}`
               : view.filter?.type === 'person'
                 ? (view.filter.displayName ?? `Person · ${view.filter.personId.slice(0, 6)}`)
                 : view.filter?.type === 'view'
                 ? view.filter.viewId.charAt(0).toUpperCase() + view.filter.viewId.slice(1)
                 : view.filter?.type === 'explore'
-                  ? 'Explore'
+                  ? t('nav.explore')
                   : view.filter?.type === 'settings'
-                    ? 'Settings'
+                    ? t('nav.settings')
                     : activeFolder?.folderPath
                       ? activeFolder.folderPath
-                      : (activeSource?.name ?? 'All Photos')
+                      : (activeSource?.name ?? t('nav.allPhotos'))
 
   const filterActive = Object.keys(view.smartFilter).some(
     (k) => (view.smartFilter as Record<string, unknown>)[k] !== undefined,
   )
   const isSimilarReviewSelected = view.filter?.type === 'view' && view.filter.viewId === 'similar'
   const isPeopleSelected = view.filter?.type === 'view' && view.filter.viewId === 'people'
+  const isReorganizeSelected = view.filter?.type === 'view' && view.filter.viewId === 'reorganize'
+  const isContentRecognitionSelected = view.filter?.type === 'view' && view.filter.viewId === 'content'
+  const isExploreLabelsSelected = view.filter?.type === 'explore'
+  const isTasksSelected = view.filter?.type === 'tasks'
+  const isSettingsSelected = view.filter?.type === 'settings'
+  const rightPanelVisible = !(
+    isPeopleSelected ||
+    isContentRecognitionSelected ||
+    isReorganizeSelected ||
+    isExploreLabelsSelected ||
+    isTasksSelected ||
+    isSettingsSelected
+  )
+  const rightPanelCollapsed = rightPanelVisible && rightCollapsed
   const similarReviewCards = useMemo(
     () => buildSimilarReviewQueue(similarReviewPhotos, {
       windowMs: similarReviewWindowMs,
@@ -383,6 +508,7 @@ export default function App() {
     : undefined
 
   return (
+    <I18nProvider value={locale}>
     <div
       className="app-shell"
       style={
@@ -407,8 +533,8 @@ export default function App() {
       />
       <div
         className={`workspace-grid${leftCollapsed ? ' workspace-grid--left-collapsed' : ''}${
-          rightCollapsed ? ' workspace-grid--right-collapsed' : ''
-        }`}
+          rightPanelVisible ? '' : ' workspace-grid--right-hidden'
+        }${rightPanelCollapsed ? ' workspace-grid--right-collapsed' : ''}`}
       >
         <LeftRail
           librarySummary={library.summary}
@@ -435,6 +561,8 @@ export default function App() {
           onSelectView={handleSelectComingSoonView}
           onSelectExplore={handleSelectExplore}
           onSelectSettings={handleSelectSettings}
+          onSelectTasks={handleSelectTasks}
+          activeTaskCount={backgroundTasks.summary.active}
           albums={albumsState.albums}
           onSelectAlbum={(id) => handleSelectFilter({ type: 'album', albumId: id })}
           onCreateAlbum={(name) => void albumsState.create(name)}
@@ -480,9 +608,61 @@ export default function App() {
           />
         ) : isPeopleSelected ? (
           <PeopleView
+            runBackgroundTask={backgroundTasks.runBackgroundTask}
+            sources={library.summary.sources}
             onSelectPerson={(personId, displayName) =>
               handleSelectFilter({ type: 'person', personId, displayName })
             }
+          />
+        ) : isContentRecognitionSelected ? (
+          <ContentRecognitionView
+            runBackgroundTask={backgroundTasks.runBackgroundTask}
+            sources={library.summary.sources}
+            onSelectLabel={(label) =>
+              handleSelectFilter({
+                type: 'label',
+                labelId: label.id,
+                labelName: label.name,
+                labelKind: label.kind,
+              })
+            }
+          />
+        ) : isReorganizeSelected ? (
+          <ReorganizeView
+            onPickTargetRoot={pickPhotoFolder}
+            runBackgroundTask={backgroundTasks.runBackgroundTask}
+            onExecuted={async () => {
+              await library.refreshAll()
+              view.bumpDataVersion()
+            }}
+          />
+        ) : isExploreLabelsSelected ? (
+          <LabelsView
+            onSelectLabel={(label) =>
+              handleSelectFilter({
+                type: 'label',
+                labelId: label.id,
+                labelName: label.name,
+                labelKind: label.kind,
+              })
+            }
+          />
+        ) : isTasksSelected ? (
+          <BackgroundTasksView
+            tasks={backgroundTasks.tasks}
+            onClearCompleted={backgroundTasks.clearCompleted}
+            onRunSimilarScan={() => void handleRunPhotoEmbed()}
+            onRunPeopleScan={() => void handleRunPeoplePipeline()}
+            onRunContentScan={() => void handleRunContentRecognition()}
+          />
+        ) : isSettingsSelected ? (
+          <SettingsView
+            themes={appearance.themes}
+            activeThemeId={appearance.themeId}
+            onThemeChange={appearance.setThemeId}
+            languages={locale.languages}
+            activeLanguageId={locale.languageId}
+            onLanguageChange={locale.setLanguageId}
           />
         ) : (
           <PhotoSurface
@@ -515,7 +695,7 @@ export default function App() {
             onBatchAddTags={handleBatchAddTags}
           />
         )}
-        {!rightCollapsed && (
+        {rightPanelVisible && !rightCollapsed && (
           <div
             className="workspace-grid__resizer"
             role="separator"
@@ -525,6 +705,7 @@ export default function App() {
             onDoubleClick={() => rightPanelSize.setWidth(280)}
           />
         )}
+        {rightPanelVisible && (
         <ContextPanel
           librarySummary={library.summary}
           selectedPhoto={selection.selectedPhoto}
@@ -551,6 +732,7 @@ export default function App() {
           similarReviewMode={isSimilarReviewSelected}
           similarReviewInspector={similarReviewInspector}
         />
+        )}
       </div>
       {similarReviewViewerState && (
         <PhotoViewer
@@ -560,5 +742,6 @@ export default function App() {
         />
       )}
     </div>
+    </I18nProvider>
   )
 }

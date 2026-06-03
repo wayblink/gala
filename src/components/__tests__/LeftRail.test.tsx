@@ -55,7 +55,7 @@ describe('LeftRail', () => {
     expect(screen.queryByText('Scan Complete')).not.toBeInTheDocument()
   })
 
-  it('renders the five-section IA with Views, Sources, Custom Views, Explore, Settings', () => {
+  it('renders workflow views and bottom utility icon navigation', () => {
     render(
       <LeftRail
         librarySummary={emptySummary}
@@ -71,21 +71,25 @@ describe('LeftRail', () => {
     )
 
     expect(screen.getByRole('heading', { name: 'Library' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Views' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Views' })).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /Sources/ })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /Albums/ })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Explore' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Arrange' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Settings' })).not.toBeInTheDocument()
 
     expect(screen.getByRole('button', { name: /All Photos/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Recently Added/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Favorites/i })).toBeInTheDocument()
 
-    expect(screen.getByRole('button', { name: 'Timeline' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Places' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Timeline' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Places' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Memories' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'People' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Memories' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Similar Review' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reorganize' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Background Tasks' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument()
   })
 
   it('renders nested source folders and selects a folder filter', async () => {

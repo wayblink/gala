@@ -67,7 +67,7 @@ describe('App', () => {
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Similar Review' }),
     ).toBeInTheDocument()
-    expect(screen.getByText(/review candidate groups/i)).toBeInTheDocument()
+    expect(screen.getByText(/0 groups · 0 decided/i)).toBeInTheDocument()
     expect(screen.queryByText('Coming soon')).not.toBeInTheDocument()
   })
 
@@ -104,14 +104,52 @@ describe('App', () => {
     expect(screen.queryByRole('heading', { level: 1, name: 'Similar Review' })).not.toBeInTheDocument()
   })
 
-  it('routes unimplemented Views nav items to the ComingSoon placeholder', async () => {
+  it('opens Reorganize from Arrange and Background Tasks from the utility bar', async () => {
     render(<App />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Places' }))
+    expect(screen.queryByRole('button', { name: 'Timeline' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Places' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Memories' })).not.toBeInTheDocument()
 
-    expect(
-      await screen.findByRole('heading', { level: 2, name: 'Places' }),
-    ).toBeInTheDocument()
-    expect(screen.getAllByText('Coming soon').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Reorganize' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Reorganize' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Scan plan/i })).toBeInTheDocument()
+    expect(screen.queryByLabelText('View context')).not.toBeInTheDocument()
+
+    // Background Tasks is no longer a Views tab; it lives in the bottom utility bar.
+    fireEvent.click(screen.getByRole('button', { name: 'Background Tasks' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Background Tasks' })).toBeInTheDocument()
+    expect(screen.getByText(/No background tasks yet/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText('View context')).not.toBeInTheDocument()
   })
+  it('opens Settings as a real appearance page from the utility bar', async () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: 'Color style' })).toBeInTheDocument()
+    expect(screen.queryByText('Coming soon')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('View context')).not.toBeInTheDocument()
+  })
+
+  it('uses the right panel only for photo inspection and review inspectors', async () => {
+    render(<App />)
+
+    expect(screen.getByLabelText('View context')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'People' }))
+    expect(await screen.findByRole('heading', { level: 2, name: 'People' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('View context')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Content' }))
+    expect(await screen.findByRole('heading', { level: 2, name: 'Content Recognition' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('View context')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Similar Review' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Similar Review' })).toBeInTheDocument()
+    expect(screen.getByLabelText('View context')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('View context')).getByText(/No active group|Group Inspector/i)).toBeInTheDocument()
+  })
+
 })

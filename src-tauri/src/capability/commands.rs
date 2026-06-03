@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::library::storage::{initialize_schema, migrate_schema, open_database};
+use crate::library::storage::{initialize_schema, migrate_schema, materialize_content_classification_results, open_database, sync_all_person_labels, sync_person_label};
 
 use super::orchestrator::{Orchestrator, OrchestratorConfig};
 use super::provider::NoopProvider;
@@ -25,6 +25,7 @@ const FACE_DETECT: &str = "face.detect";
 const FACE_EMBED: &str = "face.embed";
 const FACE_CLUSTER: &str = "face.cluster";
 const PHOTO_EMBED: &str = "photo.embed";
+const CONTENT_CLASSIFY: &str = "content.classify";
 
 static REGISTRY: OnceLock<Arc<CapabilityRegistry>> = OnceLock::new();
 
@@ -40,16 +41,18 @@ fn registry() -> Arc<CapabilityRegistry> {
                 use super::macos_vision::MacosVisionFaceProvider;
                 use super::macos_vision_embed::MacosVisionEmbedProvider;
                 use super::macos_vision_photo_embed::MacosVisionPhotoEmbedProvider;
+                use super::macos_vision_classify::MacosVisionClassifyProvider;
                 reg.register(Arc::new(MacosVisionFaceProvider::new()));
                 reg.register(Arc::new(MacosVisionEmbedProvider::new()));
                 reg.register(Arc::new(MacosVisionPhotoEmbedProvider::new()));
+                reg.register(Arc::new(MacosVisionClassifyProvider::new()));
             }
             // NoopProvider stays as the fallback / advertiser for
             // face.cluster (still stubbed until M1.5) and as the
             // non-macOS face.detect / face.embed implementation.
             let noop = Arc::new(NoopProvider::new(
                 "noop.v1",
-                &[FACE_DETECT, FACE_EMBED, FACE_CLUSTER, PHOTO_EMBED],
+                &[FACE_DETECT, FACE_EMBED, FACE_CLUSTER, PHOTO_EMBED, CONTENT_CLASSIFY],
             ));
             reg.register(noop);
             Arc::new(reg)
@@ -138,6 +141,7 @@ fn map_capability(name: &str) -> Result<&'static str, String> {
         "face.embed" => Ok(FACE_EMBED),
         "face.cluster" => Ok(FACE_CLUSTER),
         "photo.embed" => Ok(PHOTO_EMBED),
+        "content.classify" => Ok(CONTENT_CLASSIFY),
         other => Err(format!("unknown capability: {}", other)),
     }
 }
@@ -157,6 +161,12 @@ pub async fn analysis_request_cmd(
         priority: request.priority,
         config: request.config.unwrap_or_else(|| serde_json::json!({})),
         force: request.force,
+    };
+
+    let materialize_source_id = if internal.scope_kind == ScopeKind::Source {
+        internal.scope_id.clone()
+    } else {
+        None
     };
 
     // Resolve scope synchronously on the calling task — keep the DB read
@@ -183,6 +193,18 @@ pub async fn analysis_request_cmd(
             match super::materialize_face_detect(&mut conn, &summary.job_id) {
                 Ok(n) => eprintln!("[materializer] face.detect job {} -> {} faces", summary.job_id, n),
                 Err(e) => eprintln!("[materializer] face.detect job {} failed: {}", summary.job_id, e),
+            }
+        }
+    }
+
+    if capability == CONTENT_CLASSIFY && summary.photos_done > 0 {
+        if let Ok(conn) = open_database(&path) {
+            match materialize_content_classification_results(&conn, 0.35, materialize_source_id.as_deref()) {
+                Ok((photos, labels)) => eprintln!(
+                    "[materializer] content.classify job {} -> {} photos / {} labels",
+                    summary.job_id, photos, labels
+                ),
+                Err(e) => eprintln!("[materializer] content.classify job {} failed: {}", summary.job_id, e),
             }
         }
     }
@@ -434,6 +456,7 @@ pub struct EmbedSummaryDto {
 pub async fn analysis_embed_faces_cmd(
     app: AppHandle,
     limit: Option<i64>,
+    source_id: Option<String>,
 ) -> Result<EmbedSummaryDto, String> {
     let db_path = ensure_db(&app)?;
     let artifact_root = artifact_dir(&app)?;
@@ -449,7 +472,7 @@ pub async fn analysis_embed_faces_cmd(
 
     // Gather pending faces grouped by photo. Each photo becomes one
     // AnalyzeInput; the meta.faces array carries the bbox list.
-    let pending = collect_pending_face_embeds(&db_path, &provider_id, cap_per_photo)?;
+    let pending = collect_pending_face_embeds(&db_path, &provider_id, cap_per_photo, source_id.as_deref())?;
     if pending.is_empty() {
         return Ok(EmbedSummaryDto {
             photos_processed: 0,
@@ -599,6 +622,7 @@ pub fn analysis_cluster_faces_cmd(app: AppHandle) -> Result<ClusterSummaryDto, S
     let path = ensure_db(&app)?;
     let mut conn = open_database(&path)?;
     let summary = super::cluster_faces(&mut conn).map_err(|e| e.to_string())?;
+    sync_all_person_labels(&conn)?;
     Ok(ClusterSummaryDto {
         faces_loaded: summary.faces_loaded,
         faces_failed: summary.faces_failed,
@@ -692,6 +716,7 @@ pub fn set_person_name_cmd(
     if n == 0 {
         return Err(format!("person not found: {}", person_id));
     }
+    sync_person_label(&conn, &person_id)?;
     Ok(())
 }
 
@@ -713,6 +738,7 @@ pub fn set_person_hidden_cmd(
     if n == 0 {
         return Err(format!("person not found: {}", person_id));
     }
+    sync_person_label(&conn, &person_id)?;
     Ok(())
 }
 
@@ -790,6 +816,8 @@ pub fn merge_persons_cmd(
     .map_err(|e| format!("merge target update: {}", e))?;
 
     tx.commit().map_err(|e| format!("merge commit: {}", e))?;
+    sync_person_label(&conn, &target_id)?;
+    sync_person_label(&conn, &source_id)?;
     Ok(moved as i64)
 }
 
@@ -838,7 +866,7 @@ pub fn split_face_to_new_person_cmd(
 
     // Decrement the old person's face_count so the grid stays accurate
     // until the next cluster run.
-    if let Some(old_pid) = current_person_id {
+    if let Some(old_pid) = current_person_id.as_deref() {
         let remaining: i64 = tx
             .query_row(
                 "SELECT COUNT(*) FROM faces WHERE person_id = ?1 AND status = 'active'",
@@ -864,6 +892,10 @@ pub fn split_face_to_new_person_cmd(
     }
 
     tx.commit().map_err(|e| format!("split commit: {}", e))?;
+    sync_person_label(&conn, &new_person_id)?;
+    if let Some(old_pid) = current_person_id.as_deref() {
+        sync_person_label(&conn, old_pid)?;
+    }
     Ok(new_person_id)
 }
 
@@ -893,6 +925,7 @@ fn collect_pending_face_embeds(
     db_path: &PathBuf,
     provider_id: &str,
     cap_per_photo: i64,
+    source_id: Option<&str>,
 ) -> Result<Vec<PhotoBatch>, String> {
     let conn = open_database(db_path)?;
     // Pull (photo_id, root_path, relative_path, face_id, bbox_*) for any
@@ -906,11 +939,12 @@ fn collect_pending_face_embeds(
              INNER JOIN sources s ON s.id = p.source_id \
              WHERE f.status = 'active' \
                AND (f.embedding_path IS NULL OR f.embedding_path = '') \
+               AND (?1 IS NULL OR p.source_id = ?1) \
              ORDER BY f.photo_id, f.created_at",
         )
         .map_err(|e| format!("Failed to prepare pending faces query: {}", e))?;
     let rows = stmt
-        .query_map([], |row| {
+        .query_map(params![source_id], |row| {
             let face_id: String = row.get(0)?;
             let photo_id: String = row.get(1)?;
             let bx: f64 = row.get(2)?;

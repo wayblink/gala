@@ -5,6 +5,7 @@ import {
   getFavoritePhotos,
   getFilteredPhotos,
   getHiddenPhotos,
+  getPhotosByLabel,
   getPhotosByPerson,
   getPhotosByTag,
   getRecentlyAddedPhotos,
@@ -12,7 +13,7 @@ import {
   searchPhotos,
 } from '../desktop/photos'
 import { groupTimelinePhotos } from '../data/photoTimeline'
-import type { Album, FilterOptions, PhotoDisplayMode, PhotoFilter, SmartFilter, TimelinePhoto } from '../types/photos'
+import type { Album, ComingSoonViewId, FilterOptions, PhotoDisplayMode, PhotoFilter, SmartFilter, TimelinePhoto } from '../types/photos'
 import { ComingSoonView } from './ComingSoonView'
 import { FilterPanel } from './FilterPanel'
 import { PhotoCard } from './PhotoCard'
@@ -58,29 +59,28 @@ function filterKey(filter: PhotoFilter | null, searchQuery: string, smartFilter:
   if (filter.type === 'hidden') return `hidden${v}`
   if (filter.type === 'album') return `album:${filter.albumId}${v}`
   if (filter.type === 'tag') return `tag:${filter.tagName}${v}`
+  if (filter.type === 'label') return `label:${filter.labelId}${v}`
   if (filter.type === 'person') return `person:${filter.personId}${v}`
   if (filter.type === 'view') return `view:${filter.viewId}${v}`
   if (filter.type === 'explore') return `explore${v}`
   if (filter.type === 'settings') return `settings${v}`
+  if (filter.type === 'tasks') return `tasks${v}`
   return `folder:${filter.sourceId}:${filter.folderPath}:${JSON.stringify(smartFilter)}${v}`
 }
 
-const comingSoonTitles: Record<string, string> = {
-  timeline: 'Timeline',
-  places: 'Places',
+const comingSoonTitles: Record<ComingSoonViewId | 'explore', string> = {
   people: 'People',
-  memories: 'Memories',
-  similar: 'Similar',
+  content: 'Content Recognition',
+  similar: 'Similar Review',
+  reorganize: 'Reorganize',
   explore: 'Explore',
-  settings: 'Settings',
 }
 
 function isComingSoonFilter(filter: PhotoFilter | null): filter is
-  | { type: 'view'; viewId: 'timeline' | 'places' | 'people' | 'memories' | 'similar' }
-  | { type: 'explore' }
-  | { type: 'settings' } {
+  | { type: 'view'; viewId: ComingSoonViewId }
+  | { type: 'explore' } {
   if (!filter) return false
-  return filter.type === 'view' || filter.type === 'explore' || filter.type === 'settings'
+  return filter.type === 'view' || filter.type === 'explore'
 }
 
 export function PhotoSurface({
@@ -178,6 +178,8 @@ export function PhotoSurface({
         newPhotos = await getAlbumPhotos(filter.albumId, PHOTOS_PER_PAGE, offset)
       } else if (filter?.type === 'tag') {
         newPhotos = await getPhotosByTag(filter.tagName, PHOTOS_PER_PAGE, offset)
+      } else if (filter?.type === 'label') {
+        newPhotos = await getPhotosByLabel(filter.labelId, PHOTOS_PER_PAGE, offset)
       } else if (filter?.type === 'person') {
         newPhotos = await getPhotosByPerson(filter.personId, PHOTOS_PER_PAGE, offset)
       } else if (hasSmartFilter) {

@@ -161,11 +161,11 @@ export async function facesList(limit?: number): Promise<Face[]> {
   return await invoke<Face[]>('faces_list_cmd', { limit })
 }
 
-export async function analysisEmbedFaces(limit?: number): Promise<EmbedSummary> {
+export async function analysisEmbedFaces(limit?: number, sourceId?: string): Promise<EmbedSummary> {
   if (!isTauriAvailable()) {
     return { photos_processed: 0, faces_embedded: 0, faces_failed: 0, faces_skipped: 0 }
   }
-  return await invoke<EmbedSummary>('analysis_embed_faces_cmd', { limit })
+  return await invoke<EmbedSummary>('analysis_embed_faces_cmd', { limit, sourceId: sourceId ?? null })
 }
 
 export async function analysisClusterFaces(): Promise<ClusterSummary> {

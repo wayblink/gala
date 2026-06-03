@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { AnalysisScopeSelector } from '../../components/explore/AnalysisScopeSelector'
+import { useI18n } from '../../state/useLocale'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import {
   analysisClusterFaces,
@@ -19,6 +21,10 @@ import type {
   FaceSummary,
   Person,
 } from '../../desktop/capability'
+import type { RunBackgroundTask } from '../../types/backgroundTasks'
+import type { AnalysisScope } from '../../types/analysisScope'
+import { analysisScopePayload, analysisScopeToRequest, defaultAnalysisScope } from '../../types/analysisScope'
+import type { LibrarySource } from '../../types/library'
 
 const EMPTY_SUMMARY: FaceSummary = {
   total_faces: 0,
@@ -29,9 +35,14 @@ const EMPTY_SUMMARY: FaceSummary = {
 
 export function PeopleView({
   onSelectPerson,
+  runBackgroundTask,
+  sources = [],
 }: {
   onSelectPerson?: (personId: string, displayName: string | null) => void
+  runBackgroundTask?: RunBackgroundTask
+  sources?: LibrarySource[]
 }) {
+  const { t } = useI18n()
   const [providers, setProviders] = useState<CapabilityDescriptor[]>([])
   const [detecting, setDetecting] = useState(false)
   const [embedding, setEmbedding] = useState(false)
@@ -42,6 +53,9 @@ export function PeopleView({
   const [stats, setStats] = useState<FaceSummary>(EMPTY_SUMMARY)
   const [mergeMode, setMergeMode] = useState(false)
   const [mergeSelection, setMergeSelection] = useState<string[]>([])
+  const [scope, setScope] = useState<AnalysisScope>(() => defaultAnalysisScope())
+
+  const runTask: RunBackgroundTask = runBackgroundTask ?? (async (_spec, runner) => runner(() => undefined))
 
   const refresh = async () => {
     try {
@@ -64,17 +78,31 @@ export function PeopleView({
   }, [])
 
   const busy = detecting || embedding || clustering
+  const currentScopeLabel = scope.kind === 'source' ? scope.sourceName : t('scope.allLibrary')
 
   const handleRunDetection = async () => {
     setDetecting(true)
     setSummary(null)
     try {
-      const run = await analysisRequest({
-        capability: 'face.detect',
-        scope_kind: 'all',
-        priority: 0,
-        force: false,
-      })
+      const run = await runTask(
+        {
+          kind: 'people',
+          title: 'Detect faces',
+          description: `face.detect over ${currentScopeLabel}`,
+          operationPayload: { command: 'analysisRequest', capability: 'face.detect', ...analysisScopePayload(scope) },
+        },
+        async (update) => {
+          update({ progressLabel: t('people.detecting'), detail: t('content.scopeDetail', { scope: currentScopeLabel }) })
+          const result = await analysisRequest({
+            capability: 'face.detect',
+            ...analysisScopeToRequest(scope),
+            priority: 0,
+            force: false,
+          })
+          update({ result: `${result.photos_done} done · ${result.photos_failed} failed · ${result.photos_skipped} skipped` })
+          return result
+        },
+      )
       setSummary(
         `Detect ${run.job_id.slice(0, 8)}… ${run.outcome} · ` +
           `${run.photos_done} done, ${run.photos_failed} failed, ${run.photos_skipped} skipped`,
@@ -91,7 +119,24 @@ export function PeopleView({
     setEmbedding(true)
     setSummary(null)
     try {
-      const run = await analysisEmbedFaces()
+      const run = await runTask(
+        {
+          kind: 'people',
+          title: 'Embed faces',
+          description: `Generate face embeddings for ${currentScopeLabel}`,
+          operationPayload: {
+            command: 'analysisEmbedFaces',
+            limit: null,
+            ...analysisScopePayload(scope),
+          },
+        },
+        async (update) => {
+          update({ progressLabel: t('people.embedding'), detail: `${pendingEmbeds} faces pending · ${currentScopeLabel}` })
+          const result = await analysisEmbedFaces(undefined, scope.kind === 'source' ? scope.sourceId : undefined)
+          update({ result: `${result.faces_embedded} embedded · ${result.faces_failed} failed · ${result.faces_skipped} skipped` })
+          return result
+        },
+      )
       setSummary(
         `Embed · ${run.photos_processed} photos · ${run.faces_embedded} embedded, ` +
           `${run.faces_failed} failed, ${run.faces_skipped} skipped`,
@@ -108,7 +153,15 @@ export function PeopleView({
     setClustering(true)
     setSummary(null)
     try {
-      const run = await analysisClusterFaces()
+      const run = await runTask(
+        { kind: 'people', title: 'Cluster people', description: 'Group embedded faces into people', operationPayload: { command: 'analysisClusterFaces' } },
+        async (update) => {
+          update({ progressLabel: 'Clustering people…', detail: `${stats.faces_with_embedding} embedded faces available` })
+          const result = await analysisClusterFaces()
+          update({ result: `${result.persons_created} new persons · ${result.persons_existing} reused` })
+          return result
+        },
+      )
       setSummary(
         `Cluster · ${run.faces_loaded} faces → ${run.persons_created} new persons, ${run.persons_existing} reused`,
       )
@@ -175,8 +228,6 @@ export function PeopleView({
     }
   }
 
-  const visionDetect = providers.find((p) => p.provider_id === 'macos.vision.v1')
-  const visionEmbed = providers.find((p) => p.provider_id === 'macos.vision.embed.v1')
   const pendingEmbeds = Math.max(0, stats.total_faces - stats.faces_with_embedding)
   const canCluster = stats.faces_with_embedding > 0
   const canMerge = mergeSelection.length >= 2
@@ -185,28 +236,22 @@ export function PeopleView({
     <div className="people-view">
       <div className="people-view__header">
         <div>
-          <h2>People</h2>
-          <p className="people-view__subtitle">
-            {visionDetect && visionEmbed
-              ? 'Powered by macOS Vision (face.detect + face.embed via Neural Engine) · HNSW clustering'
-              : visionDetect
-                ? `Powered by ${visionDetect.provider_id} (face.detect only)`
-                : 'No face provider registered'}
-          </p>
+          <h2>{t('people.title')}</h2>
         </div>
         <div className="people-view__actions">
+          <AnalysisScopeSelector value={scope} sources={sources} onChange={setScope} disabled={busy} />
           <button onClick={handleRunDetection} disabled={busy}>
-            {detecting ? 'Detecting…' : '1. Detect faces'}
+            {detecting ? t('people.detecting') : t('people.detect')}
           </button>
           <button
             onClick={handleGenerateEmbeddings}
             disabled={busy || pendingEmbeds === 0}
-            title={pendingEmbeds === 0 ? 'All faces already embedded' : `${pendingEmbeds} faces pending`}
+            title={pendingEmbeds === 0 ? 'All faces already embedded in current global stats' : `${pendingEmbeds} faces pending globally`}
           >
-            {embedding ? 'Embedding…' : `2. Embed${pendingEmbeds ? ` (${pendingEmbeds})` : ''}`}
+            {embedding ? t('people.embedding') : `${t('people.embed')}${pendingEmbeds ? ` (${pendingEmbeds})` : ''}`}
           </button>
           <button onClick={handleCluster} disabled={busy || !canCluster}>
-            {clustering ? 'Clustering…' : '3. Cluster'}
+            {clustering ? t('people.clustering') : t('people.cluster')}
           </button>
           <button onClick={() => void refresh()} disabled={busy}>
             Refresh
@@ -217,19 +262,19 @@ export function PeopleView({
       <div className="people-view__stats">
         <div className="people-view__stat">
           <span className="people-view__stat-value">{persons.length}</span>
-          <span className="people-view__stat-label">persons</span>
+          <span className="people-view__stat-label">{t('people.persons')}</span>
         </div>
         <div className="people-view__stat">
           <span className="people-view__stat-value">{stats.total_faces}</span>
-          <span className="people-view__stat-label">faces</span>
+          <span className="people-view__stat-label">{t('people.faces')}</span>
         </div>
         <div className="people-view__stat">
           <span className="people-view__stat-value">{stats.photos_with_faces}</span>
-          <span className="people-view__stat-label">photos</span>
+          <span className="people-view__stat-label">{t('people.photos')}</span>
         </div>
         <div className="people-view__stat">
           <span className="people-view__stat-value">{stats.faces_with_embedding}</span>
-          <span className="people-view__stat-label">embedded</span>
+          <span className="people-view__stat-label">{t('people.embedded')}</span>
         </div>
       </div>
 

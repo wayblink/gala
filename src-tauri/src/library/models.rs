@@ -110,3 +110,16 @@ pub struct Tag {
     pub name: String,
     pub photo_count: i64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Label {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub semantic_key: Option<String>,
+    pub visibility: String,
+    pub created_by: String,
+    pub source_count: i64,
+    pub photo_count: i64,
+}

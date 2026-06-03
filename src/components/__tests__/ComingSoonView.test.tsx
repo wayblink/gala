@@ -3,21 +3,19 @@ import { describe, expect, it } from 'vitest'
 import { ComingSoonView } from '../ComingSoonView'
 
 describe('ComingSoonView', () => {
-  it('renders title and blurb for a V1 view like Places', () => {
-    render(<ComingSoonView viewId="places" title="Places" />)
+  it('renders title and blurb for Reorganize', () => {
+    render(<ComingSoonView viewId="reorganize" title="Reorganize" />)
 
     expect(screen.getByText('Coming soon')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { level: 2, name: 'Places' })).toBeInTheDocument()
-    expect(
-      screen.getByText('Photos organized by where they were captured.'),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: 'Reorganize' })).toBeInTheDocument()
+    expect(screen.getByText('Rebuild a physical folder tree from custom rules.')).toBeInTheDocument()
   })
 
-  it('describes Memories with its explanation promise', () => {
-    render(<ComingSoonView viewId="memories" title="Memories" />)
+  it('describes Explore discovery', () => {
+    render(<ComingSoonView viewId="explore" title="Explore" />)
 
     expect(
-      screen.getByText('Every Memory will explain itself before it appears.', { exact: false }),
+      screen.getByText('A place to discover connections between your photos.', { exact: false }),
     ).toBeInTheDocument()
   })
 })

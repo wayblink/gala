@@ -1,4 +1,4 @@
-export type ComingSoonViewId = 'timeline' | 'places' | 'people' | 'memories' | 'similar'
+export type ComingSoonViewId = 'people' | 'content' | 'similar' | 'reorganize'
 
 export type PhotoFilter =
   // Library — always-available base views
@@ -13,11 +13,13 @@ export type PhotoFilter =
   // Custom views — user-created groupings
   | { type: 'album'; albumId: string }
   | { type: 'tag'; tagName: string }
+  | { type: 'label'; labelId: string; labelName: string; labelKind: string }
   // People — single-person detail view (M1.6)
   | { type: 'person'; personId: string; displayName: string | null }
-  // Explore / Settings placeholders
+  // Explore / utility surfaces
   | { type: 'explore' }
   | { type: 'settings' }
+  | { type: 'tasks' }
 
 export type SmartFilter = {
   cameras?: string[]
@@ -75,5 +77,16 @@ export type TimelinePhoto = {
 
 export type Tag = {
   name: string
+  photoCount: number
+}
+
+export type Label = {
+  id: string
+  name: string
+  kind: string
+  semanticKey: string | null
+  visibility: string
+  createdBy: string
+  sourceCount: number
   photoCount: number
 }

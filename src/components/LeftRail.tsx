@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useI18n } from '../state/useLocale'
 import type { LibrarySummary, ScanProgress } from '../types/library'
 import type { Album, ComingSoonViewId, PhotoFilter, SourceFolder, Tag } from '../types/photos'
 
@@ -52,6 +53,8 @@ type LeftRailProps = {
   onSelectView?: (viewId: ComingSoonViewId) => void
   onSelectExplore?: () => void
   onSelectSettings?: () => void
+  onSelectTasks?: () => void
+  activeTaskCount?: number
   albums?: Album[]
   onSelectAlbum?: (albumId: string) => void
   onCreateAlbum?: (name: string) => void
@@ -115,6 +118,25 @@ function ScanStatusCard({
   )
 }
 
+function TasksIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M5 7.5h14M5 12h10M5 16.5h7" />
+      <path d="M17.5 13.5l1.5 1.5 3-3" />
+      <rect x="3" y="4" width="18" height="16" rx="3" />
+    </svg>
+  )
+}
+
+function SettingsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Z" />
+      <path d="M19.4 13.4c.1-.46.1-.94 0-1.4l2-1.55-2-3.46-2.5 1a7.6 7.6 0 0 0-1.2-.7L15.3 4h-4l-.4 3.3c-.42.18-.82.42-1.2.7l-2.5-1-2 3.46 2 1.55a7 7 0 0 0 0 1.4l-2 1.55 2 3.46 2.5-1c.38.28.78.52 1.2.7l.4 3.3h4l.4-3.3c.42-.18.82-.42 1.2-.7l2.5 1 2-3.46-2-1.55Z" />
+    </svg>
+  )
+}
+
 export function LeftRail({
   librarySummary,
   isScanning,
@@ -131,6 +153,8 @@ export function LeftRail({
   onSelectView = () => undefined,
   onSelectExplore = () => undefined,
   onSelectSettings = () => undefined,
+  onSelectTasks = () => undefined,
+  activeTaskCount = 0,
   albums = [],
   onSelectAlbum = () => undefined,
   onCreateAlbum = () => undefined,
@@ -141,6 +165,7 @@ export function LeftRail({
   collapsed = false,
   onToggleCollapse = () => undefined,
 }: LeftRailProps) {
+  const { t } = useI18n()
   const activeSourceId = activeFilter?.type === 'folder' ? activeFilter.sourceId : null
   const activeFolderPath = activeFilter?.type === 'folder' ? activeFilter.folderPath : null
   const [newAlbumName, setNewAlbumName] = useState('')
@@ -150,43 +175,51 @@ export function LeftRail({
 
   const libraryItems: RailItem[] = [
     {
-      label: 'All Photos',
+      label: t('nav.allPhotos'),
       count: compactCount(librarySummary.totalPhotos),
       active: activeFilter === null,
       onClick: onSelectAllPhotos,
     },
     {
-      label: 'Recently Added',
+      label: t('nav.recentlyAdded'),
       count: compactCount(librarySummary.recentlyAddedCount),
       active: activeFilter?.type === 'recent',
       onClick: onSelectRecent,
     },
     {
-      label: 'Favorites',
+      label: t('nav.favorites'),
       count: compactCount(librarySummary.favoritesCount),
       active: activeFilter?.type === 'favorites',
       onClick: onSelectFavorites,
     },
     {
-      label: 'Hidden',
+      label: t('nav.hidden'),
       count: librarySummary.hiddenCount > 0 ? compactCount(librarySummary.hiddenCount) : undefined,
       active: activeFilter?.type === 'hidden',
       onClick: onSelectHidden,
     },
   ]
 
-  const viewItems: Array<{ id: ComingSoonViewId; label: string }> = [
-    { id: 'timeline', label: 'Timeline' },
-    { id: 'places', label: 'Places' },
-    { id: 'people', label: 'People' },
-    { id: 'memories', label: 'Memories' },
-    { id: 'similar', label: 'Similar Review' },
+  const buildSurfaceItem = (id: ComingSoonViewId, label: string): RailItem => ({
+    label,
+    active: activeFilter?.type === 'view' && activeFilter.viewId === id,
+    onClick: () => onSelectView(id),
+  })
+
+  const exploreItems: RailItem[] = [
+    buildSurfaceItem('people', t('nav.people')),
+    buildSurfaceItem('content', t('nav.content')),
+    {
+      label: t('nav.labels'),
+      active: activeFilter?.type === 'explore',
+      onClick: onSelectExplore,
+    },
   ]
-  const viewRailItems: RailItem[] = viewItems.map((v) => ({
-    label: v.label,
-    active: activeFilter?.type === 'view' && activeFilter.viewId === v.id,
-    onClick: () => onSelectView(v.id),
-  }))
+
+  const arrangeItems: RailItem[] = [
+    buildSurfaceItem('similar', t('nav.similarReview')),
+    buildSurfaceItem('reorganize', t('nav.reorganize')),
+  ]
 
   return (
     <aside className={`left-rail${collapsed ? ' left-rail--collapsed' : ''}`} aria-label="Photo navigation">
@@ -201,50 +234,15 @@ export function LeftRail({
       </button>
       {!collapsed && (
         <div className="left-rail__scroll">
-          <NavGroup title="Library" items={libraryItems} />
+          <NavGroup title={t('nav.library')}  items={libraryItems} />
 
-          <section className="rail-group">
-            <h2>Views</h2>
-            <div className="rail-list">
-              {viewRailItems.map((item) => (
-                <button
-                  className={`rail-item${item.active ? ' rail-item--active' : ''}`}
-                  key={item.label}
-                  type="button"
-                  onClick={item.onClick}
-                >
-                  <span className="rail-item__label">{item.label}</span>
-                </button>
-              ))}
-            </div>
-            {tags.length > 0 && (
-              <>
-                <div className="rail-sub-label">Tags</div>
-                <div className="rail-list">
-                  {tags.map((tag) => (
-                    <button
-                      className={`rail-item rail-item--tag${
-                        activeFilter?.type === 'tag' && activeFilter.tagName === tag.name
-                          ? ' rail-item--active'
-                          : ''
-                      }`}
-                      key={tag.name}
-                      type="button"
-                      onClick={() => onSelectTag(tag.name)}
-                    >
-                      <span className="rail-item__tag-dot" aria-hidden="true" />
-                      <span className="rail-item__label">{tag.name}</span>
-                      <span className="rail-item__count">{compactCount(tag.photoCount)}</span>
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </section>
+          <NavGroup title={t('nav.explore')}  items={exploreItems} />
+
+          <NavGroup title={t('nav.arrange')}  items={arrangeItems} />
 
           <section className="rail-group">
             <h2 className="rail-group__header-row">
-              Sources
+              {t('nav.sources')}
               <button
                 className="rail-header-btn"
                 title="Add source"
@@ -340,7 +338,7 @@ export function LeftRail({
                 ))}
               {librarySummary.sources.length === 0 && (
                 <div className="rail-item rail-item--muted">
-                  <span>No sources</span>
+                  <span>{t('nav.noSources')}</span>
                 </div>
               )}
             </div>
@@ -348,10 +346,10 @@ export function LeftRail({
 
           <section className="rail-group">
             <h2 className="rail-group__header-row">
-              Albums
+              {t('nav.albums')}
               <button
                 className="rail-header-btn"
-                title="New album"
+                title={t('nav.newAlbum')}
                 type="button"
                 onClick={() => setShowNewAlbumInput(true)}
               >
@@ -470,35 +468,56 @@ export function LeftRail({
             </div>
           </section>
 
-          <section className="rail-group">
-            <h2>Explore</h2>
-            <div className="rail-list">
-              <button
-                className={`rail-item${activeFilter?.type === 'explore' ? ' rail-item--active' : ''}`}
-                type="button"
-                onClick={onSelectExplore}
-              >
-                <span className="rail-item__label">Discover</span>
-              </button>
-            </div>
-          </section>
-
-          <section className="rail-group">
-            <h2>Settings</h2>
-            <div className="rail-list">
-              <button
-                className={`rail-item${activeFilter?.type === 'settings' ? ' rail-item--active' : ''}`}
-                type="button"
-                onClick={onSelectSettings}
-              >
-                <span className="rail-item__label">Preferences</span>
-              </button>
-            </div>
-          </section>
+          {tags.length > 0 && (
+            <section className="rail-group">
+              <h2>{t('nav.tags')}</h2>
+              <div className="rail-list">
+                {tags.map((tag) => (
+                  <button
+                    className={`rail-item rail-item--tag${
+                      activeFilter?.type === 'tag' && activeFilter.tagName === tag.name
+                        ? ' rail-item--active'
+                        : ''
+                    }`}
+                    key={tag.name}
+                    type="button"
+                    onClick={() => onSelectTag(tag.name)}
+                  >
+                    <span className="rail-item__tag-dot" aria-hidden="true" />
+                    <span className="rail-item__label">{tag.name}</span>
+                    <span className="rail-item__count">{compactCount(tag.photoCount)}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
 
           {(isScanning || scanProgress?.status === 'failed') && (
             <ScanStatusCard librarySummary={librarySummary} isScanning={isScanning} scanProgress={scanProgress} />
           )}
+        </div>
+      )}
+      {!collapsed && (
+        <div className="left-rail__utility" aria-label="Utility navigation">
+          <button
+            className={`rail-utility-btn${activeFilter?.type === 'tasks' ? ' rail-utility-btn--active' : ''}`}
+            type="button"
+            title={t('nav.backgroundTasks')}
+            aria-label={t('nav.backgroundTasks')}
+            onClick={onSelectTasks}
+          >
+            <TasksIcon />
+            {activeTaskCount > 0 ? <span className="rail-utility-btn__badge">{compactCount(activeTaskCount)}</span> : null}
+          </button>
+          <button
+            className={`rail-utility-btn${activeFilter?.type === 'settings' ? ' rail-utility-btn--active' : ''}`}
+            type="button"
+            title={t('nav.settings')}
+            aria-label={t('nav.settings')}
+            onClick={onSelectSettings}
+          >
+            <SettingsIcon />
+          </button>
         </div>
       )}
     </aside>
