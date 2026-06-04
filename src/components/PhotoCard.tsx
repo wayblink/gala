@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { getThumbnailFile } from '../desktop/photos'
+import { computePhotoQualityScore } from '../domain/photoQuality'
 import type { TimelinePhoto } from '../types/photos'
 
 type PhotoCardProps = {
@@ -37,6 +38,7 @@ export function PhotoCard({
   selected = false,
   onClick,
 }: PhotoCardProps) {
+  const quality = computePhotoQualityScore(photo)
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(false)
@@ -86,6 +88,9 @@ export function PhotoCard({
           />
         )}
         {error && <span className="photo-card__error">Failed to load</span>}
+        <span className={`photo-card__quality photo-quality-badge photo-quality-badge--${quality.label}`}>
+          {quality.score}
+        </span>
       </span>
 
       {variant !== 'thumbnail' && (
@@ -98,10 +103,11 @@ export function PhotoCard({
               <span>{photo.sourceName}</span>
               <span>{formatDimensions(photo)}</span>
               <span>{formatFileSize(photo.fileSize)}</span>
+              <span className="photo-card__quality-label">Quality {quality.score}</span>
             </>
           ) : (
             <span className="photo-card__subline">
-              {formatDate(photo.capturedAt)} · {formatDimensions(photo)}
+              {formatDate(photo.capturedAt)} · {formatDimensions(photo)} · Quality {quality.score}
             </span>
           )}
         </span>

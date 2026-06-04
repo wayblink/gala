@@ -183,6 +183,30 @@ export default function App() {
     )
   }
 
+  const handleRunPhotoQuality = async () => {
+    await backgroundTasks.runBackgroundTask(
+      {
+        kind: 'quality',
+        title: 'Scan Photo Quality',
+        description: 'Score every photo for visual review and sorting',
+        operationPayload: { capability: 'photo.quality', scopeKind: 'all' },
+      },
+      async (update) => {
+        update({ progressLabel: 'Scoring photo quality…', detail: 'Reading dimensions and source metadata' })
+        const scored = await analysisRequest({
+          capability: 'photo.quality',
+          scope_kind: 'all',
+          priority: 0,
+          force: false,
+        })
+        const result = `${scored.photos_done} scored · ${scored.photos_failed} failed · ${scored.photos_skipped} skipped`
+        update({ result })
+        view.bumpDataVersion()
+        return result
+      },
+    )
+  }
+
   const handleSelectExplore = () => handleSelectFilter({ type: 'explore' })
   const handleSelectSettings = () => handleSelectFilter({ type: 'settings' })
   const handleSelectTasks = () => handleSelectFilter({ type: 'tasks' })
@@ -467,6 +491,7 @@ export default function App() {
           <BackgroundTasksView
             tasks={backgroundTasks.tasks}
             onClearCompleted={backgroundTasks.clearCompleted}
+            onRunQualityScan={() => void handleRunPhotoQuality()}
             onRunSimilarScan={() => void similarReview.runPhotoEmbeddingScan()}
             onRunPeopleScan={() => void handleRunPeoplePipeline()}
             onRunContentScan={() => void handleRunContentRecognition()}

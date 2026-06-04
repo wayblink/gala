@@ -1,5 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { Eye, EyeOff, Star } from 'lucide-react'
+import { computePhotoQualityScore } from '../domain/photoQuality'
 import type { LibrarySummary } from '../types/library'
 import type { Album, TimelinePhoto } from '../types/photos'
 
@@ -102,6 +103,7 @@ export function ContextPanel({
   const tagInputRef = useRef<HTMLInputElement>(null)
   const selectedCount = selectedIds?.size ?? 0
   const isBatchMode = selectionMode && selectedCount > 0
+  const selectedPhotoQuality = selectedPhoto ? computePhotoQualityScore(selectedPhoto) : null
   return (
     <aside className={`context-panel${collapsed ? ' context-panel--collapsed' : ''}`} aria-label="View context">
       <button
@@ -309,6 +311,16 @@ export function ContextPanel({
                 </div>
               )}
             </div>
+
+            {selectedPhotoQuality && (
+              <div className={`cp-quality-card cp-quality-card--${selectedPhotoQuality.label}`}>
+                <div>
+                  <p className="eyebrow">Photo Quality</p>
+                  <strong>{selectedPhotoQuality.score}</strong>
+                </div>
+                <p>{selectedPhotoQuality.reasons.slice(0, 4).join(' · ')}</p>
+              </div>
+            )}
 
             <div className="photo-tags">
               <p className="eyebrow">Tags</p>

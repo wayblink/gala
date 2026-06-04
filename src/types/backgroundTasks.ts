@@ -1,4 +1,4 @@
-export type BackgroundTaskKind = 'library' | 'similar' | 'people' | 'content' | 'reorganize'
+export type BackgroundTaskKind = 'library' | 'similar' | 'people' | 'content' | 'quality' | 'reorganize'
 
 export type BackgroundTaskStatus = 'queued' | 'running' | 'paused' | 'succeeded' | 'failed'
 

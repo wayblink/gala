@@ -20,6 +20,7 @@ use super::provider::NoopProvider;
 use super::registry::CapabilityRegistry;
 use super::resolve_scope;
 use super::types::{AnalysisRequest, AnalyzeContext, AnalyzeInput, ScopeKind};
+use super::{MetadataPhotoQualityProvider, PHOTO_QUALITY};
 
 const FACE_DETECT: &str = "face.detect";
 const FACE_EMBED: &str = "face.embed";
@@ -47,6 +48,7 @@ fn registry() -> Arc<CapabilityRegistry> {
                 reg.register(Arc::new(MacosVisionPhotoEmbedProvider::new()));
                 reg.register(Arc::new(MacosVisionClassifyProvider::new()));
             }
+            reg.register(Arc::new(MetadataPhotoQualityProvider::new()));
             // NoopProvider stays as the fallback / advertiser for
             // face.cluster (still stubbed until M1.5) and as the
             // non-macOS face.detect / face.embed implementation.
@@ -142,6 +144,7 @@ fn map_capability(name: &str) -> Result<&'static str, String> {
         "face.cluster" => Ok(FACE_CLUSTER),
         "photo.embed" => Ok(PHOTO_EMBED),
         "content.classify" => Ok(CONTENT_CLASSIFY),
+        "photo.quality" => Ok(PHOTO_QUALITY),
         other => Err(format!("unknown capability: {}", other)),
     }
 }

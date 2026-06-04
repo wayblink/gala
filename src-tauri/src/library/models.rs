@@ -56,6 +56,15 @@ pub struct SourceFolder {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PhotoQualityScore {
+    pub photo_id: String,
+    pub score: i64,
+    pub label: String,
+    pub reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TimelinePhoto {
     pub id: String,
     pub file_name: String,
@@ -75,6 +84,7 @@ pub struct TimelinePhoto {
     pub thumbnail_path: Option<String>,
     pub is_favorite: bool,
     pub is_hidden: bool,
+    pub quality: Option<PhotoQualityScore>,
     pub tags: Vec<String>,
 }
 

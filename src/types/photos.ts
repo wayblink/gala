@@ -1,3 +1,5 @@
+import type { PhotoQualityScore } from '../domain/photoQuality'
+
 export type ComingSoonViewId = 'people' | 'content' | 'similar' | 'reorganize'
 
 export type PhotoFilter =
@@ -72,6 +74,7 @@ export type TimelinePhoto = {
   thumbnailPath: string | null
   isFavorite: boolean
   isHidden: boolean
+  quality?: PhotoQualityScore | null
   tags: string[]
 }
 

@@ -1,9 +1,13 @@
+import { recommendHighestQualityPhotoId } from '../../domain/photoQuality'
+import type { PhotoQualityScore } from '../../domain/photoQuality'
+
 export type SimilarReviewCardKind = 'burst' | 'duplicate' | 'same-scene'
 
 export type SimilarReviewCard = {
   id: string
   kind: SimilarReviewCardKind
   photoIds: string[]
+  recommendedKeepPhotoId: string | null
   confidence: number
   title: string
   reason: string
@@ -16,6 +20,12 @@ export type SimilarReviewPhoto = {
   id: string
   fileName: string
   capturedAt: string | null
+  width?: number | null
+  height?: number | null
+  fileSize?: number | null
+  isFavorite?: boolean
+  isHidden?: boolean
+  quality?: PhotoQualityScore | null
   sourceName: string
 }
 
@@ -121,6 +131,10 @@ const computeTimeSpanMs = (group: SimilarReviewPhoto[]): number | null => {
   return Math.max(...times) - Math.min(...times)
 }
 
+export function recommendKeepPhotoId(group: SimilarReviewPhoto[]): string | null {
+  return recommendHighestQualityPhotoId(group)
+}
+
 const buildBurstCard = (
   group: SimilarReviewPhoto[],
   index: number,
@@ -132,6 +146,7 @@ const buildBurstCard = (
     id: `card-${index}`,
     kind: 'burst',
     photoIds: group.map((p) => p.id),
+    recommendedKeepPhotoId: recommendKeepPhotoId(group),
     confidence: spanMs != null && spanMs <= 5_000 ? 0.95 : 0.78,
     title: `Burst · ${group.length} photos · ${spanLabel}`,
     reason: embeddingsAvailable
@@ -154,6 +169,7 @@ const buildSameSceneCard = (
     id: `card-${index}`,
     kind: 'same-scene',
     photoIds: group.map((p) => p.id),
+    recommendedKeepPhotoId: recommendKeepPhotoId(group),
     confidence: embeddingsAvailable ? 0.75 : 0.6,
     title: `Same scene · ${group.length} photos · ${spanLabel}`,
     reason: embeddingsAvailable
@@ -172,6 +188,7 @@ const buildSingleCard = (
   id: `card-${index}`,
   kind: 'same-scene',
   photoIds: [photo.id],
+  recommendedKeepPhotoId: photo.id,
   confidence: 0.2,
   title: `Single · ${photo.fileName}`,
   reason: 'No nearby captures within the active window.',

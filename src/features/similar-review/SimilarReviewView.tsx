@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, X, ZoomIn } from 'lucide-react'
 import { convertFileSrc } from '@tauri-apps/api/core'
+import { computePhotoQualityScore } from '../../domain/photoQuality'
 import type { TimelinePhoto } from '../../types/photos'
 import type { SimilarReviewCard, SimilarReviewCardKind } from './similarReviewModel'
 
@@ -123,6 +124,7 @@ function Tile({
   selectionMode,
   isMultiSelected,
   isFocusSelected,
+  isRecommended,
   onClick,
   onZoom,
   onKeep,
@@ -134,6 +136,7 @@ function Tile({
   selectionMode: boolean
   isMultiSelected: boolean
   isFocusSelected: boolean
+  isRecommended: boolean
   onClick: () => void
   onZoom: () => void
   onKeep: () => void
@@ -166,6 +169,7 @@ function Tile({
     .join(' ')
 
   const label = photo?.fileName ?? fileNameFallback
+  const quality = photo ? computePhotoQualityScore(photo) : null
 
   return (
     <button
@@ -182,6 +186,16 @@ function Tile({
           <span className="sr-tile__fallback">{label}</span>
         )}
       </span>
+      {quality && (
+        <span className={`sr-tile__quality sr-tile__quality--${quality.label}`}>
+          {quality.score}
+        </span>
+      )}
+      {isRecommended && (
+        <span className="sr-tile__recommendation">
+          Recommended
+        </span>
+      )}
       {decision === 'keep' && (
         <span className="sr-tile__decision-badge sr-tile__decision-badge--keep" aria-hidden>
           Keep
@@ -334,6 +348,15 @@ export function SimilarReviewView({
     setDecisionsByCard((prev) => ({ ...prev, [activeCard.id]: next }))
   }
 
+  const applyRecommendation = () => {
+    if (!activeCard?.recommendedKeepPhotoId) return
+    const next: Record<string, Decision> = {}
+    activeCard.photoIds.forEach((id) => {
+      next[id] = id === activeCard.recommendedKeepPhotoId ? 'keep' : 'discard'
+    })
+    setDecisionsByCard((prev) => ({ ...prev, [activeCard.id]: next }))
+  }
+
   const applyActiveDecisions = async () => {
     if (!activeCard || !onApplyDecisions) {
       advance(1)
@@ -408,6 +431,10 @@ export function SimilarReviewView({
     : 0
   const queueScroll = useScrollThumb<HTMLElement>([cards.length])
   const canvasScroll = useScrollThumb<HTMLElement>([activeCardId, cards.length])
+  const activeRecommendation = activeCard?.recommendedKeepPhotoId
+    ? photosById.get(activeCard.recommendedKeepPhotoId)
+    : null
+  const activeRecommendationQuality = activeRecommendation ? computePhotoQualityScore(activeRecommendation) : null
 
   return (
     <main className="similar-review-view" aria-label="Similar review workflow">
@@ -557,6 +584,21 @@ export function SimilarReviewView({
               {activeCard.photoIds.length} photos · {formatSpan(activeCard.timeSpanMs)} ·{' '}
               {activeCard.fileNameRange.first} → {activeCard.fileNameRange.last}
             </p>
+            {activeRecommendation && activeRecommendationQuality && (
+              <div className="sr-quality-callout" aria-label="Recommended keeper">
+                <div>
+                  <span className="sr-quality-callout__label">Quality recommendation</span>
+                  <strong>{activeRecommendation.fileName}</strong>
+                  <span>
+                    Score {activeRecommendationQuality.score} ·{' '}
+                    {activeRecommendationQuality.reasons.slice(0, 3).join(' · ')}
+                  </span>
+                </div>
+                <button type="button" className="secondary-button" onClick={applyRecommendation}>
+                  Use recommendation
+                </button>
+              </div>
+            )}
 
             <div
               className={`sr-hero__grid sr-hero__grid--cols-${Math.min(3, Math.max(1, activeCard.photoIds.length))}`}
@@ -573,6 +615,7 @@ export function SimilarReviewView({
                     selectionMode={selectionMode}
                     isMultiSelected={selectedIds.has(id)}
                     isFocusSelected={!selectionMode && selectedPhotoId === id}
+                    isRecommended={activeCard.recommendedKeepPhotoId === id}
                     onClick={() => handleTileClick(activeCard.id, id)}
                     onZoom={() => handleTileZoom(activeCard.photoIds, id)}
                     onKeep={() => setDecision(activeCard.id, id, 'keep')}

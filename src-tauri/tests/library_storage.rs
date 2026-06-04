@@ -5,6 +5,7 @@ use gala_lib::library::storage::{
     set_photo_tags, update_photo_dimensions, update_photo_exif_metadata, upsert_photo_assets,
     upsert_source,
 };
+use rusqlite::params;
 use std::fs;
 use tempfile::TempDir;
 
@@ -573,6 +574,59 @@ fn test_timeline_photos_include_persisted_dimensions() {
     assert_eq!(photos.len(), 1);
     assert_eq!(photos[0].width, Some(4032));
     assert_eq!(photos[0].height, Some(3024));
+}
+
+#[test]
+fn test_timeline_photos_include_persisted_quality_score() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let source_path = temp_dir.path().join("photos");
+    fs::create_dir(&source_path).unwrap();
+    fs::write(source_path.join("photo1.jpg"), b"fake").unwrap();
+
+    let mut conn = open_database(&db_path).unwrap();
+    initialize_schema(&conn).unwrap();
+    migrate_schema(&conn).unwrap();
+
+    let source = upsert_source(&conn, &source_path).unwrap();
+    let photos = discover_photos(&source_path).unwrap();
+    replace_source_photos(&mut conn, &source.id, &source_path, &photos).unwrap();
+
+    let photo_id: String = conn
+        .query_row("SELECT id FROM photos LIMIT 1", [], |row| row.get(0))
+        .unwrap();
+    upsert_photo_assets(
+        &conn,
+        &photo_id,
+        "/tmp/small.jpg",
+        "/tmp/medium.jpg",
+        "/tmp/large.jpg",
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO analysis_results \
+         (photo_id, capability, provider_id, schema_version, result_json, confidence, job_id, generated_at) \
+         VALUES (?1, 'photo.quality', 'metadata.photo-quality.v1', 1, ?2, 0.85, NULL, 'now')",
+        params![
+            photo_id,
+            serde_json::json!({
+                "score": 82,
+                "label": "strong",
+                "reasons": ["high resolution", "photo format"]
+            })
+            .to_string()
+        ],
+    )
+    .unwrap();
+
+    let photos = get_timeline_photos(&conn, 20, 0, None, None).unwrap();
+
+    assert_eq!(photos.len(), 1);
+    let quality = photos[0].quality.as_ref().expect("quality score");
+    assert_eq!(quality.photo_id, photos[0].id);
+    assert_eq!(quality.score, 82);
+    assert_eq!(quality.label, "strong");
+    assert_eq!(quality.reasons, vec!["high resolution", "photo format"]);
 }
 
 #[test]

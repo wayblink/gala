@@ -1,6 +1,6 @@
 use crate::library::models::{
-    Album, FilterOptions, Label, LibrarySource, LibrarySummary, SourceFolder, Tag, TimelinePhoto,
-    UpsertedPhoto,
+    Album, FilterOptions, Label, LibrarySource, LibrarySummary, PhotoQualityScore, SourceFolder,
+    Tag, TimelinePhoto, UpsertedPhoto,
 };
 use crate::library::scanner::DiscoveredPhoto;
 use chrono::{DateTime, Utc};
@@ -14,7 +14,10 @@ const SCHEMA_VERSION: i32 = 13;
 const PHOTO_COLS: &str = "p.id, p.file_name, p.relative_path, p.file_mtime, p.file_size, \
     s.name, s.status, pa.thumbnail_medium_path, p.favorited_at, p.width, p.height, \
     p.captured_at, p.camera_make, p.camera_model, p.lens_model, p.gps_latitude, \
-    p.gps_longitude, p.hidden_at";
+    p.gps_longitude, p.hidden_at, \
+    (SELECT ar.result_json FROM analysis_results ar \
+      WHERE ar.photo_id = p.id AND ar.capability = 'photo.quality' \
+      ORDER BY ar.generated_at DESC LIMIT 1)";
 
 const PHOTO_JOINS: &str = "FROM photos p \
     INNER JOIN sources s ON p.source_id = s.id \
@@ -1129,6 +1132,7 @@ pub fn get_source_folders(conn: &Connection) -> Result<Vec<SourceFolder>, String
 }
 
 fn timeline_photo_from_row(row: &Row<'_>) -> SqlResult<TimelinePhoto> {
+    let id: String = row.get(0)?;
     let relative_path: String = row.get(2)?;
     let file_mtime: i64 = row.get(3)?;
     let captured_at: Option<String> = row.get(11)?;
@@ -1137,9 +1141,13 @@ fn timeline_photo_from_row(row: &Row<'_>) -> SqlResult<TimelinePhoto> {
     let folder_path = folder_path_for_relative_path(&relative_path);
     let favorited_at: Option<String> = row.get(8)?;
     let hidden_at: Option<String> = row.get(17)?;
+    let quality_json: Option<String> = row.get(18)?;
+    let quality = quality_json
+        .as_deref()
+        .and_then(|value| parse_photo_quality(value, &id));
 
     Ok(TimelinePhoto {
-        id: row.get(0)?,
+        id,
         file_name: row.get(1)?,
         relative_path,
         folder_path,
@@ -1157,7 +1165,30 @@ fn timeline_photo_from_row(row: &Row<'_>) -> SqlResult<TimelinePhoto> {
         thumbnail_path: row.get(7)?,
         is_favorite: favorited_at.is_some(),
         is_hidden: hidden_at.is_some(),
+        quality,
         tags: vec![], // populated separately when needed
+    })
+}
+
+fn parse_photo_quality(raw: &str, photo_id: &str) -> Option<PhotoQualityScore> {
+    let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+    let score = value.get("score")?.as_i64()?.clamp(0, 100);
+    let label = value.get("label")?.as_str()?.to_string();
+    let reasons = value
+        .get("reasons")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    Some(PhotoQualityScore {
+        photo_id: photo_id.to_string(),
+        score,
+        label,
+        reasons,
     })
 }
 

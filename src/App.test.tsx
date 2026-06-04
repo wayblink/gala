@@ -119,6 +119,7 @@ describe('App', () => {
     // Background Tasks is no longer a Views tab; it lives in the bottom utility bar.
     fireEvent.click(screen.getByRole('button', { name: 'Background Tasks' }))
     expect(await screen.findByRole('heading', { level: 1, name: 'Background Tasks' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Scan Quality' })).toBeInTheDocument()
     expect(screen.getByText(/No background tasks yet/i)).toBeInTheDocument()
     expect(screen.queryByLabelText('View context')).not.toBeInTheDocument()
   })

@@ -41,7 +41,8 @@ pub fn resolve_scope(
 fn fetch_one(conn: &Connection, photo_id: &str) -> Result<Option<AnalyzeInput>, CapabilityError> {
     use rusqlite::OptionalExtension;
     conn.query_row(
-        "SELECT p.id, s.root_path, p.relative_path, pa.thumbnail_medium_path, p.width, p.height \
+        "SELECT p.id, s.root_path, p.relative_path, pa.thumbnail_medium_path, p.width, p.height, \
+                p.file_name, p.extension, p.file_size, p.favorited_at, p.hidden_at \
          FROM photos p \
          INNER JOIN sources s ON p.source_id = s.id \
          LEFT JOIN photo_assets pa ON pa.photo_id = p.id \
@@ -58,7 +59,8 @@ fn fetch_by_source(
     source_id: &str,
 ) -> Result<Vec<AnalyzeInput>, CapabilityError> {
     let mut stmt = conn.prepare(
-        "SELECT p.id, s.root_path, p.relative_path, pa.thumbnail_medium_path, p.width, p.height \
+        "SELECT p.id, s.root_path, p.relative_path, pa.thumbnail_medium_path, p.width, p.height, \
+                p.file_name, p.extension, p.file_size, p.favorited_at, p.hidden_at \
          FROM photos p \
          INNER JOIN sources s ON p.source_id = s.id \
          LEFT JOIN photo_assets pa ON pa.photo_id = p.id \
@@ -73,7 +75,8 @@ fn fetch_by_source(
 
 fn fetch_all(conn: &Connection) -> Result<Vec<AnalyzeInput>, CapabilityError> {
     let mut stmt = conn.prepare(
-        "SELECT p.id, s.root_path, p.relative_path, pa.thumbnail_medium_path, p.width, p.height \
+        "SELECT p.id, s.root_path, p.relative_path, pa.thumbnail_medium_path, p.width, p.height, \
+                p.file_name, p.extension, p.file_size, p.favorited_at, p.hidden_at \
          FROM photos p \
          INNER JOIN sources s ON p.source_id = s.id \
          LEFT JOIN photo_assets pa ON pa.photo_id = p.id \
@@ -93,6 +96,11 @@ fn map_row(row: &rusqlite::Row<'_>) -> AnalyzeInput {
     let thumbnail_path: Option<String> = row.get(3).ok();
     let width: Option<i64> = row.get(4).ok();
     let height: Option<i64> = row.get(5).ok();
+    let file_name: String = row.get(6).unwrap_or_default();
+    let extension: String = row.get(7).unwrap_or_default();
+    let file_size: Option<i64> = row.get(8).ok();
+    let favorited_at: Option<String> = row.get(9).ok();
+    let hidden_at: Option<String> = row.get(10).ok();
 
     let absolute = if relative_path.is_empty() {
         PathBuf::from(&root_path)
@@ -108,7 +116,13 @@ fn map_row(row: &rusqlite::Row<'_>) -> AnalyzeInput {
             (Some(w), Some(h)) if w > 0 && h > 0 => Some((w as u32, h as u32)),
             _ => None,
         },
-        meta: serde_json::Value::Null,
+        meta: serde_json::json!({
+            "file_name": file_name,
+            "extension": extension,
+            "file_size": file_size,
+            "is_favorite": favorited_at.is_some(),
+            "is_hidden": hidden_at.is_some(),
+        }),
     }
 }
 
@@ -152,6 +166,8 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].photo_id, "photo-1");
         assert_eq!(out[0].image_path, PathBuf::from("/photos/1.jpg"));
+        assert_eq!(out[0].meta["file_name"], "1.jpg");
+        assert_eq!(out[0].meta["file_size"], 1024);
     }
 
     #[test]

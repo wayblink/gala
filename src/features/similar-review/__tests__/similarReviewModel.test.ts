@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { buildSimilarReviewQueue } from '../similarReviewModel'
+import {
+  buildSimilarReviewQueue,
+  recommendKeepPhotoId,
+} from '../similarReviewModel'
 
 const at = (iso: string | null, id: string, name = `${id}.JPG`) => ({
   id,
@@ -169,5 +172,43 @@ describe('buildSimilarReviewQueue', () => {
     expect(tight.length).toBe(2)
     const loose = buildSimilarReviewQueue(photos, { embeddings, thresholdCosine: 0.5 })
     expect(loose.length).toBe(1)
+  })
+
+  it('recommends the strongest visual quality candidate in a group', () => {
+    const group = [
+      {
+        ...at('2026-05-12T10:00:00.000Z', 'p1', 'IMG_0001.JPG'),
+        width: 1200,
+        height: 800,
+        fileSize: 300_000,
+      },
+      {
+        ...at('2026-05-12T10:00:03.000Z', 'p2', 'IMG_0002.JPG'),
+        width: 6000,
+        height: 4000,
+        fileSize: 8_000_000,
+      },
+    ]
+
+    expect(recommendKeepPhotoId(group)).toBe('p2')
+    const queue = buildSimilarReviewQueue(group)
+    expect(queue[0].recommendedKeepPhotoId).toBe('p2')
+  })
+
+  it('uses persisted photo quality when choosing a recommended keeper', () => {
+    const group = [
+      {
+        ...at('2026-05-12T10:00:00.000Z', 'p1', 'IMG_0001.JPG'),
+        quality: { photoId: 'p1', score: 92, label: 'strong' as const, reasons: ['backend sharpness'] },
+      },
+      {
+        ...at('2026-05-12T10:00:03.000Z', 'p2', 'IMG_0002.JPG'),
+        width: 6000,
+        height: 4000,
+        fileSize: 8_000_000,
+      },
+    ]
+
+    expect(recommendKeepPhotoId(group)).toBe('p1')
   })
 })

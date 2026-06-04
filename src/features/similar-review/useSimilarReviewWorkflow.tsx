@@ -154,11 +154,26 @@ export function useSimilarReviewWorkflow({
   }
 
   const cards = useMemo(
-    () => buildSimilarReviewQueue(photos, {
-      windowMs,
-      embeddings: embeddings.size > 0 ? embeddings : undefined,
-      thresholdCosine,
-    }),
+    () =>
+      buildSimilarReviewQueue(
+        photos.map((photo) => ({
+          id: photo.id,
+          fileName: photo.fileName,
+          capturedAt: photo.capturedAt,
+          sourceName: photo.sourceName,
+          width: photo.width,
+          height: photo.height,
+          fileSize: photo.fileSize,
+          isFavorite: photo.isFavorite,
+          isHidden: photo.isHidden,
+          quality: photo.quality,
+        })),
+        {
+          windowMs,
+          embeddings: embeddings.size > 0 ? embeddings : undefined,
+          thresholdCosine,
+        },
+      ),
     [photos, windowMs, embeddings, thresholdCosine],
   )
   const photosById = useMemo(() => new Map(photos.map((photo) => [photo.id, photo])), [photos])

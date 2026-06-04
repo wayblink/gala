@@ -24,6 +24,7 @@ const selectedPhoto: TimelinePhoto = {
   sourceStatus: 'online',
   thumbnailPath: null,
   isFavorite: false, isHidden: false, tags: [],
+  quality: { photoId: 'photo-1', score: 88, label: 'strong', reasons: ['backend sharpness'] },
   cameraMake: 'Fujifilm',
   cameraModel: 'X-T5',
   lensModel: 'XF 23mm F1.4 R LM WR',
@@ -47,5 +48,8 @@ describe('ContextPanel', () => {
     expect(screen.getByText('Fujifilm X-T5')).toBeInTheDocument()
     expect(screen.getByText('XF 23mm F1.4 R LM WR')).toBeInTheDocument()
     expect(screen.getByText('35.01160, 135.76810')).toBeInTheDocument()
+    expect(screen.getByText('Photo Quality')).toBeInTheDocument()
+    expect(screen.getByText('88')).toBeInTheDocument()
+    expect(screen.getByText('backend sharpness')).toBeInTheDocument()
   })
 })

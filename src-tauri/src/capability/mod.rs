@@ -6,6 +6,7 @@
 //! job persistence and dispatch; providers only produce results.
 
 mod orchestrator;
+mod photo_quality;
 mod provider;
 mod registry;
 mod scope;
@@ -29,9 +30,10 @@ mod macos_vision_classify;
 
 pub mod commands;
 
-pub use materializer::materialize_face_detect;
 pub use clusterer::{cluster_faces, ClusterSummary};
+pub use materializer::materialize_face_detect;
 pub use orchestrator::{Orchestrator, OrchestratorConfig, RunOutcome, RunSummary};
+pub use photo_quality::{MetadataPhotoQualityProvider, PHOTO_QUALITY};
 pub use provider::{CapabilityProvider, NoopProvider};
 pub use registry::CapabilityRegistry;
 pub use scope::resolve_scope;
