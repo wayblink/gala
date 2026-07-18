@@ -1,6 +1,8 @@
-# Photo View Engine
+# Gala
 
-Photo View Engine is a desktop-first concept for browsing and rediscovering local photo libraries without changing where the original files live.
+Gala is a desktop-first application for browsing, understanding, and organizing local photo libraries while keeping users in control of their original files.
+
+Current release: `0.1.0-alpha.1` (internal Alpha). See [Alpha Readiness](docs/alpha-readiness.md) for verified quality gates, platform limits, and the remaining Beta acceptance work.
 
 The product is not a Lightroom clone, a cloud album, or a file manager. It builds a view layer above local photos: timelines, places, people, memories, similar light, and custom views can all point at the same original files without moving, renaming, or deleting them.
 
@@ -26,9 +28,9 @@ Photo Source
 - **View Instance**: A concrete generated view, such as "Kyoto, October 2024" or "Summer evenings".
 - **Photo Surface**: The desktop UI where users browse, inspect, compare, and save views.
 
-## V0 Scope
+## Implemented Alpha Scope
 
-V0 focuses on proving the view engine.
+The current Alpha includes:
 
 In scope:
 
@@ -36,18 +38,19 @@ In scope:
 - Scan files without moving or modifying originals.
 - Build a SQLite-backed local photo index.
 - Generate thumbnails and previews in an app-owned cache.
-- Browse photos by timeline, contact sheet, focus viewer, and saved views.
-- Save generated views without duplicating source photos.
-- Explain why an automatic view contains its photos.
+- Browse photos by timeline, contact sheet, focus viewer, search, filters, albums, tags, and people.
+- Run on-device People, Similar Review, content recognition, and photo quality workflows on macOS.
+- Preview and execute copy/move reorganization plans after explicit confirmation.
+- Track long-running analysis and reorganize operations as background tasks.
 
 Not in scope:
 
 - RAW editing.
 - Cloud sync.
 - Team collaboration.
-- Automatic file deletion or relocation.
-- Full face recognition as a V0 dependency.
-- Full vector search as a V0 dependency.
+- Silent or automatic destructive actions.
+- Cloud sync and cross-device view sharing.
+- A cross-platform intelligent-analysis provider; non-macOS AI capabilities currently degrade to Noop.
 
 ## Documentation
 

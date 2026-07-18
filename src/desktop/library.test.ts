@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { listenToScanProgress, getLibrarySummary, pickPhotoFolder, scanPhotoSource } from './library'
+import { listenToScanProgress, getLibrarySummary, pickPhotoFolder, relinkPhotoSource, scanPhotoSource } from './library'
 import { listen } from '@tauri-apps/api/event'
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -48,6 +48,28 @@ describe('library desktop bridge', () => {
     await expect(scanPhotoSource('/Users/me/Pictures')).resolves.toEqual(summary)
     expect(invoke).toHaveBeenCalledWith('scan_photo_source', {
       rootPath: '/Users/me/Pictures',
+    }, undefined)
+  })
+
+  it('passes the source id and root path into the native relink command', async () => {
+    const summary = {
+      source: {
+        id: 'source-1',
+        name: 'Pictures',
+        rootPath: '/Volumes/Archive/Pictures',
+        status: 'online',
+        photoCount: 2,
+      },
+      indexedCount: 2,
+      skippedCount: 0,
+    }
+    const invoke = vi.fn().mockResolvedValue(summary)
+    window.__TAURI_INTERNALS__ = { invoke }
+
+    await expect(relinkPhotoSource('source-1', '/Volumes/Archive/Pictures')).resolves.toEqual(summary)
+    expect(invoke).toHaveBeenCalledWith('relink_photo_source', {
+      sourceId: 'source-1',
+      rootPath: '/Volumes/Archive/Pictures',
     }, undefined)
   })
 

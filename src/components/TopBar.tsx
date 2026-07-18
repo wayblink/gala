@@ -1,4 +1,4 @@
-import { CheckSquare, Filter, GalleryHorizontal, Grid3X3, Rows3, Search } from 'lucide-react'
+import { Aperture, CheckSquare, Filter, GalleryHorizontal, Grid3X3, Rows3, Search } from 'lucide-react'
 import { useI18n } from '../state/useLocale'
 import type { PhotoDisplayMode } from '../types/photos'
 
@@ -65,7 +65,12 @@ export function TopBar({
 
   return (
     <header className={`top-bar${similarReviewMode ? ' top-bar--similar-review' : ''}`}>
-      <div className="top-bar__brand">{t('app.brand')}</div>
+      <div className="top-bar__brand" aria-label={t('app.brand')}>
+        <span className="top-bar__brand-mark" aria-hidden="true">
+          <Aperture size={18} strokeWidth={1.8} />
+        </span>
+        <span className="top-bar__wordmark">{t('app.brand')}</span>
+      </div>
       <div className="top-bar__center">
         {similarReviewMode ? (
           <label className="sr-banner-slider" aria-label={t('top.groupWindow')}>

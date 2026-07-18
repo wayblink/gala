@@ -11,8 +11,6 @@
 //! up as CapabilityError::Inference, which the orchestrator records as a
 //! "failed" event without aborting the whole job.
 
-#![cfg(target_os = "macos")]
-
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -169,10 +167,10 @@ fn detect_faces_sync(image_path: &Path) -> Result<Vec<serde_json::Value>, String
 
             // Flip y so origin is upper-left to match the rest of Gala's
             // photo coordinate convention.
-            let x = bbox.origin.x as f64;
-            let y_bottom = bbox.origin.y as f64;
-            let w = bbox.size.width as f64;
-            let h = bbox.size.height as f64;
+            let x = bbox.origin.x;
+            let y_bottom = bbox.origin.y;
+            let w = bbox.size.width;
+            let h = bbox.size.height;
             let y_top = 1.0 - y_bottom - h;
 
             out.push(json!({
@@ -234,8 +232,7 @@ mod tests {
         let faces = out.result.get("faces").and_then(|f| f.as_array());
         assert!(faces.is_some());
         eprintln!(
-            "[vision-test] {} detected {} face(s) (confidence {:?})",
-            "IMG_0001.jpg",
+            "[vision-test] IMG_0001.jpg detected {} face(s) (confidence {:?})",
             faces.unwrap().len(),
             out.confidence
         );

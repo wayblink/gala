@@ -6,7 +6,8 @@ describe('App', () => {
   it('renders the default Index Light Table shell', async () => {
     render(<App />)
 
-    expect(screen.getByText('Memory Table')).toBeInTheDocument()
+    expect(screen.getByText('Gala')).toBeInTheDocument()
+    expect(document.querySelector('.top-bar__brand-mark')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Thumbnail table' })).toHaveAttribute(
       'aria-pressed',
@@ -20,9 +21,30 @@ describe('App', () => {
         level: 2,
       }),
     ).not.toBeInTheDocument()
-    expect(screen.getByText('Library Index')).toBeInTheDocument()
+    expect(screen.queryByText('Library Index')).not.toBeInTheDocument()
     expect(screen.getByText('No sources')).toBeInTheDocument()
     expect(screen.getByText('No photo selected')).toBeInTheDocument()
+  })
+
+  it('opens Sources as a management surface from the source header', async () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sources' }))
+
+    const sourcesView = await screen.findByLabelText('Sources')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Sources' })).toBeInTheDocument()
+    expect(screen.getByText('Indexed Sources')).toBeInTheDocument()
+    expect(within(sourcesView).getByRole('button', { name: /Add source/i })).toBeInTheDocument()
+    expect(screen.queryByLabelText('View context')).not.toBeInTheDocument()
+  })
+
+  it('routes the left-rail add source action into the Sources management surface', async () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add source' }))
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Sources' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Add your first source/i })).toBeInTheDocument()
   })
 
   it('keeps view explanations out of navigation and context metadata', async () => {

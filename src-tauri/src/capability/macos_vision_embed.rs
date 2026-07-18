@@ -8,14 +8,12 @@
 //! (Float32 elements, typically 128 or 2048 dimensions depending on the
 //! Vision revision). The result JSON records { dim, element_type, face_id }.
 
-#![cfg(target_os = "macos")]
-
 use std::path::Path;
 
 use async_trait::async_trait;
 use image::GenericImageView;
-use objc2::AnyThread;
 use objc2::rc::Retained;
+use objc2::AnyThread;
 use objc2_foundation::{NSArray, NSData, NSString, NSURL};
 use objc2_vision::{VNGenerateImageFeaturePrintRequest, VNImageRequestHandler, VNRequest};
 use serde_json::json;
@@ -34,6 +32,12 @@ pub struct MacosVisionEmbedProvider;
 impl MacosVisionEmbedProvider {
     pub fn new() -> Self {
         Self
+    }
+}
+
+impl Default for MacosVisionEmbedProvider {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -171,8 +175,7 @@ impl CapabilityProvider for MacosVisionEmbedProvider {
 /// Crop the face region from the image, save as a temp JPEG, then run
 /// VNGenerateImageFeaturePrintRequest on the crop. Returns (raw_bytes, dim).
 fn generate_embedding(image_path: &Path, bbox: [f64; 4]) -> Result<(Vec<u8>, usize), String> {
-    let img = image::open(image_path)
-        .map_err(|e| format!("open image: {}", e))?;
+    let img = image::open(image_path).map_err(|e| format!("open image: {}", e))?;
     let (img_w, img_h) = img.dimensions();
 
     // bbox is [x, y, w, h] normalized 0..1, upper-left origin
@@ -191,8 +194,7 @@ fn generate_embedding(image_path: &Path, bbox: [f64; 4]) -> Result<(Vec<u8>, usi
 
     // Write crop to a temp file for Vision
     let tmp = std::env::temp_dir().join(format!("gala_embed_{}.jpg", uuid::Uuid::new_v4()));
-    crop.save(&tmp)
-        .map_err(|e| format!("save crop: {}", e))?;
+    crop.save(&tmp).map_err(|e| format!("save crop: {}", e))?;
 
     let result = run_feature_print(&tmp);
     let _ = std::fs::remove_file(&tmp);
@@ -214,9 +216,8 @@ pub(super) fn run_feature_print(image_path: &Path) -> Result<(Vec<u8>, usize), S
             &options,
         );
 
-        let request = VNGenerateImageFeaturePrintRequest::init(
-            VNGenerateImageFeaturePrintRequest::alloc(),
-        );
+        let request =
+            VNGenerateImageFeaturePrintRequest::init(VNGenerateImageFeaturePrintRequest::alloc());
 
         let request_base: &VNRequest = &request;
         let requests = NSArray::from_slice(&[request_base]);
@@ -229,13 +230,13 @@ pub(super) fn run_feature_print(image_path: &Path) -> Result<(Vec<u8>, usize), S
             .results()
             .ok_or_else(|| "no results from feature print".to_string())?;
 
-        if results.len() == 0 {
+        if results.is_empty() {
             return Err("empty feature print results".to_string());
         }
 
         let obs = results.objectAtIndex(0);
         let data: Retained<NSData> = obs.data();
-        let dim = obs.elementCount() as usize;
+        let dim = obs.elementCount();
 
         let bytes = data.to_vec();
 

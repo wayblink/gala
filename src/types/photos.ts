@@ -20,6 +20,7 @@ export type PhotoFilter =
   | { type: 'person'; personId: string; displayName: string | null }
   // Explore / utility surfaces
   | { type: 'explore' }
+  | { type: 'sources' }
   | { type: 'settings' }
   | { type: 'tasks' }
 

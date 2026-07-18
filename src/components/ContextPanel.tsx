@@ -124,23 +124,7 @@ export function ContextPanel({
             <p className="mono-muted">Pick a group from the queue to inspect.</p>
           </section>
         )
-      ) : (
-      <section>
-        <p className="eyebrow">Library Index</p>
-        <p className="mono-muted">
-          {librarySummary.totalPhotos} photos indexed
-        </p>
-        {librarySummary.sources.length > 0 && (
-          <ul className="safety-list">
-            {librarySummary.sources.map((source) => (
-              <li key={source.id} className={source.status === 'online' ? 'is-online' : ''}>
-                {source.name} · {source.photoCount} photos
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-      )}
+      ) : null}
       {isBatchMode ? (
         <section className="cp-photo-section cp-batch-section">
           <div className="cp-photo-info">

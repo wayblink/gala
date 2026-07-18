@@ -1,6 +1,6 @@
 {
   "name": "gala",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,6 +9,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
+    "quality": "npm run test && npm run build && npm run e2e",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build"
   },

@@ -49,9 +49,13 @@ export function SettingsView({
                 className={`theme-card${active ? ' theme-card--active' : ''}`}
                 onClick={() => onThemeChange(theme.id)}
               >
-                <span className="theme-card__swatches" aria-hidden="true">
-                  {theme.swatches.map((swatch) => (
-                    <span key={swatch} style={{ background: swatch }} />
+                <span className="theme-card__preview" aria-hidden="true">
+                  {theme.swatches.map((swatch, index) => (
+                    <span
+                      key={`${swatch}-${index}`}
+                      className={`theme-card__preview-color theme-card__preview-color--${index + 1}`}
+                      style={{ background: swatch }}
+                    />
                   ))}
                 </span>
                 <span className="theme-card__body">

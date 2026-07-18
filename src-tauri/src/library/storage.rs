@@ -471,7 +471,12 @@ pub fn migrate_schema(conn: &Connection) -> Result<(), String> {
     add_column_if_missing(conn, "tags", "updated_at", "TEXT")?;
     rebuild_tags_table_if_global_name_unique(conn)?;
     add_column_if_missing(conn, "photo_tag_sources", "evidence_json", "TEXT")?;
-    add_column_if_missing(conn, "photo_tag_sources", "status", "TEXT NOT NULL DEFAULT 'active'")?;
+    add_column_if_missing(
+        conn,
+        "photo_tag_sources",
+        "status",
+        "TEXT NOT NULL DEFAULT 'active'",
+    )?;
     add_column_if_missing(conn, "photo_tag_sources", "updated_at", "TEXT")?;
 
     conn.execute_batch(
@@ -515,7 +520,6 @@ fn table_columns(conn: &Connection, table: &str) -> Result<HashSet<String>, Stri
     Ok(columns)
 }
 
-
 fn rebuild_tags_table_if_global_name_unique(conn: &Connection) -> Result<(), String> {
     let table_sql: String = conn
         .query_row(
@@ -526,7 +530,9 @@ fn rebuild_tags_table_if_global_name_unique(conn: &Connection) -> Result<(), Str
         .map_err(|e| format!("Failed to inspect tags table SQL: {}", e))?;
 
     let normalized = table_sql.to_uppercase();
-    if !normalized.contains("NAME TEXT NOT NULL UNIQUE") && !normalized.contains("UNIQUE COLLATE NOCASE") {
+    if !normalized.contains("NAME TEXT NOT NULL UNIQUE")
+        && !normalized.contains("UNIQUE COLLATE NOCASE")
+    {
         return Ok(());
     }
 
@@ -953,6 +959,80 @@ pub fn get_library_summary(conn: &Connection) -> Result<LibrarySummary, String> 
     })
 }
 
+pub fn rename_source(conn: &Connection, source_id: &str, new_name: &str) -> Result<(), String> {
+    let trimmed = new_name.trim();
+    if trimmed.is_empty() {
+        return Err("Source name cannot be empty".to_string());
+    }
+    let now = Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE sources SET name = ?1, updated_at = ?2 WHERE id = ?3",
+        params![trimmed, now, source_id],
+    )
+    .map_err(|e| format!("Failed to rename source: {}", e))?;
+    Ok(())
+}
+
+pub fn relink_source(conn: &Connection, source_id: &str, root_path: &Path) -> Result<LibrarySource, String> {
+    let root_path_str = root_path
+        .to_str()
+        .ok_or_else(|| "Invalid root path".to_string())?;
+    let existing_source_id: Option<String> = conn
+        .query_row(
+            "SELECT id FROM sources WHERE root_path = ?1",
+            params![root_path_str],
+            |row| row.get(0),
+        )
+        .ok();
+
+    if let Some(existing_id) = existing_source_id {
+        if existing_id != source_id {
+            return Err("Another source already uses that path".to_string());
+        }
+    }
+
+    let fallback_name = root_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("Unknown")
+        .to_string();
+    let now = Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE sources \
+         SET root_path = ?1, \
+             name = CASE WHEN TRIM(COALESCE(name, '')) = '' THEN ?2 ELSE name END, \
+             updated_at = ?3, \
+             status = ?4 \
+         WHERE id = ?5",
+        params![root_path_str, fallback_name, now, "online", source_id],
+    )
+    .map_err(|e| format!("Failed to relink source: {}", e))?;
+
+    let photo_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM photos WHERE source_id = ?1",
+            params![source_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+
+    let name: String = conn
+        .query_row(
+            "SELECT name FROM sources WHERE id = ?1",
+            params![source_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to fetch relinked source: {}", e))?;
+
+    Ok(LibrarySource {
+        id: source_id.to_string(),
+        name,
+        root_path: root_path_str.to_string(),
+        status: "online".to_string(),
+        photo_count,
+    })
+}
+
 pub fn upsert_photo_assets(
     conn: &Connection,
     photo_id: &str,
@@ -999,6 +1079,7 @@ pub fn update_photo_dimensions(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn update_photo_exif_metadata(
     conn: &Connection,
     photo_id: &str,
@@ -1192,7 +1273,6 @@ fn parse_photo_quality(raw: &str, photo_id: &str) -> Option<PhotoQualityScore> {
     })
 }
 
-
 fn canonical_tag_name(name: &str) -> String {
     name.trim()
         .to_lowercase()
@@ -1349,7 +1429,15 @@ pub fn upsert_photo_tag_source(
             evidence_json = excluded.evidence_json, \
             status = excluded.status, \
             updated_at = excluded.updated_at",
-        params![photo_id, tag_id, source, confidence, evidence_json, status, now],
+        params![
+            photo_id,
+            tag_id,
+            source,
+            confidence,
+            evidence_json,
+            status,
+            now
+        ],
     )
     .map_err(|e| format!("Failed to upsert photo tag source: {}", e))?;
     refresh_photo_tag_projection(conn, photo_id, tag_id)
@@ -1477,7 +1565,6 @@ pub fn get_photos_by_tag(
     Ok(photos)
 }
 
-
 fn person_label_name(person_id: &str, display_name: Option<&str>) -> String {
     display_name
         .map(str::trim)
@@ -1507,13 +1594,29 @@ pub fn sync_person_label(conn: &Connection, person_id: &str) -> Result<Option<St
 
     let label_name = person_label_name(person_id, display_name.as_deref());
     let semantic_key = format!("person:{}", person_id);
-    let visibility = if is_hidden != 0 || merged_into.is_some() { "hidden" } else { "system" };
-    let created_by = if display_name.as_deref().map(str::trim).filter(|s| !s.is_empty()).is_some() {
+    let visibility = if is_hidden != 0 || merged_into.is_some() {
+        "hidden"
+    } else {
+        "system"
+    };
+    let created_by = if display_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_some()
+    {
         "user"
     } else {
         "face.cluster"
     };
-    let tag_id = upsert_semantic_tag(conn, &label_name, "person", &semantic_key, visibility, created_by)?;
+    let tag_id = upsert_semantic_tag(
+        conn,
+        &label_name,
+        "person",
+        &semantic_key,
+        visibility,
+        created_by,
+    )?;
 
     if visibility == "hidden" {
         let mut stmt = conn
@@ -1556,7 +1659,10 @@ pub fn sync_person_label(conn: &Connection, person_id: &str) -> Result<Option<St
         .collect::<SqlResult<Vec<_>>>()
         .map_err(|e| format!("Failed to collect person faces: {}", e))?;
 
-    let active_photo_ids: HashSet<String> = rows.iter().map(|(photo_id, _, _)| photo_id.clone()).collect();
+    let active_photo_ids: HashSet<String> = rows
+        .iter()
+        .map(|(photo_id, _, _)| photo_id.clone())
+        .collect();
     for (photo_id, confidence, face_count) in rows {
         let evidence = serde_json::json!({
             "personId": person_id,
@@ -1575,7 +1681,9 @@ pub fn sync_person_label(conn: &Connection, person_id: &str) -> Result<Option<St
     }
 
     let mut stale_stmt = conn
-        .prepare("SELECT photo_id FROM photo_tag_sources WHERE tag_id = ?1 AND source = 'face.cluster'")
+        .prepare(
+            "SELECT photo_id FROM photo_tag_sources WHERE tag_id = ?1 AND source = 'face.cluster'",
+        )
         .map_err(|e| format!("Failed to prepare stale person label query: {}", e))?;
     let stale = stale_stmt
         .query_map(params![tag_id.clone()], |row| row.get::<_, String>(0))
@@ -1611,7 +1719,6 @@ pub fn sync_all_person_labels(conn: &Connection) -> Result<i64, String> {
     }
     Ok(synced)
 }
-
 
 fn display_name_from_identifier(identifier: &str) -> String {
     let cleaned = identifier
@@ -1650,7 +1757,9 @@ pub fn replace_content_label_sources(
         )
         .map_err(|e| format!("Failed to prepare existing content label query: {}", e))?;
     let existing = existing_stmt
-        .query_map(params![photo_id, provider_id], |row| row.get::<_, String>(0))
+        .query_map(params![photo_id, provider_id], |row| {
+            row.get::<_, String>(0)
+        })
         .map_err(|e| format!("Failed to query existing content labels: {}", e))?
         .collect::<SqlResult<Vec<_>>>()
         .map_err(|e| format!("Failed to collect existing content labels: {}", e))?;
@@ -1672,7 +1781,8 @@ pub fn replace_content_label_sources(
         }
         let name = display_name_from_identifier(identifier);
         let semantic_key = format!("subject:{}", canonical);
-        let tag_id = upsert_semantic_tag(conn, &name, "subject", &semantic_key, "system", provider_id)?;
+        let tag_id =
+            upsert_semantic_tag(conn, &name, "subject", &semantic_key, "system", provider_id)?;
         let evidence = serde_json::json!({
             "capability": "content.classify",
             "providerId": provider_id,
@@ -1707,7 +1817,12 @@ pub fn materialize_content_classification_results(
                AND (?1 IS NULL OR p.source_id = ?1) \
              ORDER BY ar.generated_at DESC",
         )
-        .map_err(|e| format!("Failed to prepare content classification results query: {}", e))?;
+        .map_err(|e| {
+            format!(
+                "Failed to prepare content classification results query: {}",
+                e
+            )
+        })?;
     let rows = stmt
         .query_map(params![source_id], |row| {
             Ok((
@@ -1724,8 +1839,12 @@ pub fn materialize_content_classification_results(
     let mut photos = 0_i64;
     let mut labels = 0_i64;
     for (photo_id, provider_id, result_json) in rows {
-        let parsed: serde_json::Value = serde_json::from_str(&result_json)
-            .map_err(|e| format!("Failed to parse content classification result for {}: {}", photo_id, e))?;
+        let parsed: serde_json::Value = serde_json::from_str(&result_json).map_err(|e| {
+            format!(
+                "Failed to parse content classification result for {}: {}",
+                photo_id, e
+            )
+        })?;
         let label_rows = parsed
             .get("labels")
             .and_then(|value| value.as_array())
@@ -1746,7 +1865,13 @@ pub fn materialize_content_classification_results(
                 extracted.push((identifier.to_string(), confidence));
             }
         }
-        labels += replace_content_label_sources(conn, &photo_id, &provider_id, &extracted, min_confidence)?;
+        labels += replace_content_label_sources(
+            conn,
+            &photo_id,
+            &provider_id,
+            &extracted,
+            min_confidence,
+        )?;
         photos += 1;
     }
 
@@ -2113,6 +2238,7 @@ pub fn get_filter_options(conn: &Connection) -> Result<FilterOptions, String> {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn get_filtered_photos(
     conn: &Connection,
     limit: i64,
@@ -2566,7 +2692,6 @@ mod tests {
         assert_eq!(current_version(&conn), SCHEMA_VERSION);
     }
 
-
     #[test]
     fn manual_tags_use_unified_tag_layer_metadata() {
         let conn = open_memory();
@@ -2595,7 +2720,15 @@ mod tests {
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .unwrap();
-        assert_eq!(row, ("travel".into(), "manual".into(), "user".into(), "user".into()));
+        assert_eq!(
+            row,
+            (
+                "travel".into(),
+                "manual".into(),
+                "user".into(),
+                "user".into()
+            )
+        );
 
         let source_row: (String, String) = conn
             .query_row(
@@ -2628,9 +2761,21 @@ mod tests {
 
         set_photo_tags(&conn, "p", &["Manual".to_string()]).unwrap();
         let system_id = upsert_tag(&conn, "Camera", "subject", "system", "rule").unwrap();
-        upsert_photo_tag_source(&conn, "p", &system_id, "rule", Some(0.9), Some("{\"rule\":\"test\"}"), "active").unwrap();
+        upsert_photo_tag_source(
+            &conn,
+            "p",
+            &system_id,
+            "rule",
+            Some(0.9),
+            Some("{\"rule\":\"test\"}"),
+            "active",
+        )
+        .unwrap();
 
-        assert_eq!(get_photo_tags(&conn, "p").unwrap(), vec!["Manual".to_string()]);
+        assert_eq!(
+            get_photo_tags(&conn, "p").unwrap(),
+            vec!["Manual".to_string()]
+        );
         let all = get_all_tags(&conn).unwrap();
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].name, "Manual");
@@ -2657,18 +2802,24 @@ mod tests {
         let tag_id = upsert_tag(&conn, "Maybe", "subject", "system", "rule").unwrap();
         upsert_photo_tag_source(&conn, "p", &tag_id, "rule", Some(0.5), None, "active").unwrap();
         let projected: i64 = conn
-            .query_row("SELECT COUNT(*) FROM photo_tags WHERE photo_id = 'p' AND tag_id = ?1", params![tag_id], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM photo_tags WHERE photo_id = 'p' AND tag_id = ?1",
+                params![tag_id],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(projected, 1);
 
         upsert_photo_tag_source(&conn, "p", &tag_id, "rule", Some(0.5), None, "rejected").unwrap();
         let projected: i64 = conn
-            .query_row("SELECT COUNT(*) FROM photo_tags WHERE photo_id = 'p' AND tag_id = ?1", params![tag_id], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM photo_tags WHERE photo_id = 'p' AND tag_id = ?1",
+                params![tag_id],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(projected, 0);
     }
-
-
 
     #[test]
     fn migrate_v12_drops_global_tag_name_uniqueness_for_label_kinds() {
@@ -2694,10 +2845,21 @@ mod tests {
         .unwrap();
 
         initialize_schema(&conn).expect("migrate schema");
-        let person_id = upsert_semantic_tag(&conn, "Alice", "person", "person:alice", "system", "face.cluster")
-            .expect("same display name can exist in another label kind");
+        let person_id = upsert_semantic_tag(
+            &conn,
+            "Alice",
+            "person",
+            "person:alice",
+            "system",
+            "face.cluster",
+        )
+        .expect("same display name can exist in another label kind");
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM tags WHERE name = 'Alice' COLLATE NOCASE", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM tags WHERE name = 'Alice' COLLATE NOCASE",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(count, 2);
         assert_ne!(person_id, "manual-alice");
@@ -2745,10 +2907,22 @@ mod tests {
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .unwrap();
-        assert_eq!(tag_row, ("Alice".into(), "person".into(), "person:person-a".into(), "system".into()));
+        assert_eq!(
+            tag_row,
+            (
+                "Alice".into(),
+                "person".into(),
+                "person:person-a".into(),
+                "system".into()
+            )
+        );
 
         let projected: i64 = conn
-            .query_row("SELECT COUNT(*) FROM photo_tags WHERE tag_id = ?1", params![tag_id], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM photo_tags WHERE tag_id = ?1",
+                params![tag_id],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(projected, 2);
         assert_eq!(get_photo_tags(&conn, "p1").unwrap(), Vec::<String>::new());
@@ -2770,15 +2944,22 @@ mod tests {
         )
         .unwrap();
         let first = sync_person_label(&conn, "person-a").unwrap().unwrap();
-        conn.execute("UPDATE persons SET display_name = 'Alice' WHERE id = 'person-a'", []).unwrap();
+        conn.execute(
+            "UPDATE persons SET display_name = 'Alice' WHERE id = 'person-a'",
+            [],
+        )
+        .unwrap();
         let second = sync_person_label(&conn, "person-a").unwrap().unwrap();
         assert_eq!(first, second);
         let row: (String, String) = conn
-            .query_row("SELECT name, created_by FROM tags WHERE id = ?1", params![first], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_row(
+                "SELECT name, created_by FROM tags WHERE id = ?1",
+                params![first],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
             .unwrap();
         assert_eq!(row, ("Alice".into(), "user".into()));
     }
-
 
     #[test]
     fn content_classification_results_materialize_subject_labels() {
@@ -2812,12 +2993,15 @@ mod tests {
         )
         .unwrap();
 
-        let (photos, labels) = materialize_content_classification_results(&conn, 0.35, None).unwrap();
+        let (photos, labels) =
+            materialize_content_classification_results(&conn, 0.35, None).unwrap();
         assert_eq!((photos, labels), (1, 2));
 
         let subjects = get_labels(&conn, Some("subject")).unwrap();
         assert_eq!(subjects.len(), 2);
-        assert!(subjects.iter().any(|label| label.name == "Cat" && label.kind == "subject"));
+        assert!(subjects
+            .iter()
+            .any(|label| label.name == "Cat" && label.kind == "subject"));
         assert!(subjects.iter().any(|label| label.name == "Outdoor Scene"));
         assert_eq!(get_photo_tags(&conn, "p").unwrap(), vec!["Cat".to_string()]);
 

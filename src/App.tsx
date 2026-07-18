@@ -10,6 +10,7 @@ import { LabelsView } from './features/explore/LabelsView'
 import { PeopleView } from './features/people/PeopleView'
 import { ReorganizeView } from './features/reorganize/ReorganizeView'
 import { SettingsView } from './features/settings/SettingsView'
+import { SourcesView } from './features/sources/SourcesView'
 import {
   analysisClusterFaces,
   analysisEmbedFaces,
@@ -37,10 +38,14 @@ import { useViewFilter } from './state/useViewFilter'
 import { useSimilarReviewWorkflow } from './features/similar-review/useSimilarReviewWorkflow'
 import type { ComingSoonViewId, PhotoFilter } from './types/photos'
 import { useState } from 'react'
+import { relinkPhotoSource } from './desktop/library'
 
 export default function App() {
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [rightCollapsed, setRightCollapsed] = useState(false)
+  const [editingSourceId, setEditingSourceId] = useState<string | null>(null)
+  const [activeSourceActionId, setActiveSourceActionId] = useState<string | null>(null)
+  const [sourceFeedbackMessage, setSourceFeedbackMessage] = useState<string | null>(null)
 
   const appearance = useAppearance()
   const locale = useLocaleState()
@@ -65,9 +70,15 @@ export default function App() {
     },
   })
 
-  const handleAddFolder = async () => {
+  const handleAddFolder = async (stayOnSources = false) => {
+    setSourceFeedbackMessage(null)
     const path = await pickPhotoFolder()
-    if (!path) return
+    if (!path) {
+      if (stayOnSources) {
+        setSourceFeedbackMessage(t('sources.action.cancelled'))
+      }
+      return
+    }
 
     library.setIsScanning(true)
     library.setScanProgress({
@@ -88,8 +99,9 @@ export default function App() {
       if (result) {
         await library.refreshAll()
         await albumsState.refresh()
-        view.setFilter(null)
+        view.setFilter(stayOnSources || view.filter?.type === 'sources' ? { type: 'sources' } : null)
         selection.setSelectedPhoto(null)
+        setSourceFeedbackMessage(t('sources.action.rescanSuccess'))
         view.bumpDataVersion()
       }
     } catch (error) {
@@ -100,11 +112,15 @@ export default function App() {
   }
 
   const handleSelectAllPhotos = () => {
+    setEditingSourceId(null)
     view.setFilter(null)
     selection.setSelectedPhoto(null)
   }
 
   const handleSelectFilter = (next: PhotoFilter) => {
+    if (next.type !== 'sources') {
+      setEditingSourceId(null)
+    }
     view.setFilter(next)
     selection.setSelectedPhoto(null)
   }
@@ -208,8 +224,117 @@ export default function App() {
   }
 
   const handleSelectExplore = () => handleSelectFilter({ type: 'explore' })
+  const handleSelectSources = () => {
+    setEditingSourceId(null)
+    handleSelectFilter({ type: 'sources' })
+  }
+  const handleStartAddSourceFlow = async () => {
+    setEditingSourceId(null)
+    view.setFilter({ type: 'sources' })
+    selection.setSelectedPhoto(null)
+    await handleAddFolder(true)
+  }
   const handleSelectSettings = () => handleSelectFilter({ type: 'settings' })
   const handleSelectTasks = () => handleSelectFilter({ type: 'tasks' })
+
+  const handleStartEditingSource = (sourceId: string) => {
+    setSourceFeedbackMessage(null)
+    setEditingSourceId(sourceId)
+    view.setFilter({ type: 'sources' })
+    selection.setSelectedPhoto(null)
+  }
+
+  const handleRenameSource = async (sourceId: string, nextName: string) => {
+    const source = library.summary.sources.find((item) => item.id === sourceId)
+    const trimmedName = nextName.trim()
+    if (!source || !trimmedName || trimmedName === source.name) {
+      return
+    }
+    setActiveSourceActionId(sourceId)
+    await library.renameSource(sourceId, trimmedName)
+    setEditingSourceId(null)
+    setActiveSourceActionId(null)
+    setSourceFeedbackMessage(t('sources.action.renameSuccess'))
+    view.bumpDataVersion()
+  }
+
+  const handleRescanSource = async (sourceId: string) => {
+    const source = library.summary.sources.find((item) => item.id === sourceId)
+    if (!source) {
+      return
+    }
+    setSourceFeedbackMessage(null)
+    setActiveSourceActionId(sourceId)
+    library.setIsScanning(true)
+    library.setScanProgress({
+      status: 'scanning',
+      rootPath: source.rootPath,
+      sourceId: source.id,
+      discoveredCount: 0,
+      indexedCount: 0,
+      thumbnailReadyCount: 0,
+      thumbnailFailedCount: 0,
+      skippedCount: 0,
+      currentFile: null,
+      errorMessage: null,
+    })
+
+    try {
+      const result = await scanPhotoSource(source.rootPath)
+      if (result) {
+        await library.refreshAll()
+        setSourceFeedbackMessage(t('sources.action.rescanSuccess'))
+        view.bumpDataVersion()
+      }
+    } catch (error) {
+      console.error('Rescan error:', error)
+    } finally {
+      setActiveSourceActionId(null)
+      library.setIsScanning(false)
+    }
+  }
+
+  const handleRelinkSource = async (sourceId: string) => {
+    const source = library.summary.sources.find((item) => item.id === sourceId)
+    if (!source) {
+      return
+    }
+    setSourceFeedbackMessage(null)
+    const path = await pickPhotoFolder()
+    if (!path) {
+      setSourceFeedbackMessage(t('sources.action.cancelled'))
+      return
+    }
+
+    setActiveSourceActionId(sourceId)
+    library.setIsScanning(true)
+    library.setScanProgress({
+      status: 'scanning',
+      rootPath: path,
+      sourceId: source.id,
+      discoveredCount: 0,
+      indexedCount: 0,
+      thumbnailReadyCount: 0,
+      thumbnailFailedCount: 0,
+      skippedCount: 0,
+      currentFile: null,
+      errorMessage: null,
+    })
+
+    try {
+      const result = await relinkPhotoSource(source.id, path)
+      if (result) {
+        await library.refreshAll()
+        setSourceFeedbackMessage(t('sources.action.relinkSuccess'))
+        view.bumpDataVersion()
+      }
+    } catch (error) {
+      console.error('Relink error:', error)
+    } finally {
+      setActiveSourceActionId(null)
+      library.setIsScanning(false)
+    }
+  }
 
   const handleSearchChange = (query: string) => {
     view.setSearchQuery(query)
@@ -317,6 +442,8 @@ export default function App() {
                 ? `${view.filter.labelKind}: ${view.filter.labelName}`
               : view.filter?.type === 'person'
                 ? (view.filter.displayName ?? `Person · ${view.filter.personId.slice(0, 6)}`)
+                : view.filter?.type === 'sources'
+                  ? t('sources.title')
                 : view.filter?.type === 'view'
                 ? view.filter.viewId.charAt(0).toUpperCase() + view.filter.viewId.slice(1)
                 : view.filter?.type === 'explore'
@@ -334,6 +461,7 @@ export default function App() {
   const isReorganizeSelected = view.filter?.type === 'view' && view.filter.viewId === 'reorganize'
   const isContentRecognitionSelected = view.filter?.type === 'view' && view.filter.viewId === 'content'
   const isExploreLabelsSelected = view.filter?.type === 'explore'
+  const isSourcesSelected = view.filter?.type === 'sources'
   const isTasksSelected = view.filter?.type === 'tasks'
   const isSettingsSelected = view.filter?.type === 'settings'
   const rightPanelVisible = !(
@@ -341,6 +469,7 @@ export default function App() {
     isContentRecognitionSelected ||
     isReorganizeSelected ||
     isExploreLabelsSelected ||
+    isSourcesSelected ||
     isTasksSelected ||
     isSettingsSelected
   )
@@ -385,7 +514,13 @@ export default function App() {
           onSelectFavorites={() => handleSelectFilter({ type: 'favorites' })}
           onSelectHidden={() => handleSelectFilter({ type: 'hidden' })}
           onSelectFolder={handleSelectFilter}
-          onAddSource={handleAddFolder}
+          onSelectSources={handleSelectSources}
+          onAddSource={() => {
+            void handleStartAddSourceFlow()
+          }}
+          onRenameSource={(sourceId) => {
+            handleStartEditingSource(sourceId)
+          }}
           onDeleteSource={(sourceId) => {
             if (
               view.filter?.type === 'folder' &&
@@ -486,6 +621,36 @@ export default function App() {
                 labelKind: label.kind,
               })
             }
+          />
+        ) : isSourcesSelected ? (
+          <SourcesView
+            sources={library.summary.sources}
+            editingSourceId={editingSourceId}
+            scanProgress={library.scanProgress}
+            isScanning={library.isScanning}
+            activeSourceActionId={activeSourceActionId}
+            feedbackMessage={sourceFeedbackMessage}
+            onAddSource={() => {
+              void handleStartAddSourceFlow()
+            }}
+            onStartEditingSource={handleStartEditingSource}
+            onCancelEditingSource={() => setEditingSourceId(null)}
+            onRenameSource={(sourceId, newName) => {
+              void handleRenameSource(sourceId, newName)
+            }}
+            onRelinkSource={(sourceId) => handleRelinkSource(sourceId)}
+            onRescanSource={(sourceId) => handleRescanSource(sourceId)}
+            onDeleteSource={(sourceId, sourceName) => {
+              if (window.confirm(t('sources.deleteConfirm', { name: sourceName }))) {
+                setSourceFeedbackMessage(null)
+                setActiveSourceActionId(sourceId)
+                void library.removeSource(sourceId).then(() => {
+                  setActiveSourceActionId(null)
+                  setSourceFeedbackMessage(t('sources.action.deleteSuccess'))
+                  view.bumpDataVersion()
+                })
+              }
+            }}
           />
         ) : isTasksSelected ? (
           <BackgroundTasksView

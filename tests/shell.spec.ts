@@ -5,7 +5,7 @@ test('desktop shell keeps photos as largest visual surface', async ({ page }, te
 
   await page.goto('/')
 
-  await expect(page.getByRole('heading', { name: 'Timeline: All Photos' })).toBeVisible()
+  await expect(page.getByText('No photos found in this view.')).toBeVisible()
   await expect(page.getByLabel('Timeline photo surface')).toBeVisible()
   await expect(page.getByLabel('Photo navigation')).toBeVisible()
   await expect(page.getByLabel('View context')).toBeVisible()
@@ -22,9 +22,13 @@ test('narrow shell preserves photo surface and moves context below', async ({ pa
 
   await page.goto('/')
 
+  await expect(page.getByLabel('Timeline photo surface')).toBeVisible()
+  await expect(page.getByLabel('View context')).toBeVisible()
+
+  const viewportWidth = page.viewportSize()?.width ?? 0
   const surfaceBox = await page.getByLabel('Timeline photo surface').boundingBox()
   const contextBox = await page.getByLabel('View context').boundingBox()
 
-  expect(surfaceBox?.width ?? 0).toBeGreaterThan(500)
+  expect(surfaceBox?.width ?? 0).toBeGreaterThan(viewportWidth - 100)
   expect(contextBox?.y ?? 0).toBeGreaterThan(surfaceBox?.y ?? 0)
 })

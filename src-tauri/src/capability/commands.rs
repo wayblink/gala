@@ -4,7 +4,7 @@
 //! the internal capability types and never expose `dyn` traits or raw
 //! tokio types across the FFI boundary.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use chrono::{DateTime, Utc};
@@ -13,7 +13,10 @@ use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::library::storage::{initialize_schema, migrate_schema, materialize_content_classification_results, open_database, sync_all_person_labels, sync_person_label};
+use crate::library::storage::{
+    initialize_schema, materialize_content_classification_results, migrate_schema, open_database,
+    sync_all_person_labels, sync_person_label,
+};
 
 use super::orchestrator::{Orchestrator, OrchestratorConfig};
 use super::provider::NoopProvider;
@@ -40,9 +43,9 @@ fn registry() -> Arc<CapabilityRegistry> {
             #[cfg(target_os = "macos")]
             {
                 use super::macos_vision::MacosVisionFaceProvider;
+                use super::macos_vision_classify::MacosVisionClassifyProvider;
                 use super::macos_vision_embed::MacosVisionEmbedProvider;
                 use super::macos_vision_photo_embed::MacosVisionPhotoEmbedProvider;
-                use super::macos_vision_classify::MacosVisionClassifyProvider;
                 reg.register(Arc::new(MacosVisionFaceProvider::new()));
                 reg.register(Arc::new(MacosVisionEmbedProvider::new()));
                 reg.register(Arc::new(MacosVisionPhotoEmbedProvider::new()));
@@ -54,7 +57,13 @@ fn registry() -> Arc<CapabilityRegistry> {
             // non-macOS face.detect / face.embed implementation.
             let noop = Arc::new(NoopProvider::new(
                 "noop.v1",
-                &[FACE_DETECT, FACE_EMBED, FACE_CLUSTER, PHOTO_EMBED, CONTENT_CLASSIFY],
+                &[
+                    FACE_DETECT,
+                    FACE_EMBED,
+                    FACE_CLUSTER,
+                    PHOTO_EMBED,
+                    CONTENT_CLASSIFY,
+                ],
             ));
             reg.register(noop);
             Arc::new(reg)
@@ -180,8 +189,11 @@ pub async fn analysis_request_cmd(
             .map_err(|e| e.to_string())?
     };
 
-    let orchestrator =
-        Orchestrator::new(path.clone(), registry(), OrchestratorConfig { max_concurrency: 4 });
+    let orchestrator = Orchestrator::new(
+        path.clone(),
+        registry(),
+        OrchestratorConfig { max_concurrency: 4 },
+    );
     let summary = orchestrator
         .run(internal, inputs, CancellationToken::new())
         .await
@@ -194,20 +206,33 @@ pub async fn analysis_request_cmd(
     if capability == FACE_DETECT && summary.photos_done > 0 {
         if let Ok(mut conn) = open_database(&path) {
             match super::materialize_face_detect(&mut conn, &summary.job_id) {
-                Ok(n) => eprintln!("[materializer] face.detect job {} -> {} faces", summary.job_id, n),
-                Err(e) => eprintln!("[materializer] face.detect job {} failed: {}", summary.job_id, e),
+                Ok(n) => eprintln!(
+                    "[materializer] face.detect job {} -> {} faces",
+                    summary.job_id, n
+                ),
+                Err(e) => eprintln!(
+                    "[materializer] face.detect job {} failed: {}",
+                    summary.job_id, e
+                ),
             }
         }
     }
 
     if capability == CONTENT_CLASSIFY && summary.photos_done > 0 {
         if let Ok(conn) = open_database(&path) {
-            match materialize_content_classification_results(&conn, 0.35, materialize_source_id.as_deref()) {
+            match materialize_content_classification_results(
+                &conn,
+                0.35,
+                materialize_source_id.as_deref(),
+            ) {
                 Ok((photos, labels)) => eprintln!(
                     "[materializer] content.classify job {} -> {} photos / {} labels",
                     summary.job_id, photos, labels
                 ),
-                Err(e) => eprintln!("[materializer] content.classify job {} failed: {}", summary.job_id, e),
+                Err(e) => eprintln!(
+                    "[materializer] content.classify job {} failed: {}",
+                    summary.job_id, e
+                ),
             }
         }
     }
@@ -407,7 +432,11 @@ pub fn faces_summary_cmd(app: AppHandle) -> Result<FaceSummaryDto, String> {
     let path = ensure_db(&app)?;
     let conn = open_database(&path)?;
     let total_faces: i64 = conn
-        .query_row("SELECT COUNT(*) FROM faces WHERE status = 'active'", [], |r| r.get(0))
+        .query_row(
+            "SELECT COUNT(*) FROM faces WHERE status = 'active'",
+            [],
+            |r| r.get(0),
+        )
         .map_err(|e| format!("Failed to count faces: {}", e))?;
     let photos_with_faces: i64 = conn
         .query_row(
@@ -467,15 +496,16 @@ pub async fn analysis_embed_faces_cmd(
 
     // Pick the embed provider explicitly so we don't accidentally invoke
     // NoopProvider on platforms where the Vision provider didn't register.
-    let provider = registry().select(FACE_EMBED).ok_or_else(|| {
-        "no provider registered for face.embed".to_string()
-    })?;
+    let provider = registry()
+        .select(FACE_EMBED)
+        .ok_or_else(|| "no provider registered for face.embed".to_string())?;
     let provider_id = provider.id();
     let schema_version = provider.schema_version(FACE_EMBED);
 
     // Gather pending faces grouped by photo. Each photo becomes one
     // AnalyzeInput; the meta.faces array carries the bbox list.
-    let pending = collect_pending_face_embeds(&db_path, &provider_id, cap_per_photo, source_id.as_deref())?;
+    let pending =
+        collect_pending_face_embeds(&db_path, &provider_id, cap_per_photo, source_id.as_deref())?;
     if pending.is_empty() {
         return Ok(EmbedSummaryDto {
             photos_processed: 0,
@@ -705,7 +735,11 @@ pub fn set_person_name_cmd(
     let normalized: Option<String> = match name {
         Some(s) => {
             let t = s.trim();
-            if t.is_empty() { None } else { Some(t.to_string()) }
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            }
         }
         None => None,
     };
@@ -756,9 +790,7 @@ pub fn merge_persons_cmd(
     }
     let path = ensure_db(&app)?;
     let mut conn = open_database(&path)?;
-    let tx = conn
-        .transaction()
-        .map_err(|e| format!("merge tx: {}", e))?;
+    let tx = conn.transaction().map_err(|e| format!("merge tx: {}", e))?;
 
     // Confirm both rows exist before mutating anything.
     let target_exists: bool = tx
@@ -825,15 +857,10 @@ pub fn merge_persons_cmd(
 }
 
 #[tauri::command]
-pub fn split_face_to_new_person_cmd(
-    app: AppHandle,
-    face_id: String,
-) -> Result<String, String> {
+pub fn split_face_to_new_person_cmd(app: AppHandle, face_id: String) -> Result<String, String> {
     let path = ensure_db(&app)?;
     let mut conn = open_database(&path)?;
-    let tx = conn
-        .transaction()
-        .map_err(|e| format!("split tx: {}", e))?;
+    let tx = conn.transaction().map_err(|e| format!("split tx: {}", e))?;
 
     // Read the face we're splitting; we need the confidence for the new
     // person's rep_face_id sanity (single face → it's automatically rep).
@@ -925,7 +952,7 @@ impl PhotoBatch {
 }
 
 fn collect_pending_face_embeds(
-    db_path: &PathBuf,
+    db_path: &Path,
     provider_id: &str,
     cap_per_photo: i64,
     source_id: Option<&str>,
@@ -956,7 +983,13 @@ fn collect_pending_face_embeds(
             let bh: f64 = row.get(5)?;
             let root_path: String = row.get(6)?;
             let relative_path: String = row.get(7)?;
-            Ok((face_id, photo_id, [bx, by, bw, bh], root_path, relative_path))
+            Ok((
+                face_id,
+                photo_id,
+                [bx, by, bw, bh],
+                root_path,
+                relative_path,
+            ))
         })
         .map_err(|e| format!("Failed to query pending faces: {}", e))?
         .collect::<rusqlite::Result<Vec<_>>>()
@@ -997,8 +1030,7 @@ fn artifact_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
     let dir = app_data_dir.join("artifacts");
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("Failed to create artifacts dir: {}", e))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create artifacts dir: {}", e))?;
     Ok(dir)
 }
 
@@ -1063,14 +1095,22 @@ pub async fn analysis_embed_photos_cmd(
             .map_err(|e| format!("Failed to prepare pending photos query: {}", e))?;
         let rows: Vec<(String, String, String)> = if force {
             stmt.query_map(params![lim], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
             })
             .map_err(|e| format!("Failed to query pending photos: {}", e))?
             .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(|e| format!("Failed to collect pending photos: {}", e))?
         } else {
             stmt.query_map(params![lim, provider_id], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
             })
             .map_err(|e| format!("Failed to query pending photos: {}", e))?
             .collect::<rusqlite::Result<Vec<_>>>()
@@ -1211,14 +1251,20 @@ pub fn photo_embeddings_by_ids_cmd(
     }
     let conn = open_database(&path)?;
     // Build "?,?,?" placeholders for the IN clause.
-    let placeholders = std::iter::repeat("?").take(photo_ids.len()).collect::<Vec<_>>().join(",");
+    let placeholders = std::iter::repeat_n("?", photo_ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
     let model = model_name.unwrap_or_else(|| {
         // Default to the macOS Vision provider id; matches what
         // analysis_embed_photos_cmd writes today.
         #[cfg(target_os = "macos")]
-        { super::macos_vision_photo_embed::PROVIDER_ID.to_string() }
+        {
+            super::macos_vision_photo_embed::PROVIDER_ID.to_string()
+        }
         #[cfg(not(target_os = "macos"))]
-        { "noop.v1".to_string() }
+        {
+            "noop.v1".to_string()
+        }
     });
     let sql = format!(
         "SELECT photo_id, model_name, embedding_path, dimensions, generated_at \
@@ -1284,8 +1330,7 @@ pub fn read_artifact_bytes_cmd(app: AppHandle, path: String) -> Result<Vec<u8>, 
         .map_err(|e| format!("Failed to resolve app data dir: {}", e))?;
     let artifacts_root = std::fs::canonicalize(app_data_dir.join("artifacts"))
         .map_err(|e| format!("artifacts root: {}", e))?;
-    let requested = std::fs::canonicalize(&path)
-        .map_err(|e| format!("read_artifact: {}", e))?;
+    let requested = std::fs::canonicalize(&path).map_err(|e| format!("read_artifact: {}", e))?;
     if !requested.starts_with(&artifacts_root) {
         return Err(format!("path outside artifacts root: {}", path));
     }

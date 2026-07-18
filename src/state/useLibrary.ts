@@ -3,7 +3,7 @@ import {
   getLibrarySummary,
   listenToScanProgress,
 } from '../desktop/library'
-import { deleteSource as deleteSourceCmd, getFilterOptions, getSourceFolders } from '../desktop/photos'
+import { deleteSource as deleteSourceCmd, getFilterOptions, getSourceFolders, renameSource as renameSourceCmd } from '../desktop/photos'
 import type { LibrarySummary, ScanProgress } from '../types/library'
 import type { FilterOptions, SourceFolder } from '../types/photos'
 
@@ -28,6 +28,7 @@ export type UseLibrary = {
   refreshFilterOptions: () => Promise<void>
   refreshAll: () => Promise<void>
   removeSource: (sourceId: string) => Promise<void>
+  renameSource: (sourceId: string, newName: string) => Promise<void>
 }
 
 export function useLibrary(): UseLibrary {
@@ -56,6 +57,14 @@ export function useLibrary(): UseLibrary {
   const removeSource = useCallback(
     async (sourceId: string) => {
       await deleteSourceCmd(sourceId)
+      await refreshAll()
+    },
+    [refreshAll],
+  )
+
+  const renameSource = useCallback(
+    async (sourceId: string, newName: string) => {
+      await renameSourceCmd(sourceId, newName)
       await refreshAll()
     },
     [refreshAll],
@@ -97,5 +106,6 @@ export function useLibrary(): UseLibrary {
     refreshFilterOptions,
     refreshAll,
     removeSource,
+    renameSource,
   }
 }

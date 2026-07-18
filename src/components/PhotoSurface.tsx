@@ -63,6 +63,7 @@ function filterKey(filter: PhotoFilter | null, searchQuery: string, smartFilter:
   if (filter.type === 'person') return `person:${filter.personId}${v}`
   if (filter.type === 'view') return `view:${filter.viewId}${v}`
   if (filter.type === 'explore') return `explore${v}`
+  if (filter.type === 'sources') return `sources${v}`
   if (filter.type === 'settings') return `settings${v}`
   if (filter.type === 'tasks') return `tasks${v}`
   return `folder:${filter.sourceId}:${filter.folderPath}:${JSON.stringify(smartFilter)}${v}`

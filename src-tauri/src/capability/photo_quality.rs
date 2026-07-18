@@ -31,6 +31,12 @@ impl MetadataPhotoQualityProvider {
     }
 }
 
+impl Default for MetadataPhotoQualityProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn bool_meta(meta: &Value, key: &str) -> bool {
     meta.get(key).and_then(Value::as_bool).unwrap_or(false)
 }

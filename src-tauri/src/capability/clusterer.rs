@@ -24,12 +24,11 @@ use chrono::Utc;
 use hnsw_rs::prelude::{DistCosine, Hnsw};
 use rusqlite::{params, Connection};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use super::types::CapabilityError;
 
-pub const FACE_CLUSTER: &str = "face.cluster";
 pub const PROVIDER_ID: &str = "cpu.hnsw.v1";
 
 /// Cosine distance threshold above which two faces are NOT considered
@@ -84,9 +83,7 @@ pub fn cluster_faces(conn: &mut Connection) -> Result<ClusterSummary, Capability
     // re-cluster produces a coherent successor cluster. Manual persons
     // (cluster_method != hnsw) are never touched here.
     let existing_persons: HashMap<String, ()> = {
-        let mut stmt = tx.prepare(
-            "SELECT id FROM persons WHERE cluster_method = ?1",
-        )?;
+        let mut stmt = tx.prepare("SELECT id FROM persons WHERE cluster_method = ?1")?;
         let ids = stmt
             .query_map(params![PROVIDER_ID], |row| row.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -182,9 +179,7 @@ pub fn cluster_faces(conn: &mut Connection) -> Result<ClusterSummary, Capability
     // Delete any prior auto-clustered persons that no successor cluster
     // claimed (their faces dropped out, e.g. embeddings deleted).
     {
-        let mut stmt = tx.prepare(
-            "SELECT id FROM persons WHERE cluster_method = ?1",
-        )?;
+        let mut stmt = tx.prepare("SELECT id FROM persons WHERE cluster_method = ?1")?;
         let stale: Vec<String> = stmt
             .query_map(params![PROVIDER_ID], |row| row.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?
@@ -278,10 +273,12 @@ fn run_hnsw(faces: &[LoadedFace]) -> Vec<usize> {
 
     // Build the index. Defaults from hnsw_rs README: ef_construction 200,
     // M=16, max_layer ln(N).
-    let hnsw: Hnsw<'_, f32, DistCosine> =
-        Hnsw::new(16, n, 16, 200, DistCosine);
-    let to_insert: Vec<(&[f32], usize)> =
-        faces.iter().enumerate().map(|(i, f)| (f.embedding.as_slice(), i)).collect();
+    let hnsw: Hnsw<'_, f32, DistCosine> = Hnsw::new(16, n, 16, 200, DistCosine);
+    let to_insert: Vec<(&[f32], usize)> = faces
+        .iter()
+        .enumerate()
+        .map(|(i, f)| (f.embedding.as_slice(), i))
+        .collect();
     hnsw.parallel_insert_slice(&to_insert);
 
     // Union-find over face indices.
@@ -333,7 +330,7 @@ fn run_hnsw(faces: &[LoadedFace]) -> Vec<usize> {
 /// `.bin` files when not embedded inline.
 #[allow(dead_code)]
 pub fn artifact_path_for(
-    artifact_root: &PathBuf,
+    artifact_root: &Path,
     photo_id: &str,
     provider_id: &str,
     face_id: &str,
@@ -350,10 +347,9 @@ mod tests {
     use super::*;
     use crate::library::storage::{initialize_schema, open_database};
     use rusqlite::params;
-    use std::path::PathBuf;
     use tempfile::TempDir;
 
-    fn write_embedding(dir: &PathBuf, face_id: &str, vec: &[f32]) -> String {
+    fn write_embedding(dir: &Path, face_id: &str, vec: &[f32]) -> String {
         let path = dir.join(format!("{}.bin", face_id));
         let mut bytes = Vec::with_capacity(vec.len() * 4);
         for &v in vec {
@@ -377,7 +373,8 @@ mod tests {
              (id, name, root_path, source_type, status, created_at, updated_at) \
              VALUES ('s', 't', '/p', 'local', 'online', ?1, ?1)",
             params![now],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT OR IGNORE INTO photos (id, source_id, relative_path, absolute_path_snapshot, file_name, \
              extension, file_size, file_mtime, status, created_at, updated_at) \
@@ -426,15 +423,31 @@ mod tests {
         assert_eq!(summary.persons_created, 2);
 
         // f1 + f2 share a person; f3 has its own.
-        let p1: String = conn.query_row("SELECT person_id FROM faces WHERE id='f1'", [], |r| r.get(0)).unwrap();
-        let p2: String = conn.query_row("SELECT person_id FROM faces WHERE id='f2'", [], |r| r.get(0)).unwrap();
-        let p3: String = conn.query_row("SELECT person_id FROM faces WHERE id='f3'", [], |r| r.get(0)).unwrap();
+        let p1: String = conn
+            .query_row("SELECT person_id FROM faces WHERE id='f1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let p2: String = conn
+            .query_row("SELECT person_id FROM faces WHERE id='f2'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let p3: String = conn
+            .query_row("SELECT person_id FROM faces WHERE id='f3'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(p1, p2);
         assert_ne!(p1, p3);
 
         // rep_face_id for the f1+f2 cluster picks the higher-confidence f1 (0.9 > 0.7).
         let rep_for_a: String = conn
-            .query_row("SELECT rep_face_id FROM persons WHERE id=?1", params![p1], |r| r.get(0))
+            .query_row(
+                "SELECT rep_face_id FROM persons WHERE id=?1",
+                params![p1],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(rep_for_a, "f1");
     }
@@ -453,10 +466,14 @@ mod tests {
         assert_eq!(s1.persons_existing, 0, "first run creates all fresh");
 
         let pid_f1_a: String = conn
-            .query_row("SELECT person_id FROM faces WHERE id='f1'", [], |r| r.get(0))
+            .query_row("SELECT person_id FROM faces WHERE id='f1'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         let pid_f2_a: String = conn
-            .query_row("SELECT person_id FROM faces WHERE id='f2'", [], |r| r.get(0))
+            .query_row("SELECT person_id FROM faces WHERE id='f2'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
 
         // User names the person built around f1.
@@ -471,13 +488,23 @@ mod tests {
         assert_eq!(s2.persons_existing, 2, "both persons inherited");
 
         let pid_f1_b: String = conn
-            .query_row("SELECT person_id FROM faces WHERE id='f1'", [], |r| r.get(0))
+            .query_row("SELECT person_id FROM faces WHERE id='f1'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         let pid_f2_b: String = conn
-            .query_row("SELECT person_id FROM faces WHERE id='f2'", [], |r| r.get(0))
+            .query_row("SELECT person_id FROM faces WHERE id='f2'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
-        assert_eq!(pid_f1_a, pid_f1_b, "f1's person UUID stable across re-cluster");
-        assert_eq!(pid_f2_a, pid_f2_b, "f2's person UUID stable across re-cluster");
+        assert_eq!(
+            pid_f1_a, pid_f1_b,
+            "f1's person UUID stable across re-cluster"
+        );
+        assert_eq!(
+            pid_f2_a, pid_f2_b,
+            "f2's person UUID stable across re-cluster"
+        );
 
         let name: Option<String> = conn
             .query_row(

@@ -1,29 +1,17 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <!-- gradient coords are in the inner 820×820 space (offset 102, ~10% padding) -->
-    <linearGradient id="bg" x1="102" y1="102" x2="922" y2="922" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#F0DEB8"/>
-      <stop offset="55%" stop-color="#C9953F"/>
-      <stop offset="100%" stop-color="#8B5E28"/>
-    </linearGradient>
-    <clipPath id="shape">
-      <!-- inner rounded rect: 820×820 at (102,102), ~10% transparent border each side -->
-      <rect x="102" y="102" width="820" height="820" rx="180" ry="180"/>
-    </clipPath>
-  </defs>
-
-  <!-- Background rounded square with ~10% transparent border on each side -->
-  <rect x="102" y="102" width="820" height="820" rx="180" fill="url(#bg)"/>
-
-  <!-- Landscape silhouette scaled into inner 820×820 space -->
-  <g clip-path="url(#shape)" fill="#1E140A" transform="translate(102,102) scale(0.80078125)">
-    <!-- Sun -->
-    <circle cx="512" cy="345" r="92"/>
-    <!-- Left mountain peak -->
-    <polygon points="64,780 360,318 552,780"/>
-    <!-- Right mountain peak -->
-    <polygon points="468,780 700,376 900,780"/>
-    <!-- Ground fill to bottom edge -->
-    <rect x="0" y="778" width="1024" height="246"/>
+  <circle cx="512" cy="512" r="448" fill="#171717"/>
+  <circle cx="512" cy="512" r="342" fill="#3ECF8E"/>
+  <circle cx="512" cy="512" r="266" fill="#202322"/>
+  <circle cx="512" cy="512" r="218" fill="#F5F5F7"/>
+  <g stroke="#202322" stroke-width="20" stroke-linecap="round">
+    <path d="M512 294L574 420"/>
+    <path d="M701 403L561 412"/>
+    <path d="M701 621L623 504"/>
+    <path d="M512 730L450 604"/>
+    <path d="M323 621L463 612"/>
+    <path d="M323 403L401 520"/>
   </g>
+  <circle cx="512" cy="512" r="104" fill="#171717"/>
+  <circle cx="512" cy="512" r="52" fill="#1677A6"/>
+  <circle cx="492" cy="491" r="15" fill="#F5F5F7"/>
 </svg>

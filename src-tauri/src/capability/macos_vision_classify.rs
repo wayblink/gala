@@ -4,8 +4,6 @@
 //! The provider only writes the analysis ledger; the library layer materializes
 //! accepted labels into the unified label/tag projection.
 
-#![cfg(target_os = "macos")]
-
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -89,10 +87,12 @@ impl CapabilityProvider for MacosVisionClassifyProvider {
             .and_then(|v| v.as_f64())
             .unwrap_or(0.2) as f32;
 
-        let labels = tokio::task::spawn_blocking(move || classify_image_sync(&path, max_labels, min_confidence))
-            .await
-            .map_err(|e| CapabilityError::Inference(format!("join error: {}", e)))?
-            .map_err(CapabilityError::Inference)?;
+        let labels = tokio::task::spawn_blocking(move || {
+            classify_image_sync(&path, max_labels, min_confidence)
+        })
+        .await
+        .map_err(|e| CapabilityError::Inference(format!("join error: {}", e)))?
+        .map_err(CapabilityError::Inference)?;
 
         let confidence = labels
             .iter()

@@ -26,10 +26,16 @@ describe('SettingsView', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Color style' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 2, name: 'Display language' })).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: /Archive Amber/i })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: /Glacier Blue/i })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /Mint Lime/i })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /Coral Daylight/i })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /Clear Cyan/i })).toBeInTheDocument()
+    expect(document.querySelectorAll('.theme-card__preview')).toHaveLength(APPEARANCE_THEMES.length)
+    expect(document.querySelectorAll('.theme-card__preview-color')).toHaveLength(APPEARANCE_THEMES.length * 5)
 
-    await user.click(screen.getByRole('radio', { name: /Midnight Blue/i }))
+    await user.click(screen.getByRole('radio', { name: /Glacier Blue/i }))
 
-    expect(onThemeChange).toHaveBeenCalledWith('midnight')
+    expect(onThemeChange).toHaveBeenCalledWith('glacier')
 
     await user.click(screen.getByRole('radio', { name: /简体中文/i }))
     expect(onLanguageChange).toHaveBeenCalledWith('zh-Hans')

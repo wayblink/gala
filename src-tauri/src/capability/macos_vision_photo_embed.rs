@@ -5,8 +5,6 @@
 //! captures the photo's overall scene/composition. Used by Similar Review
 //! to spot near-duplicates and same-scene photos that aren't faces.
 
-#![cfg(target_os = "macos")]
-
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use async_trait::async_trait;

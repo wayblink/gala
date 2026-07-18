@@ -37,6 +37,22 @@ export async function scanPhotoSource(rootPath: string): Promise<ScanSummary | n
   }
 }
 
+export async function relinkPhotoSource(sourceId: string, rootPath: string): Promise<ScanSummary | null> {
+  if (!isTauriAvailable()) {
+    return null
+  }
+
+  try {
+    console.log('[relinkPhotoSource] Calling relink_photo_source with:', sourceId, rootPath)
+    const result = await invoke<ScanSummary>('relink_photo_source', { sourceId, rootPath })
+    console.log('[relinkPhotoSource] Result:', result)
+    return result
+  } catch (error) {
+    console.error('[relinkPhotoSource] Error:', error)
+    return null
+  }
+}
+
 export async function listenToScanProgress(
   onProgress: (progress: ScanProgress) => void,
 ): Promise<UnlistenFn | null> {

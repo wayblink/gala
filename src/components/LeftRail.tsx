@@ -48,7 +48,9 @@ type LeftRailProps = {
   onSelectFavorites?: () => void
   onSelectHidden?: () => void
   onSelectFolder?: (filter: PhotoFilter) => void
+  onSelectSources?: () => void
   onAddSource?: () => void
+  onRenameSource?: (sourceId: string, currentName: string) => void
   onDeleteSource?: (sourceId: string) => void
   onSelectView?: (viewId: ComingSoonViewId) => void
   onSelectExplore?: () => void
@@ -148,7 +150,9 @@ export function LeftRail({
   onSelectFavorites = () => undefined,
   onSelectHidden = () => undefined,
   onSelectFolder = () => undefined,
+  onSelectSources = () => undefined,
   onAddSource = () => undefined,
+  onRenameSource = () => undefined,
   onDeleteSource = () => undefined,
   onSelectView = () => undefined,
   onSelectExplore = () => undefined,
@@ -242,9 +246,16 @@ export function LeftRail({
 
           <section className="rail-group">
             <h2 className="rail-group__header-row">
-              {t('nav.sources')}
+              <button
+                className={`rail-group__title-btn${activeFilter?.type === 'sources' ? ' rail-group__title-btn--active' : ''}`}
+                type="button"
+                onClick={onSelectSources}
+              >
+                {t('nav.sources')}
+              </button>
               <button
                 className="rail-header-btn"
+                aria-label={t('sources.add')}
                 title="Add source"
                 type="button"
                 onClick={onAddSource}
@@ -282,15 +293,26 @@ export function LeftRail({
                     </button>
                     {isRoot ? (
                       <button
+                        className="rail-item__rename"
+                        title={t('sources.edit')}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onRenameSource(folder.sourceId, folder.name)
+                        }}
+                      >
+                        ✎
+                      </button>
+                    ) : null}
+                    {isRoot ? (
+                      <button
                         className="rail-item__delete"
                         title="Remove source"
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation()
                           if (
-                            window.confirm(
-                              `Remove source "${folder.name}"? This deletes all its photos, thumbnails, and album links from Gala. Your original files on disk are not touched.`,
-                            )
+                            window.confirm(t('sources.deleteConfirm', { name: folder.name }))
                           ) {
                             onDeleteSource(folder.sourceId)
                           }
@@ -318,15 +340,24 @@ export function LeftRail({
                       <span className="rail-item__count">{compactCount(source.photoCount)}</span>
                     </button>
                     <button
+                      className="rail-item__rename"
+                      title={t('sources.edit')}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onRenameSource(source.id, source.name)
+                      }}
+                    >
+                      ✎
+                    </button>
+                    <button
                       className="rail-item__delete"
                       title="Remove source"
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation()
                         if (
-                          window.confirm(
-                            `Remove source "${source.name}"? This deletes all its photos, thumbnails, and album links from Gala. Your original files on disk are not touched.`,
-                          )
+                          window.confirm(t('sources.deleteConfirm', { name: source.name }))
                         ) {
                           onDeleteSource(source.id)
                         }

@@ -257,6 +257,11 @@ export async function deleteSource(sourceId: string): Promise<void> {
   await invoke('delete_source_cmd', { sourceId })
 }
 
+export async function renameSource(sourceId: string, newName: string): Promise<void> {
+  if (!isTauriAvailable()) return
+  await invoke('rename_source_cmd', { sourceId, newName })
+}
+
 export async function setPhotosFavoriteBatch(photoIds: string[], favorited: boolean): Promise<void> {
   if (!isTauriAvailable()) return
   await invoke('set_photos_favorite_batch_cmd', { photoIds, favorited })

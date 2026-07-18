@@ -85,7 +85,7 @@ impl Orchestrator {
     /// Run a job to completion. `inputs` is the resolved photo set for the
     /// job's scope — resolving the scope (Photo / Source / All → photo_ids
     /// + paths) is the caller's responsibility because the photos table
-    /// lives in `library::storage`.
+    ///   lives in `library::storage`.
     pub async fn run(
         &self,
         request: AnalysisRequest,
