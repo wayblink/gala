@@ -9,7 +9,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 }))
 
 vi.mock('../../desktop/photos', () => ({
-  getPhotoDataUrl: vi.fn(async (photoId: string) => `data:image/jpeg;base64,${photoId}`),
+  getPhotoDataUrl: vi.fn(async (photoId: string) => photoId.startsWith('apple-photos:') ? null : `data:image/jpeg;base64,${photoId}`),
   getThumbnailFile: vi.fn(async (photoId: string) => `/thumbs/${photoId}-large.jpg`),
 }))
 
@@ -67,6 +67,40 @@ describe('PhotoViewer', () => {
 
     expect(image).toHaveAttribute('src', 'data:image/jpeg;base64,first')
     expect(getThumbnailFile).toHaveBeenCalledWith('first', 'large')
+  })
+
+  it('uses a downloaded Apple Photos original instead of the large thumbnail', async () => {
+    const cloudPhoto = { ...photos[0], id: 'apple-photos:cloud-original' }
+
+    render(
+      <PhotoViewer
+        photos={[cloudPhoto]}
+        initialIndex={0}
+        onClose={vi.fn()}
+        originalPaths={{ [cloudPhoto.id]: '/originals/apple-photo.jpg' }}
+      />,
+    )
+
+    expect(await screen.findByRole('img', { name: cloudPhoto.fileName })).toHaveAttribute(
+      'src',
+      '/@fs/originals/apple-photo.jpg',
+    )
+    expect(screen.queryByRole('button', { name: 'Load original from iCloud' })).not.toBeInTheDocument()
+  })
+
+  it('shows Load in fullscreen for an Apple Photos preview', async () => {
+    const cloudPhoto = { ...photos[0], id: 'apple-photos:fullscreen' }
+    const onLoadOriginal = vi.fn().mockResolvedValue('/originals/fullscreen.heic')
+    document.documentElement.requestFullscreen = vi.fn().mockResolvedValue(undefined)
+
+    render(<PhotoViewer photos={[cloudPhoto]} initialIndex={0} onClose={vi.fn()} onLoadOriginal={onLoadOriginal} />)
+    await screen.findByRole('img', { name: cloudPhoto.fileName })
+    fireEvent.click(screen.getByRole('button', { name: 'Enter fullscreen' }))
+
+    const load = await screen.findByRole('button', { name: 'Load original' })
+    fireEvent.click(load)
+    await waitFor(() => expect(onLoadOriginal).toHaveBeenCalledWith(cloudPhoto.id))
+    expect(await screen.findByRole('img', { name: cloudPhoto.fileName })).toHaveAttribute('src', '/@fs/originals/fullscreen.heic')
   })
 
   it('navigates with arrow keys and closes with Escape', async () => {

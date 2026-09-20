@@ -1,0 +1,1 @@
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "修改现有 provider 切换脚本前先复用其备份、解析和配置写入模式。"}

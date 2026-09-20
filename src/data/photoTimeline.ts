@@ -7,8 +7,9 @@ export type TimelinePhotoGroup = {
   photos: TimelinePhoto[]
 }
 
-const monthFormatter = new Intl.DateTimeFormat('en', {
+const dayFormatter = new Intl.DateTimeFormat('en', {
   month: 'long',
+  day: 'numeric',
   year: 'numeric',
   timeZone: 'UTC',
 })
@@ -23,7 +24,7 @@ function getPhotoTime(photo: TimelinePhoto): number | null {
 }
 
 function getGroupTitle(date: Date): string {
-  return monthFormatter.format(date)
+  return dayFormatter.format(date)
 }
 
 export function groupTimelinePhotos(photos: TimelinePhoto[]): TimelinePhotoGroup[] {
@@ -43,7 +44,7 @@ export function groupTimelinePhotos(photos: TimelinePhoto[]): TimelinePhotoGroup
     const time = getPhotoTime(photo)
     const date = time === null ? null : new Date(time)
     const key = date
-      ? `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
+      ? `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
       : 'undated'
     const title = date ? getGroupTitle(date) : 'Undated'
     const existing = groups.get(key)

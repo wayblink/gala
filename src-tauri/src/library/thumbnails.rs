@@ -1,6 +1,8 @@
 use image::{imageops::FilterType, DynamicImage, GenericImageView, ImageFormat};
 use std::path::{Path, PathBuf};
 
+use crate::library::raw::{is_raw_path, write_raw_preview};
+
 #[derive(Debug, Clone, Copy)]
 pub enum ThumbnailSize {
     Small,
@@ -54,6 +56,12 @@ impl ThumbnailGenerator {
         source_path: &Path,
         size: ThumbnailSize,
     ) -> Result<PathBuf, String> {
+        if is_raw_path(source_path) {
+            let output_path = self.get_thumbnail_path(photo_id, size);
+            write_raw_preview(source_path, &output_path, size.max_dimension())?;
+            return Ok(output_path);
+        }
+
         let img = image::open(source_path).map_err(|e| format!("Failed to open image: {}", e))?;
 
         let thumbnail = self.resize_image(&img, size);
@@ -75,6 +83,10 @@ impl ThumbnailGenerator {
         photo_id: &str,
         source_path: &Path,
     ) -> Result<ThumbnailPaths, String> {
+        if is_raw_path(source_path) {
+            return self.generate_all_from_raw(photo_id, source_path);
+        }
+
         let img = image::open(source_path).map_err(|e| format!("Failed to open image: {}", e))?;
 
         let small = self.save_resized_image(photo_id, &img, ThumbnailSize::Small)?;
@@ -88,6 +100,28 @@ impl ThumbnailGenerator {
             large: large.to_string_lossy().to_string(),
             original_width,
             original_height,
+        })
+    }
+
+    fn generate_all_from_raw(
+        &self,
+        photo_id: &str,
+        source_path: &Path,
+    ) -> Result<ThumbnailPaths, String> {
+        let large = self.get_thumbnail_path(photo_id, ThumbnailSize::Large);
+        let metadata =
+            write_raw_preview(source_path, &large, ThumbnailSize::Large.max_dimension())?;
+        let image = image::open(&large)
+            .map_err(|error| format!("Failed to open rendered RAW preview: {}", error))?;
+        let small = self.save_resized_image(photo_id, &image, ThumbnailSize::Small)?;
+        let medium = self.save_resized_image(photo_id, &image, ThumbnailSize::Medium)?;
+
+        Ok(ThumbnailPaths {
+            small: small.to_string_lossy().to_string(),
+            medium: medium.to_string_lossy().to_string(),
+            large: large.to_string_lossy().to_string(),
+            original_width: metadata.original_width,
+            original_height: metadata.original_height,
         })
     }
 

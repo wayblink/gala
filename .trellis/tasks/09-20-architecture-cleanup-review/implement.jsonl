@@ -1,0 +1,6 @@
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"用于识别 desktop bridge 与跨层重复逻辑，避免重复造轮子并要求先搜索引用。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"用于检查 React、desktop adapter、Tauri command 与 Rust storage/capability 之间的数据边界。"}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"目标是把真实目录和模块边界补齐并据此约束整理。"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"用于记录构建、测试、死代码证据和禁止模式。"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"整理 desktop/state/features 时需要确认状态归属和跨层调用边界。"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"desktop bridge 返回类型和重复 invoke 包装需要遵循实际类型约定。"}

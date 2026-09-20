@@ -1,9 +1,22 @@
 export type LibrarySource = {
   id: string
   name: string
+  sourceKind?: 'local_folder' | 'apple_photos'
   rootPath: string
-  status: 'online' | 'offline' | 'missing' | 'error'
+  status: 'online' | 'offline' | 'missing' | 'error' | 'limited' | 'denied'
   photoCount: number
+  previewPaths?: string[]
+  storageMode?: 'local' | 'sidecar' | 'hybrid'
+  sidecarRoot?: string | null
+  volumeId?: string | null
+}
+
+export type ApplePhotosStatus = {
+  available: boolean
+  authorization: 'notDetermined' | 'authorized' | 'limited' | 'denied' | 'restricted' | 'unsupported' | string
+  assetCount: number
+  sourceId: string | null
+  message: string | null
 }
 
 export type ScanSummary = {

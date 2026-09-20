@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2, X } from 'lucide-react'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { getPhotoDataUrl, getThumbnailFile, revealInFinder } from '../desktop/photos'
+import { isTauriAvailable } from '../desktop/tauri'
 import type { TimelinePhoto } from '../types/photos'
 
 type PhotoViewerProps = {
@@ -9,14 +10,21 @@ type PhotoViewerProps = {
   initialIndex: number
   onPhotoChange?: (photo: TimelinePhoto | null) => void
   onClose: () => void
+  originalPaths?: Record<string, string>
+  onLoadOriginal?: (photoId: string) => Promise<string | null>
 }
 
-export function PhotoViewer({ photos, initialIndex, onPhotoChange, onClose }: PhotoViewerProps) {
+const photoAssetUrl = (path: string) => isTauriAvailable() ? convertFileSrc(path) : `/@fs${path}`
+
+export function PhotoViewer({ photos, initialIndex, onPhotoChange, onClose, originalPaths = {}, onLoadOriginal }: PhotoViewerProps) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [fallbackUrl, setFallbackUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
+  const [isOriginalLoading, setIsOriginalLoading] = useState(false)
+  const [originalLoaded, setOriginalLoaded] = useState(false)
+  const [originalError, setOriginalError] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
 
@@ -71,15 +79,19 @@ export function PhotoViewer({ photos, initialIndex, onPhotoChange, onClose }: Ph
       setHasError(false)
       setImageUrl(null)
       setFallbackUrl(null)
+      setOriginalLoaded(Boolean(originalPaths[currentPhoto.id]))
+      setOriginalError(false)
 
-      const originalUrl = await getPhotoDataUrl(currentPhoto.id)
+      const cachedOriginalUrl = originalPaths[currentPhoto.id] ? photoAssetUrl(originalPaths[currentPhoto.id]) : null
+      const originalUrl = cachedOriginalUrl ?? await getPhotoDataUrl(currentPhoto.id)
       const largePath = await getThumbnailFile(currentPhoto.id, 'large')
+      const previewPath = largePath ?? currentPhoto.thumbnailPath
 
       if (isCancelled) {
         return
       }
 
-      const largePreviewUrl = largePath ? convertFileSrc(largePath) : null
+      const largePreviewUrl = previewPath ? photoAssetUrl(previewPath) : null
 
       if (!originalUrl && !largePreviewUrl) {
         setHasError(true)
@@ -106,9 +118,10 @@ export function PhotoViewer({ photos, initialIndex, onPhotoChange, onClose }: Ph
       await Promise.all(
         neighbors.map(async (photo) => {
           const largePath = await getThumbnailFile(photo.id, 'large')
-          if (largePath) {
+          const previewPath = largePath ?? photo.thumbnailPath
+          if (previewPath) {
             const image = new Image()
-            image.src = convertFileSrc(largePath)
+            image.src = photoAssetUrl(previewPath)
           }
         }),
       )
@@ -145,6 +158,21 @@ export function PhotoViewer({ photos, initialIndex, onPhotoChange, onClose }: Ph
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [onClose, photos.length, isFullscreen])
 
+  const loadOriginal = async () => {
+    if (!currentPhoto?.id.startsWith('apple-photos:') || !onLoadOriginal || isOriginalLoading || originalLoaded) return
+    setIsOriginalLoading(true)
+    setOriginalError(false)
+    const path = await onLoadOriginal(currentPhoto.id)
+    if (path) {
+      setImageUrl(photoAssetUrl(path))
+      setFallbackUrl(null)
+      setOriginalLoaded(true)
+    } else {
+      setOriginalError(true)
+    }
+    setIsOriginalLoading(false)
+  }
+
   const toggleFullscreen = async () => {
     if (!document.fullscreenElement) {
       await document.documentElement.requestFullscreen?.()
@@ -179,6 +207,17 @@ export function PhotoViewer({ photos, initialIndex, onPhotoChange, onClose }: Ph
         <div className="photo-viewer__counter">
           {currentIndex + 1} / {photos.length}
         </div>
+        {isFullscreen && currentPhoto.id.startsWith('apple-photos:') && onLoadOriginal && !originalLoaded && (
+          <button
+            type="button"
+            className="photo-viewer__control photo-viewer__load-control"
+            aria-label="Load original"
+            onClick={() => void loadOriginal()}
+            disabled={isOriginalLoading}
+          >
+            {isOriginalLoading ? 'Loading…' : 'Load'}
+          </button>
+        )}
         <button
           type="button"
           className="photo-viewer__control"

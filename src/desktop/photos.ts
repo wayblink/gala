@@ -1,25 +1,40 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { Album, FilterOptions, PhotoFilter, SmartFilter, SourceFolder, Tag, Label, TimelinePhoto } from '../types/photos'
+import type { Album, FilterOptions, PhotoFilter, SmartFilter, SourceCollection, SourceFolder, Tag, Label, TimelinePhoto } from '../types/photos'
 import { isTauriAvailable } from './tauri'
+import {
+  addWebMockPhotoToAlbum,
+  addWebMockPhotosToAlbumBatch,
+  createWebMockAlbum,
+  deleteWebMockAlbum,
+  deleteWebMockSource,
+  getWebMockAlbumPhotos,
+  getWebMockAlbums,
+  getWebMockSourceFolders,
+  getWebMockTimelinePhotos,
+  removeWebMockPhotoFromAlbum,
+  removeWebMockPhotosFromAlbumBatch,
+  renameWebMockAlbum,
+  renameWebMockSource,
+  searchWebMockPhotos,
+  webMockFilterOptions,
+} from './webMock'
 
 export async function getTimelinePhotos(
   limit: number,
   offset: number,
   filter?: PhotoFilter | null,
+  mergeVariants = true,
 ): Promise<TimelinePhoto[]> {
   if (!isTauriAvailable()) {
-    return []
+    return getWebMockTimelinePhotos(filter).slice(offset, offset + limit)
   }
 
   try {
     const sourceId = filter?.type === 'folder' ? filter.sourceId : null
     const folderPath = filter?.type === 'folder' ? filter.folderPath : null
-    return await invoke<TimelinePhoto[]>('get_timeline_photos_cmd', {
-      limit,
-      offset,
-      sourceId,
-      folderPath,
-    })
+    const args = { limit, offset, sourceId, folderPath } as Record<string, unknown>
+    if (!mergeVariants) args.mergeVariants = false
+    return await invoke<TimelinePhoto[]>('get_timeline_photos_cmd', args)
   } catch (error) {
     console.error('[getTimelinePhotos] Error:', error)
     return []
@@ -30,9 +45,7 @@ export async function getRecentlyAddedPhotos(
   limit: number,
   offset: number,
 ): Promise<TimelinePhoto[]> {
-  if (!isTauriAvailable()) {
-    return []
-  }
+  if (!isTauriAvailable()) return getWebMockTimelinePhotos({ type: 'all' }).slice(offset, offset + limit)
 
   try {
     return await invoke<TimelinePhoto[]>('get_recently_added_photos_cmd', { limit, offset })
@@ -45,13 +58,12 @@ export async function getRecentlyAddedPhotos(
 export async function getFavoritePhotos(
   limit: number,
   offset: number,
+  sourceId?: string,
 ): Promise<TimelinePhoto[]> {
-  if (!isTauriAvailable()) {
-    return []
-  }
+  if (!isTauriAvailable()) return []
 
   try {
-    return await invoke<TimelinePhoto[]>('get_favorite_photos_cmd', { limit, offset })
+    return await invoke<TimelinePhoto[]>('get_favorite_photos_cmd', { limit, offset, sourceId: sourceId ?? null })
   } catch (error) {
     console.error('[getFavoritePhotos] Error:', error)
     return []
@@ -64,7 +76,7 @@ export async function searchPhotos(
   offset: number,
 ): Promise<TimelinePhoto[]> {
   if (!isTauriAvailable()) {
-    return []
+    return searchWebMockPhotos(query).slice(offset, offset + limit)
   }
 
   try {
@@ -83,9 +95,29 @@ export async function togglePhotoFavorite(photoId: string): Promise<boolean> {
   return await invoke<boolean>('toggle_photo_favorite_cmd', { photoId })
 }
 
+export async function getSourceCollectionPhotos(collectionId: string, limit: number, offset: number): Promise<TimelinePhoto[]> {
+  if (!isTauriAvailable()) return []
+  try {
+    return await invoke<TimelinePhoto[]>('get_source_collection_photos_cmd', { collectionId, limit, offset })
+  } catch (error) {
+    console.error('[getSourceCollectionPhotos] Error:', error)
+    return []
+  }
+}
+
+export async function getSourceCollections(sourceId: string): Promise<SourceCollection[]> {
+  if (!isTauriAvailable()) return []
+  try {
+    return await invoke<SourceCollection[]>('get_source_collections_cmd', { sourceId })
+  } catch (error) {
+    console.error('[getSourceCollections] Error:', error)
+    return []
+  }
+}
+
 export async function getSourceFolders(): Promise<SourceFolder[]> {
   if (!isTauriAvailable()) {
-    return []
+    return getWebMockSourceFolders()
   }
 
   try {
@@ -93,6 +125,20 @@ export async function getSourceFolders(): Promise<SourceFolder[]> {
   } catch (error) {
     console.error('[getSourceFolders] Error:', error)
     return []
+  }
+}
+
+export async function downloadApplePhotosThumbnail(
+  photoId: string,
+  size: 'small' | 'medium' | 'large',
+): Promise<string | null> {
+  if (!isTauriAvailable() || !photoId.startsWith('apple-photos:')) return null
+
+  try {
+    return await invoke<string>('download_apple_photos_thumbnail_cmd', { photoId, size })
+  } catch (error) {
+    console.error('[downloadApplePhotosThumbnail] Error for', photoId, ':', error)
+    return null
   }
 }
 
@@ -107,6 +153,36 @@ export async function getThumbnailFile(
   try {
     return await invoke<string>('get_thumbnail_file', { photoId, size })
   } catch (error) {
+    return null
+  }
+}
+
+export async function downloadApplePhotosOriginals(photoIds: string[]): Promise<{
+  downloaded: number
+  failed: number
+  paths: Array<{ photoId: string; path: string }>
+}> {
+  if (!isTauriAvailable()) return { downloaded: 0, failed: photoIds.length, paths: [] }
+
+  try {
+    return await invoke<{
+      downloaded: number
+      failed: number
+      paths: Array<{ photoId: string; path: string }>
+    }>('download_apple_photos_originals_cmd', { photoIds })
+  } catch (error) {
+    console.error('[downloadApplePhotosOriginals] Error:', error)
+    return { downloaded: 0, failed: photoIds.length, paths: [] }
+  }
+}
+
+export async function downloadApplePhotosOriginal(photoId: string): Promise<string | null> {
+  if (!isTauriAvailable() || !photoId.startsWith('apple-photos:')) return null
+
+  try {
+    return await invoke<string>('download_apple_photos_original_cmd', { photoId })
+  } catch (error) {
+    console.error('[downloadApplePhotosOriginal] Error for', photoId, ':', error)
     return null
   }
 }
@@ -129,10 +205,10 @@ export async function togglePhotoHidden(photoId: string): Promise<boolean> {
   return await invoke<boolean>('toggle_photo_hidden_cmd', { photoId })
 }
 
-export async function getHiddenPhotos(limit: number, offset: number): Promise<TimelinePhoto[]> {
+export async function getHiddenPhotos(limit: number, offset: number, sourceId?: string): Promise<TimelinePhoto[]> {
   if (!isTauriAvailable()) return []
   try {
-    return await invoke<TimelinePhoto[]>('get_hidden_photos_cmd', { limit, offset })
+    return await invoke<TimelinePhoto[]>('get_hidden_photos_cmd', { limit, offset, sourceId: sourceId ?? null })
   } catch (error) {
     console.error('[getHiddenPhotos] Error:', error)
     return []
@@ -140,7 +216,7 @@ export async function getHiddenPhotos(limit: number, offset: number): Promise<Ti
 }
 
 export async function getFilterOptions(): Promise<FilterOptions | null> {
-  if (!isTauriAvailable()) return null
+  if (!isTauriAvailable()) return webMockFilterOptions
   try {
     return await invoke<FilterOptions>('get_filter_options_cmd')
   } catch (error) {
@@ -156,7 +232,10 @@ export async function getFilteredPhotos(
   sourceId?: string,
   folderPath?: string,
 ): Promise<TimelinePhoto[]> {
-  if (!isTauriAvailable()) return []
+  if (!isTauriAvailable()) {
+    return getWebMockTimelinePhotos(sourceId ? { type: 'folder', sourceId, folderPath: folderPath ?? '' } : { type: 'all' })
+      .slice(offset, offset + limit)
+  }
   try {
     return await invoke<TimelinePhoto[]>('get_filtered_photos_cmd', {
       limit,
@@ -175,7 +254,7 @@ export async function getFilteredPhotos(
 }
 
 export async function getAlbums(): Promise<Album[]> {
-  if (!isTauriAvailable()) return []
+  if (!isTauriAvailable()) return getWebMockAlbums()
   try {
     return await invoke<Album[]>('get_albums_cmd')
   } catch (error) {
@@ -185,7 +264,7 @@ export async function getAlbums(): Promise<Album[]> {
 }
 
 export async function createAlbum(name: string): Promise<Album | null> {
-  if (!isTauriAvailable()) return null
+  if (!isTauriAvailable()) return createWebMockAlbum(name)
   try {
     return await invoke<Album>('create_album_cmd', { name })
   } catch (error) {
@@ -195,22 +274,34 @@ export async function createAlbum(name: string): Promise<Album | null> {
 }
 
 export async function deleteAlbum(albumId: string): Promise<void> {
-  if (!isTauriAvailable()) return
+  if (!isTauriAvailable()) {
+    deleteWebMockAlbum(albumId)
+    return
+  }
   await invoke('delete_album_cmd', { albumId })
 }
 
 export async function renameAlbum(albumId: string, newName: string): Promise<void> {
-  if (!isTauriAvailable()) return
+  if (!isTauriAvailable()) {
+    renameWebMockAlbum(albumId, newName)
+    return
+  }
   await invoke('rename_album_cmd', { albumId, newName })
 }
 
 export async function addPhotoToAlbum(albumId: string, photoId: string): Promise<void> {
-  if (!isTauriAvailable()) return
+  if (!isTauriAvailable()) {
+    addWebMockPhotoToAlbum(albumId, photoId)
+    return
+  }
   await invoke('add_photo_to_album_cmd', { albumId, photoId })
 }
 
 export async function removePhotoFromAlbum(albumId: string, photoId: string): Promise<void> {
-  if (!isTauriAvailable()) return
+  if (!isTauriAvailable()) {
+    removeWebMockPhotoFromAlbum(albumId, photoId)
+    return
+  }
   await invoke('remove_photo_from_album_cmd', { albumId, photoId })
 }
 
@@ -219,7 +310,7 @@ export async function getAlbumPhotos(
   limit: number,
   offset: number,
 ): Promise<TimelinePhoto[]> {
-  if (!isTauriAvailable()) return []
+  if (!isTauriAvailable()) return getWebMockAlbumPhotos(albumId).slice(offset, offset + limit)
   try {
     return await invoke<TimelinePhoto[]>('get_album_photos_cmd', { albumId, limit, offset })
   } catch (error) {
@@ -243,22 +334,35 @@ export async function getPhotosByPerson(
 }
 
 export async function addPhotosToAlbumBatch(albumId: string, photoIds: string[]): Promise<void> {
-  if (!isTauriAvailable()) return
+  if (!isTauriAvailable()) {
+    addWebMockPhotosToAlbumBatch(albumId, photoIds)
+    return
+  }
   await invoke('add_photos_to_album_batch_cmd', { albumId, photoIds })
 }
 
 export async function removePhotosFromAlbumBatch(albumId: string, photoIds: string[]): Promise<void> {
-  if (!isTauriAvailable()) return
+  if (!isTauriAvailable()) {
+    removeWebMockPhotosFromAlbumBatch(albumId, photoIds)
+    return
+  }
   await invoke('remove_photos_from_album_batch_cmd', { albumId, photoIds })
 }
 
 export async function deleteSource(sourceId: string): Promise<void> {
-  if (!isTauriAvailable()) return
+  if (!sourceId.trim()) throw new Error('Source id cannot be empty')
+  if (!isTauriAvailable()) {
+    deleteWebMockSource(sourceId)
+    return
+  }
   await invoke('delete_source_cmd', { sourceId })
 }
 
 export async function renameSource(sourceId: string, newName: string): Promise<void> {
-  if (!isTauriAvailable()) return
+  if (!isTauriAvailable()) {
+    renameWebMockSource(sourceId, newName)
+    return
+  }
   await invoke('rename_source_cmd', { sourceId, newName })
 }
 

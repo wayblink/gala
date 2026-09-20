@@ -9,6 +9,8 @@ type SettingsViewProps = {
   languages: LanguageOption[]
   activeLanguageId: LanguageId
   onLanguageChange: (languageId: LanguageId) => void
+  photoQualityEnabled: boolean
+  onPhotoQualityChange: (enabled: boolean) => void
 }
 
 export function SettingsView({
@@ -18,6 +20,8 @@ export function SettingsView({
   languages,
   activeLanguageId,
   onLanguageChange,
+  photoQualityEnabled,
+  onPhotoQualityChange,
 }: SettingsViewProps) {
   const { t } = useI18n()
 
@@ -67,6 +71,24 @@ export function SettingsView({
             )
           })}
         </div>
+      </section>
+
+      <section className="settings-panel" aria-labelledby="quality-title">
+        <div className="settings-panel__intro">
+          <p className="settings-view__eyebrow">Photo Quality</p>
+          <h2 id="quality-title">Photo Quality analysis</h2>
+          <p>When enabled, Gala computes quality scores and shows them on photo cards. It is off by default to avoid background CPU usage.</p>
+        </div>
+        <button
+          type="button"
+          className={`settings-toggle${photoQualityEnabled ? ' settings-toggle--active' : ''}`}
+          role="switch"
+          aria-checked={photoQualityEnabled}
+          onClick={() => onPhotoQualityChange(!photoQualityEnabled)}
+        >
+          <span className="settings-toggle__track"><span /></span>
+          <span>{photoQualityEnabled ? 'On' : 'Off'}</span>
+        </button>
       </section>
 
       <section className="settings-panel" aria-labelledby="language-title">

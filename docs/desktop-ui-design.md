@@ -172,6 +172,25 @@ Gala 的桌面界面应像一张安静、可信、可长期使用的 memory ligh
 
 ## Component Behavior
 
+### Control Ownership
+
+The shell has one owner for each class of control:
+
+| Region | Owns | Does not own |
+| --- | --- | --- |
+| Top Bar | Current location, global search, view density, display mode, filters, entering selection mode, adding sources | Photo metadata, generated-view explanations, photo or selection mutation commands |
+| Context Panel | Inspector state and operations for the current photo, source, generated view, workflow card, or selected photo set | Navigation, global mode switches, selection-range mechanics |
+| Selection Bar | Selection mechanics: selected count, selection scope, select visible, select all matching, unselect all, finish selection mode | Favorite/hide/load/tag/album commands, source management, single-photo metadata |
+| Left Rail | Navigation across product surfaces | Actions, explanations, photo details |
+
+Placement rule:
+
+- Controls that change what the user is looking at belong in the Top Bar or Left Rail.
+- Controls that change which photos are selected belong in the Selection Bar.
+- Controls that inspect or mutate the current photo, current source, current view, or selected photo set belong in the Context Panel.
+
+The Selection Bar is a selector, not a command bar. It must not expose favorite, hide, load, tag, album, or destructive photo operations. In selection mode, the Context Panel follows the hovered photo for single-photo inspection while also showing a Batch Selection section for operations that apply to the selected set.
+
 ### Left Rail
 
 Left rail 是视图地图。
@@ -217,7 +236,7 @@ Context panel 的核心问题是：
 
 对于视图，重点是 strategy、explanation、confidence 和 actions。
 
-对于照片，重点是文件名、时间、source、路径、器材和相关视图。
+对于照片，重点是文件名、时间、source、路径、器材、标签、相册关系和单张操作。选择模式下，照片 inspector 跟随鼠标悬停的照片；如果存在选中集合，右侧同时展示 Batch Selection inspector 与批量操作。
 
 ---
 

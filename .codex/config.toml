@@ -10,3 +10,8 @@ ANTHROPIC_DEFAULT_SONNET_MODEL = "claude-sonnet-4-5-20250929"
 ANTHROPIC_DEFAULT_SONNET_MODEL_NAME = "claude-sonnet-4-5-20250929"
 ANTHROPIC_MODEL = "claude-opus-4-7"
 ANTHROPIC_SMALL_FAST_MODEL = "claude-haiku-4-5-20251001"
+project_doc_fallback_filenames = "AGENTS.md"
+CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR = "1"
+
+[agents]
+max_depth = 1

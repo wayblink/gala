@@ -1,13 +1,280 @@
+use gala_lib::library::apple_photos::{ApplePhotoAlbum, ApplePhotoAsset};
 use gala_lib::library::scanner::discover_photos;
 use gala_lib::library::storage::{
-    get_library_summary, get_photo_tags, get_source_folders, get_timeline_photos,
-    initialize_schema, migrate_schema, open_database, replace_source_photos, search_photos,
-    set_photo_tags, update_photo_dimensions, update_photo_exif_metadata, upsert_photo_assets,
-    upsert_source,
+    delete_source, get_favorite_photos, get_hidden_photos, get_library_summary, get_photo_tags,
+    get_source_collection_photos, get_source_collections, get_source_folders, get_timeline_photos,
+    get_timeline_photos_with_variant_mode, initialize_schema, migrate_schema, open_database,
+    rename_source, replace_source_photos, reuse_logical_photo_assets, search_photos,
+    set_photo_tags, source_status_for_path, sync_apple_photos_collections, update_photo_dimensions,
+    update_photo_exif_metadata, upsert_apple_photos_source, upsert_photo_assets, upsert_source,
 };
 use rusqlite::params;
 use std::fs;
 use tempfile::TempDir;
+
+#[test]
+fn test_source_status_reflects_current_local_availability() {
+    let temp_dir = TempDir::new().unwrap();
+    assert_eq!(
+        source_status_for_path("local_folder", temp_dir.path().to_str().unwrap()),
+        "online"
+    );
+
+    let missing = temp_dir.path().join("missing");
+    assert_eq!(
+        source_status_for_path("local_folder", missing.to_str().unwrap()),
+        "missing"
+    );
+    assert_eq!(
+        source_status_for_path("local_folder", "/Volumes/ejected-gala-test"),
+        "offline"
+    );
+}
+
+#[test]
+fn test_same_stem_variants_share_logical_id_only_inside_the_same_folder() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let source_path = temp_dir.path().join("photos");
+    fs::create_dir_all(source_path.join("a")).unwrap();
+    fs::create_dir_all(source_path.join("b")).unwrap();
+    fs::write(source_path.join("a/DSC00597.ARW"), b"raw").unwrap();
+    fs::write(source_path.join("a/DSC00597.JPG"), b"jpeg").unwrap();
+    fs::write(source_path.join("b/DSC00597.JPG"), b"jpeg").unwrap();
+
+    let mut conn = open_database(&db_path).unwrap();
+    initialize_schema(&conn).unwrap();
+    migrate_schema(&conn).unwrap();
+    let source = upsert_source(&conn, &source_path).unwrap();
+    let discovered = discover_photos(&source_path).unwrap();
+    replace_source_photos(&mut conn, &source.id, &source_path, &discovered).unwrap();
+
+    let mut stmt = conn
+        .prepare("SELECT relative_path, logical_id FROM photos ORDER BY relative_path")
+        .unwrap();
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        })
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    assert_eq!(rows[0].1, rows[1].1);
+    assert!(rows[0].1.is_some());
+    assert_ne!(rows[1].1, rows[2].1);
+}
+
+#[test]
+fn test_timeline_can_merge_or_separate_same_photo_variants() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let source_path = temp_dir.path().join("photos");
+    fs::create_dir(&source_path).unwrap();
+    fs::write(source_path.join("DSC00597.ARW"), b"raw").unwrap();
+    fs::write(source_path.join("DSC00597.JPG"), b"jpeg").unwrap();
+
+    let mut conn = open_database(&db_path).unwrap();
+    initialize_schema(&conn).unwrap();
+    migrate_schema(&conn).unwrap();
+    let source = upsert_source(&conn, &source_path).unwrap();
+    let discovered = discover_photos(&source_path).unwrap();
+    let upserted = replace_source_photos(&mut conn, &source.id, &source_path, &discovered).unwrap();
+    for photo in &upserted {
+        upsert_photo_assets(
+            &conn,
+            &photo.id,
+            "/tmp/shared-small.jpg",
+            "/tmp/shared-medium.jpg",
+            "/tmp/shared-large.jpg",
+        )
+        .unwrap();
+    }
+
+    let merged = get_timeline_photos_with_variant_mode(&conn, 20, 0, None, None, true).unwrap();
+    let separate = get_timeline_photos_with_variant_mode(&conn, 20, 0, None, None, false).unwrap();
+
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0].file_name, "DSC00597.JPG");
+    assert_eq!(merged[0].variants.len(), 2);
+    assert_eq!(
+        merged[0]
+            .variants
+            .iter()
+            .map(|v| v.format_kind.as_str())
+            .collect::<Vec<_>>(),
+        vec!["raw", "jpeg"]
+    );
+    assert_eq!(separate.len(), 2);
+    assert!(separate.iter().all(|photo| photo.variants.len() == 2));
+}
+
+#[test]
+fn test_photo_variant_can_reuse_ready_thumbnail_paths() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let source_path = temp_dir.path().join("photos");
+    fs::create_dir(&source_path).unwrap();
+    fs::write(source_path.join("DSC00597.ARW"), b"raw").unwrap();
+    fs::write(source_path.join("DSC00597.JPG"), b"jpeg").unwrap();
+
+    let mut conn = open_database(&db_path).unwrap();
+    initialize_schema(&conn).unwrap();
+    migrate_schema(&conn).unwrap();
+    let source = upsert_source(&conn, &source_path).unwrap();
+    let discovered = discover_photos(&source_path).unwrap();
+    let upserted = replace_source_photos(&mut conn, &source.id, &source_path, &discovered).unwrap();
+    let jpeg = upserted
+        .iter()
+        .find(|photo| photo.extension == "jpg")
+        .unwrap();
+    let raw = upserted
+        .iter()
+        .find(|photo| photo.extension == "arw")
+        .unwrap();
+    upsert_photo_assets(
+        &conn,
+        &jpeg.id,
+        "/cache/s.jpg",
+        "/cache/m.jpg",
+        "/cache/l.jpg",
+    )
+    .unwrap();
+
+    let reused =
+        reuse_logical_photo_assets(&conn, &raw.id, raw.logical_id.as_deref().unwrap()).unwrap();
+
+    assert!(reused);
+    let paths: (String, String, String) = conn.query_row(
+        "SELECT thumbnail_small_path, thumbnail_medium_path, thumbnail_large_path FROM photo_assets WHERE photo_id = ?1",
+        [&raw.id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).unwrap();
+    assert_eq!(
+        paths,
+        (
+            "/cache/s.jpg".into(),
+            "/cache/m.jpg".into(),
+            "/cache/l.jpg".into()
+        )
+    );
+}
+
+#[test]
+fn test_delete_source_removes_all_source_rows_and_rejects_missing_source() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let mut conn = open_database(&db_path).unwrap();
+    initialize_schema(&conn).unwrap();
+    let source = upsert_source(&conn, temp_dir.path()).unwrap();
+    let photo_id = "photo-delete-test";
+    conn.execute(
+        "INSERT INTO photos (id, source_id, relative_path, absolute_path_snapshot, file_name, extension, file_size, file_mtime, fingerprint, status, created_at, updated_at) VALUES (?1, ?2, 'x.jpg', 'x.jpg', 'x.jpg', 'jpg', 1, 1, '', 'indexed', 'now', 'now')",
+        params![photo_id, source.id],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO photo_assets (photo_id, asset_status) VALUES (?1, 'ready')",
+        params![photo_id],
+    )
+    .unwrap();
+    conn.execute("INSERT INTO photo_embeddings (photo_id, model_name, embedding_path, dimensions, generated_at) VALUES (?1, 'test', 'x', 1, 'now')", params![photo_id]).unwrap();
+    conn.execute("INSERT INTO analysis_results (photo_id, capability, provider_id, schema_version, result_json, generated_at) VALUES (?1, 'test', 'test', 1, '{}', 'now')", params![photo_id]).unwrap();
+    conn.execute("INSERT INTO faces (id, photo_id, detected_by, bbox_x, bbox_y, bbox_w, bbox_h, confidence, status, created_at) VALUES ('face-delete-test', ?1, 'test', 0, 0, 1, 1, 1, 'active', 'now')", params![photo_id]).unwrap();
+    conn.execute(
+        "INSERT INTO photo_faces (photo_id, face_id) VALUES (?1, 'face-delete-test')",
+        params![photo_id],
+    )
+    .unwrap();
+
+    delete_source(&mut conn, &source.id).unwrap();
+    for table in [
+        "sources",
+        "photos",
+        "photo_assets",
+        "photo_embeddings",
+        "analysis_results",
+        "faces",
+        "photo_faces",
+    ] {
+        let count: i64 = conn
+            .query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0, "table {} should be empty", table);
+    }
+    let error = delete_source(&mut conn, &source.id).unwrap_err();
+    assert!(error.contains("Source not found"));
+}
+
+#[test]
+fn test_indexes_apple_photos_as_a_distinct_read_only_source() {
+    let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+    initialize_schema(&conn).unwrap();
+    let assets = vec![ApplePhotoAsset {
+        local_identifier: "asset-1/L0/001".to_string(),
+        file_name: "Photos asset 1".to_string(),
+        captured_at: Some("2026-01-02T03:04:05Z".to_string()),
+        width: 4032,
+        height: 3024,
+        is_favorite: true,
+        is_hidden: false,
+    }];
+
+    let source = upsert_apple_photos_source(&mut conn, &assets).unwrap();
+    assert_eq!(source.source_kind, "apple_photos");
+    assert_eq!(source.root_path, "apple-photos://library");
+    assert_eq!(source.photo_count, 1);
+    sync_apple_photos_collections(
+        &mut conn,
+        &source.id,
+        &[ApplePhotoAlbum {
+            local_identifier: "album-1".to_string(),
+            title: "Trip".to_string(),
+            asset_local_identifiers: vec!["asset-1/L0/001".to_string()],
+        }],
+    )
+    .unwrap();
+    let collections = get_source_collections(&conn, &source.id).unwrap();
+    assert_eq!(collections.len(), 1);
+    assert_eq!(collections[0].name, "Trip");
+    assert_eq!(
+        get_source_collection_photos(&conn, &collections[0].id, 10, 0)
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let summary = get_library_summary(&conn).unwrap();
+    assert_eq!(summary.sources[0].source_kind, "apple_photos");
+    assert_eq!(summary.total_photos, 1);
+    let provider_roots = get_source_folders(&conn).unwrap();
+    assert_eq!(provider_roots.len(), 1);
+    assert_eq!(provider_roots[0].name, "Apple Photos");
+    assert_eq!(provider_roots[0].folder_path, "");
+    assert_eq!(provider_roots[0].photo_count, 1);
+
+    let rows = get_timeline_photos(&conn, 10, 0, None, None).unwrap();
+    assert_eq!(rows[0].id, "apple-photos:asset-1/L0/001");
+    assert!(rows[0].is_favorite);
+    assert_eq!(rows[0].width, Some(4032));
+    assert_eq!(
+        get_favorite_photos(&conn, 10, 0, Some(&source.id))
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(get_favorite_photos(&conn, 10, 0, Some("another-source"))
+        .unwrap()
+        .is_empty());
+    assert!(get_hidden_photos(&conn, 10, 0, Some(&source.id))
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        rename_source(&conn, &source.id, "Renamed Photos").unwrap_err(),
+        "Apple Photos source name is fixed"
+    );
+}
 
 #[test]
 fn test_initializes_schema() {
@@ -310,6 +577,43 @@ fn test_inserts_discovered_photos_for_source() {
     for (file_size, file_mtime, fingerprint) in fingerprints {
         assert_eq!(fingerprint, format!("{}:{}", file_size, file_mtime));
     }
+}
+
+#[test]
+fn test_rescan_removes_previously_indexed_appledouble_files() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("test.db");
+    let source_path = temp_dir.path().join("photos");
+    fs::create_dir(&source_path).unwrap();
+    fs::write(source_path.join("photo.jpg"), b"fake photo").unwrap();
+    fs::write(source_path.join("._photo.jpg"), b"appledouble metadata").unwrap();
+
+    let mut conn = open_database(&db_path).unwrap();
+    initialize_schema(&conn).unwrap();
+    migrate_schema(&conn).unwrap();
+
+    let source = upsert_source(&conn, &source_path).unwrap();
+    conn.execute(
+        "INSERT INTO photos \
+            (id, source_id, relative_path, absolute_path_snapshot, file_name, extension, \
+             file_size, file_mtime, fingerprint, status, created_at, updated_at) \
+         VALUES ('appledouble-photo', ?1, '._photo.jpg', ?2, '._photo.jpg', 'jpg', \
+                 20, 0, '20:0', 'indexed', 'now', 'now')",
+        params![source.id, source_path.join("._photo.jpg").to_string_lossy()],
+    )
+    .unwrap();
+
+    let photos = discover_photos(&source_path).unwrap();
+    replace_source_photos(&mut conn, &source.id, &source_path, &photos).unwrap();
+
+    let file_names = conn
+        .prepare("SELECT file_name FROM photos WHERE source_id = ?1 ORDER BY file_name")
+        .unwrap()
+        .query_map([&source.id], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(file_names, vec!["photo.jpg"]);
 }
 
 #[test]

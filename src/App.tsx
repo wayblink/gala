@@ -16,8 +16,8 @@ import {
   analysisEmbedFaces,
   analysisRequest,
 } from './desktop/capability'
-import { getTimelinePhotos, materializeContentLabels } from './desktop/photos'
-import { pickPhotoFolder, scanPhotoSource } from './desktop/library'
+import { downloadApplePhotosOriginal, downloadApplePhotosOriginals, getTimelinePhotos, materializeContentLabels } from './desktop/photos'
+import { connectApplePhotos, getApplePhotosStatus, openSourceFolder, pickPhotoFolder, scanPhotoSource } from './desktop/library'
 import {
   addTagsToPhotosBatch,
   revealInFinder,
@@ -31,23 +31,43 @@ import { useAppearance } from './state/useAppearance'
 import { useLibrary } from './state/useLibrary'
 import { I18nProvider, useLocaleState } from './state/useLocale'
 import { useResizable } from './state/useResizable'
+import { usePhotoQuality } from './state/usePhotoQuality'
 import { useBackgroundTasks } from './state/useBackgroundTasks'
 import { useSelection } from './state/useSelection'
 import { useTags } from './state/useTags'
 import { useViewFilter } from './state/useViewFilter'
 import { useSimilarReviewWorkflow } from './features/similar-review/useSimilarReviewWorkflow'
 import type { ComingSoonViewId, PhotoFilter } from './types/photos'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { getSourceCollections } from './desktop/photos'
+import type { ApplePhotosStatus } from './types/library'
+import type { SourceCollection } from './types/photos'
+import type { TimelinePhoto } from './types/photos'
 import { relinkPhotoSource } from './desktop/library'
 
 export default function App() {
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [rightCollapsed, setRightCollapsed] = useState(false)
   const [editingSourceId, setEditingSourceId] = useState<string | null>(null)
+  const [hoveredPhoto, setHoveredPhoto] = useState<TimelinePhoto | null>(null)
+  const [applePhotosOriginalPaths, setApplePhotosOriginalPaths] = useState<Record<string, string>>({})
   const [activeSourceActionId, setActiveSourceActionId] = useState<string | null>(null)
   const [sourceFeedbackMessage, setSourceFeedbackMessage] = useState<string | null>(null)
+  const [applePhotosStatus, setApplePhotosStatus] = useState<ApplePhotosStatus | null>(null)
+  const [applePhotosBusy, setApplePhotosBusy] = useState(false)
+  const [applePhotosCollections, setApplePhotosCollections] = useState<SourceCollection[]>([])
+
+  useEffect(() => {
+    void getApplePhotosStatus().then(async (status) => {
+      setApplePhotosStatus(status)
+      if (status.sourceId) setApplePhotosCollections(await getSourceCollections(status.sourceId))
+    }).catch((error) => {
+      console.error('Apple Photos status error:', error)
+    })
+  }, [])
 
   const appearance = useAppearance()
+  const photoQuality = usePhotoQuality()
   const locale = useLocaleState()
   const { t } = locale
   const library = useLibrary()
@@ -55,6 +75,11 @@ export default function App() {
   const albumsState = useAlbums()
   const tagsState = useTags()
   const selection = useSelection()
+  useEffect(() => {
+    if (!selection.selectionMode) {
+      setHoveredPhoto(null)
+    }
+  }, [selection.selectionMode])
   const view = useViewFilter()
   const leftRailSize = useResizable({ storageKey: 'gala:leftRailW', initial: 240, min: 200, max: 480 })
   const rightPanelSize = useResizable({ storageKey: 'gala:rightPanelW', initial: 280, min: 220, max: 520 })
@@ -200,6 +225,7 @@ export default function App() {
   }
 
   const handleRunPhotoQuality = async () => {
+    if (!photoQuality.enabled) return
     await backgroundTasks.runBackgroundTask(
       {
         kind: 'quality',
@@ -228,10 +254,36 @@ export default function App() {
     setEditingSourceId(null)
     handleSelectFilter({ type: 'sources' })
   }
-  const handleStartAddSourceFlow = async () => {
+  const handleConnectApplePhotos = async () => {
+    setApplePhotosBusy(true)
+    setSourceFeedbackMessage(null)
+    try {
+      const status = await connectApplePhotos()
+      setApplePhotosStatus(status)
+      if (status.sourceId) setApplePhotosCollections(await getSourceCollections(status.sourceId))
+      await library.refreshAll()
+      selection.setSelectedPhoto(null)
+      if (status.sourceId) {
+        view.setFilter({ type: 'folder', sourceId: status.sourceId, folderPath: '' })
+      } else {
+        view.setFilter({ type: 'sources' })
+      }
+      view.bumpDataVersion()
+      setSourceFeedbackMessage(status.message)
+    } catch (error) {
+      setSourceFeedbackMessage(error instanceof Error ? error.message : String(error))
+    } finally {
+      setApplePhotosBusy(false)
+    }
+  }
+
+  const handleOpenAddSourceFlow = () => {
     setEditingSourceId(null)
     view.setFilter({ type: 'sources' })
     selection.setSelectedPhoto(null)
+  }
+
+  const handleAddFolderSource = async () => {
     await handleAddFolder(true)
   }
   const handleSelectSettings = () => handleSelectFilter({ type: 'settings' })
@@ -251,16 +303,31 @@ export default function App() {
       return
     }
     setActiveSourceActionId(sourceId)
-    await library.renameSource(sourceId, trimmedName)
-    setEditingSourceId(null)
-    setActiveSourceActionId(null)
-    setSourceFeedbackMessage(t('sources.action.renameSuccess'))
-    view.bumpDataVersion()
+    try {
+      await library.renameSource(sourceId, trimmedName)
+      setEditingSourceId(null)
+      setSourceFeedbackMessage(t('sources.action.renameSuccess'))
+      view.bumpDataVersion()
+    } catch (error) {
+      setSourceFeedbackMessage(t('sources.action.renameFailed', { error: error instanceof Error ? error.message : String(error) }))
+    } finally {
+      setActiveSourceActionId(null)
+    }
   }
 
   const handleRescanSource = async (sourceId: string) => {
     const source = library.summary.sources.find((item) => item.id === sourceId)
     if (!source) {
+      return
+    }
+    if (source.sourceKind === 'apple_photos') {
+      await handleConnectApplePhotos()
+      await library.refreshAll()
+      view.bumpDataVersion()
+      return
+    }
+    if (source.status !== 'online') {
+      setSourceFeedbackMessage(source.status === 'offline' ? t('sources.sourceOffline') : t('sources.sourceUnavailable'))
       return
     }
     setSourceFeedbackMessage(null)
@@ -281,13 +348,13 @@ export default function App() {
 
     try {
       const result = await scanPhotoSource(source.rootPath)
-      if (result) {
-        await library.refreshAll()
-        setSourceFeedbackMessage(t('sources.action.rescanSuccess'))
-        view.bumpDataVersion()
-      }
+      if (!result) throw new Error('Rescan command returned no result')
+      await library.refreshAll()
+      setSourceFeedbackMessage(t('sources.action.rescanSuccess'))
+      view.bumpDataVersion()
     } catch (error) {
       console.error('Rescan error:', error)
+      setSourceFeedbackMessage(t('sources.action.rescanFailed', { error: error instanceof Error ? error.message : String(error) }))
     } finally {
       setActiveSourceActionId(null)
       library.setIsScanning(false)
@@ -323,16 +390,48 @@ export default function App() {
 
     try {
       const result = await relinkPhotoSource(source.id, path)
-      if (result) {
-        await library.refreshAll()
-        setSourceFeedbackMessage(t('sources.action.relinkSuccess'))
-        view.bumpDataVersion()
-      }
+      if (!result) throw new Error('Relink command returned no result')
+      await library.refreshAll()
+      setSourceFeedbackMessage(t('sources.action.relinkSuccess'))
+      view.bumpDataVersion()
     } catch (error) {
       console.error('Relink error:', error)
+      setSourceFeedbackMessage(t('sources.action.relinkFailed', { error: error instanceof Error ? error.message : String(error) }))
     } finally {
       setActiveSourceActionId(null)
       library.setIsScanning(false)
+    }
+  }
+
+  const handleDeleteSource = async (sourceId: string, sourceName?: string) => {
+    const source = library.summary.sources.find((item) => item.id === sourceId)
+    const displayName = sourceName ?? source?.name
+    if (!source || !displayName) {
+      setSourceFeedbackMessage(t('sources.action.deleteFailed', { error: 'Source not found' }))
+      return
+    }
+    const confirmKey = source.sourceKind === 'apple_photos'
+      ? 'sources.disconnectConfirm'
+      : 'sources.deleteConfirm'
+    if (!window.confirm(t(confirmKey, { name: displayName }))) return
+
+    setSourceFeedbackMessage(null)
+    setActiveSourceActionId(sourceId)
+    try {
+      await library.removeSource(sourceId)
+      setEditingSourceId((current) => current === sourceId ? null : current)
+      selection.setSelectedPhoto(null)
+      if (view.filter?.type === 'folder' && view.filter.sourceId === sourceId) {
+        view.setFilter(null)
+      }
+      setSourceFeedbackMessage(t(source.sourceKind === 'apple_photos'
+        ? 'sources.action.disconnectSuccess'
+        : 'sources.action.deleteSuccess'))
+      view.bumpDataVersion()
+    } catch (error) {
+      setSourceFeedbackMessage(t('sources.action.deleteFailed', { error: error instanceof Error ? error.message : String(error) }))
+    } finally {
+      setActiveSourceActionId(null)
     }
   }
 
@@ -434,6 +533,10 @@ export default function App() {
         ? t('nav.favorites')
         : view.filter?.type === 'hidden'
           ? t('nav.hidden')
+          : view.filter?.type === 'source-favorites'
+            ? `${view.filter.sourceName} · ${t('nav.favorites')}`
+            : view.filter?.type === 'source-collection'
+            ? `${view.filter.collectionName} · Apple Photos`
           : view.filter?.type === 'album'
             ? (albumsState.albums.find((a) => view.filter?.type === 'album' && a.id === view.filter.albumId)?.name ?? 'Album')
             : view.filter?.type === 'tag'
@@ -474,6 +577,7 @@ export default function App() {
     isSettingsSelected
   )
   const rightPanelCollapsed = rightPanelVisible && rightCollapsed
+  const contextPhoto = selection.selectionMode ? hoveredPhoto ?? selection.selectedPhoto : selection.selectedPhoto
   return (
     <I18nProvider value={locale}>
     <div
@@ -513,23 +617,17 @@ export default function App() {
           onSelectRecent={() => handleSelectFilter({ type: 'recent' })}
           onSelectFavorites={() => handleSelectFilter({ type: 'favorites' })}
           onSelectHidden={() => handleSelectFilter({ type: 'hidden' })}
+          onSelectSourceFavorites={(sourceId, sourceName) => handleSelectFilter({ type: 'source-favorites', sourceId, sourceName })}
+          sourceCollections={applePhotosCollections}
+          onSelectSourceCollection={(collection) => handleSelectFilter({ type: 'source-collection', sourceId: collection.sourceId, collectionId: collection.id, collectionName: collection.name })}
           onSelectFolder={handleSelectFilter}
           onSelectSources={handleSelectSources}
-          onAddSource={() => {
-            void handleStartAddSourceFlow()
-          }}
+          onAddSource={handleOpenAddSourceFlow}
           onRenameSource={(sourceId) => {
             handleStartEditingSource(sourceId)
           }}
           onDeleteSource={(sourceId) => {
-            if (
-              view.filter?.type === 'folder' &&
-              view.filter.sourceId === sourceId
-            ) {
-              view.setFilter(null)
-              selection.setSelectedPhoto(null)
-            }
-            void library.removeSource(sourceId).then(() => view.bumpDataVersion())
+            void handleDeleteSource(sourceId)
           }}
           onSelectView={handleSelectComingSoonView}
           onSelectExplore={handleSelectExplore}
@@ -550,9 +648,15 @@ export default function App() {
           <div
             className="workspace-grid__resizer"
             role="separator"
+            tabIndex={0}
             aria-orientation="vertical"
             aria-label="Resize left sidebar"
+            aria-valuemin={leftRailSize.min}
+            aria-valuemax={leftRailSize.max}
+            aria-valuenow={leftRailSize.width}
+            aria-valuetext={`${leftRailSize.width} pixels`}
             onPointerDown={(e) => leftRailSize.onPointerDown(e, 1)}
+            onKeyDown={leftRailSize.onKeyDown}
             onDoubleClick={() => leftRailSize.setWidth(240)}
           />
         )}
@@ -580,6 +684,7 @@ export default function App() {
             embeddingsBusy={similarReview.embeddingsBusy}
             onApplyDecisions={similarReview.applyDecisions}
             decisionsBusy={similarReview.decisionsBusy}
+            showQuality={photoQuality.enabled}
           />
         ) : isPeopleSelected ? (
           <PeopleView
@@ -630,8 +735,8 @@ export default function App() {
             isScanning={library.isScanning}
             activeSourceActionId={activeSourceActionId}
             feedbackMessage={sourceFeedbackMessage}
-            onAddSource={() => {
-              void handleStartAddSourceFlow()
+            onAddFolderSource={() => {
+              void handleAddFolderSource()
             }}
             onStartEditingSource={handleStartEditingSource}
             onCancelEditingSource={() => setEditingSourceId(null)}
@@ -641,22 +746,24 @@ export default function App() {
             onRelinkSource={(sourceId) => handleRelinkSource(sourceId)}
             onRescanSource={(sourceId) => handleRescanSource(sourceId)}
             onDeleteSource={(sourceId, sourceName) => {
-              if (window.confirm(t('sources.deleteConfirm', { name: sourceName }))) {
-                setSourceFeedbackMessage(null)
-                setActiveSourceActionId(sourceId)
-                void library.removeSource(sourceId).then(() => {
-                  setActiveSourceActionId(null)
-                  setSourceFeedbackMessage(t('sources.action.deleteSuccess'))
-                  view.bumpDataVersion()
-                })
-              }
+              void handleDeleteSource(sourceId, sourceName)
             }}
+            onOpenSourceFolder={openSourceFolder}
+            onSelectSource={(sourceId) => {
+              setEditingSourceId(null)
+              selection.setSelectedPhoto(null)
+              view.setFilter({ type: 'folder', sourceId, folderPath: '' })
+            }}
+            applePhotosStatus={applePhotosStatus}
+            applePhotosBusy={applePhotosBusy}
+            onConnectApplePhotos={handleConnectApplePhotos}
           />
         ) : isTasksSelected ? (
           <BackgroundTasksView
             tasks={backgroundTasks.tasks}
             onClearCompleted={backgroundTasks.clearCompleted}
             onRunQualityScan={() => void handleRunPhotoQuality()}
+            photoQualityEnabled={photoQuality.enabled}
             onRunSimilarScan={() => void similarReview.runPhotoEmbeddingScan()}
             onRunPeopleScan={() => void handleRunPeoplePipeline()}
             onRunContentScan={() => void handleRunContentRecognition()}
@@ -669,6 +776,8 @@ export default function App() {
             languages={locale.languages}
             activeLanguageId={locale.languageId}
             onLanguageChange={locale.setLanguageId}
+            photoQualityEnabled={photoQuality.enabled}
+            onPhotoQualityChange={photoQuality.setEnabled}
           />
         ) : (
           <PhotoSurface
@@ -684,49 +793,71 @@ export default function App() {
             onSmartFilterChange={view.setSmartFilter}
             onCloseFilterPanel={() => view.setFilterPanelOpen(false)}
             onSelectPhoto={selection.setSelectedPhoto}
-            albums={albumsState.albums}
-            onBatchAddToAlbum={handleBatchAddToAlbum}
-            onBatchRemoveFromAlbum={async (albumId, photoIds) => {
-              await albumsState.removeBatch(albumId, photoIds)
-              view.bumpDataVersion()
-            }}
+            onHoverPhoto={setHoveredPhoto}
             selectionMode={selection.selectionMode}
             onToggleSelectionMode={selection.toggleSelectionMode}
             selectedIds={selection.selectedIds}
+            selectionScope={selection.selectionScope}
             onToggleSelectedId={selection.toggleSelected}
             onClearSelection={selection.clearSelected}
             onSetSelectedIds={selection.setSelectedIds}
-            onBatchFavorite={handleBatchFavorite}
-            onBatchHide={handleBatchHide}
-            onBatchAddTags={handleBatchAddTags}
+            showQuality={photoQuality.enabled}
+            originalPaths={applePhotosOriginalPaths}
+            onOriginalPathsLoaded={(paths) => {
+              setApplePhotosOriginalPaths((current) => ({ ...current, ...paths }))
+            }}
           />
         )}
         {rightPanelVisible && !rightCollapsed && (
           <div
             className="workspace-grid__resizer"
             role="separator"
+            tabIndex={0}
             aria-orientation="vertical"
             aria-label="Resize right panel"
+            aria-valuemin={rightPanelSize.min}
+            aria-valuemax={rightPanelSize.max}
+            aria-valuenow={rightPanelSize.width}
+            aria-valuetext={`${rightPanelSize.width} pixels`}
             onPointerDown={(e) => rightPanelSize.onPointerDown(e, -1)}
+            onKeyDown={rightPanelSize.onKeyDown}
             onDoubleClick={() => rightPanelSize.setWidth(280)}
           />
         )}
         {rightPanelVisible && (
         <ContextPanel
           librarySummary={library.summary}
-          selectedPhoto={selection.selectedPhoto}
+          selectedPhoto={contextPhoto}
+          activeSource={activeSource}
+          editingSourceId={editingSourceId}
+          activeSourceActionId={activeSourceActionId}
+          isScanningSource={library.isScanning && library.scanProgress?.sourceId === activeSource?.id}
           onToggleFavorite={handleToggleFavorite}
           onToggleHidden={handleToggleHidden}
           albums={albumsState.albums}
           currentAlbumId={view.filter?.type === 'album' ? view.filter.albumId : undefined}
           onAddToAlbum={handleAddToAlbum}
           onRemoveFromAlbum={handleRemoveFromAlbum}
+          onCreateAlbum={albumsState.create}
           onSetPhotoTags={handleSetPhotoTags}
           onRevealInFinder={handleRevealInFinder}
-          collapsed={rightCollapsed}
-          onToggleCollapse={() => setRightCollapsed((v) => !v)}
-          selectionMode={selection.selectionMode}
+          onLoadApplePhotosOriginal={async (photoId) => {
+            const path = await downloadApplePhotosOriginal(photoId)
+            if (path) setApplePhotosOriginalPaths((current) => ({ ...current, [photoId]: path }))
+            return path
+          }}
+          onLoadApplePhotosOriginals={async (photoIds) => {
+            const result = await downloadApplePhotosOriginals(photoIds)
+            if (result.paths.length > 0) {
+              setApplePhotosOriginalPaths((current) => ({
+                ...current,
+                ...Object.fromEntries(result.paths.map(({ photoId, path }) => [photoId, path])),
+              }))
+            }
+            return result
+          }}
           selectedIds={selection.selectedIds}
+          selectionScope={selection.selectionScope}
           onBatchFavorite={handleBatchFavorite}
           onBatchHide={handleBatchHide}
           onBatchAddTags={handleBatchAddTags}
@@ -735,7 +866,20 @@ export default function App() {
             await albumsState.removeBatch(albumId, photoIds)
             view.bumpDataVersion()
           }}
+          onStartEditingSource={handleStartEditingSource}
+          onCancelEditingSource={() => setEditingSourceId(null)}
+          onRenameSource={(sourceId, newName) => {
+            void handleRenameSource(sourceId, newName)
+          }}
+          onRelinkSource={(sourceId) => handleRelinkSource(sourceId)}
+          onRescanSource={(sourceId) => handleRescanSource(sourceId)}
+          onDeleteSource={(sourceId, sourceName) => {
+            void handleDeleteSource(sourceId, sourceName)
+          }}
+          collapsed={rightCollapsed}
+          onToggleCollapse={() => setRightCollapsed((v) => !v)}
           similarReviewMode={isSimilarReviewSelected}
+          showQuality={photoQuality.enabled}
           similarReviewInspector={similarReview.inspector}
         />
         )}

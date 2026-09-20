@@ -99,3 +99,26 @@ fn test_creates_size_directories() {
     assert!(cache_dir.join("medium").exists());
     assert!(cache_dir.join("large").exists());
 }
+
+#[test]
+#[ignore = "requires GALA_RAW_TEST_IMAGE to point to a real camera RAW file"]
+fn test_generates_all_thumbnail_sizes_from_real_raw_fixture() {
+    let source_path = std::env::var("GALA_RAW_TEST_IMAGE")
+        .expect("GALA_RAW_TEST_IMAGE must point to a real camera RAW file");
+    let temp_dir = TempDir::new().unwrap();
+    let cache_dir = temp_dir.path().join("thumbnails");
+    let generator = ThumbnailGenerator::new(cache_dir).unwrap();
+
+    let paths = generator
+        .generate_all("raw-photo", std::path::Path::new(&source_path))
+        .unwrap();
+
+    for path in [&paths.small, &paths.medium, &paths.large] {
+        let thumbnail = image::open(path).unwrap();
+        let (width, height) = thumbnail.dimensions();
+        assert!(width > 0 && height > 0);
+        assert!(width <= 800 && height <= 800);
+    }
+    assert!(paths.original_width > 0);
+    assert!(paths.original_height > 0);
+}

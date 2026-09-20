@@ -1,23 +1,31 @@
+use crate::library::apple_photos::{
+    fetch_albums as fetch_apple_photos_albums, request_access_and_fetch,
+    status as apple_photos_status, write_original as write_apple_photos_original,
+    write_thumbnail as write_apple_photos_thumbnail,
+    write_thumbnail_with_network as write_apple_photos_thumbnail_with_network, ApplePhotosStatus,
+};
 use crate::library::exif::extract_exif_metadata;
 use crate::library::models::{
-    Album, FilterOptions, Label, LibrarySummary, ScanProgress, ScanSummary, SourceFolder, Tag,
-    TimelinePhoto,
+    Album, FilterOptions, Label, LibrarySummary, ScanProgress, ScanSummary, SourceCollection,
+    SourceFolder, Tag, TimelinePhoto,
 };
-use crate::library::scanner::discover_photos_with_progress;
+use crate::library::raw::{is_raw_path, write_raw_preview};
+use crate::library::scanner::{discover_photos_with_progress, ensure_source_directory};
+use crate::library::sidecar::{SidecarManifest, SidecarStore};
 use crate::library::storage::{
     add_photo_to_album, add_photos_to_album_batch, add_tags_to_photos_batch, create_album,
-    delete_album, delete_source, get_album_photos, get_albums, get_all_tags, get_favorite_photos,
-    get_filter_options, get_filtered_photos, get_hidden_photos, get_labels,
+    delete_album, delete_source, ensure_source_active, get_album_photos, get_albums, get_all_tags,
+    get_favorite_photos, get_filter_options, get_filtered_photos, get_hidden_photos, get_labels,
     get_library_summary as get_summary, get_photo_original_path, get_photo_tags,
-    get_photos_by_label, get_photos_by_tag, get_recently_added_photos, get_source_folders,
-    get_timeline_photos, initialize_schema, mark_photo_assets_failed,
-    materialize_content_classification_results, migrate_schema, open_database,
-    relink_source,
-    remove_photo_from_album, remove_photos_from_album_batch, rename_album, search_photos,
-    rename_source,
-    set_photo_favorite, set_photo_hidden, set_photo_tags, set_photos_favorite_batch,
-    set_photos_hidden_batch, sync_all_person_labels, update_photo_dimensions,
-    update_photo_exif_metadata, upsert_photo_assets, upsert_source, upsert_source_photos,
+    get_photos_by_label, get_photos_by_tag, get_recently_added_photos,
+    get_source_collection_photos, get_source_collections, get_source_folders,
+    get_timeline_photos_with_variant_mode, initialize_schema, mark_photo_assets_failed,
+    materialize_content_classification_results, migrate_schema, open_database, relink_source,
+    remove_photo_from_album, remove_photos_from_album_batch, rename_album, rename_source,
+    reuse_logical_photo_assets, search_photos, set_photo_favorite, set_photo_hidden,
+    set_photo_tags, set_photos_favorite_batch, set_photos_hidden_batch, sync_all_person_labels,
+    sync_apple_photos_collections, update_photo_dimensions, update_photo_exif_metadata,
+    upsert_apple_photos_source, upsert_photo_assets, upsert_source, upsert_source_photos,
 };
 use crate::library::thumbnails::ThumbnailGenerator;
 use base64::{engine::general_purpose, Engine as _};
@@ -28,7 +36,57 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, Manager};
 
 const MAX_VIEWER_ORIGINAL_BYTES: u64 = 50 * 1024 * 1024;
+const MAX_RAW_VIEWER_PREVIEW_DIMENSION: u32 = 2560;
 const SCAN_PROGRESS_EVENT: &str = "gala://scan-progress";
+
+#[tauri::command]
+pub fn apple_photos_status_cmd(app: AppHandle) -> ApplePhotosStatus {
+    let mut status = apple_photos_status();
+    if let Ok(db_path) = get_db_path(&app) {
+        if db_path.exists() {
+            if let Ok(conn) = open_database(&db_path) {
+                status.source_id = conn
+                    .query_row(
+                        "SELECT id FROM sources WHERE source_type = 'apple_photos' LIMIT 1",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .ok();
+            }
+        }
+    }
+    status
+}
+
+#[tauri::command]
+pub fn connect_apple_photos_cmd(app: AppHandle) -> Result<ApplePhotosStatus, String> {
+    let assets = request_access_and_fetch()?;
+    let db_path = get_db_path(&app)?;
+    let mut conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+    let source = upsert_apple_photos_source(&mut conn, &assets)?;
+    let albums = fetch_apple_photos_albums();
+    sync_apple_photos_collections(&mut conn, &source.id, &albums)?;
+    let preview_root = get_thumbnail_cache_dir(&app)?.join("small");
+    for asset in assets.iter().take(4) {
+        let photo_id = format!("apple-photos:{}", asset.local_identifier);
+        let destination = preview_root.join(format!("{}.jpg", photo_id));
+        if write_apple_photos_thumbnail(&asset.local_identifier, &destination, 96.0).is_ok() {
+            let destination = destination.to_string_lossy().to_string();
+            conn.execute(
+                "UPDATE photo_assets SET thumbnail_small_path = ?1 WHERE photo_id = ?2",
+                params![destination, photo_id],
+            )
+            .map_err(|e| format!("Failed to save Photos preview path: {}", e))?;
+        }
+    }
+    let mut status = apple_photos_status();
+    status.asset_count = assets.len() as i64;
+    status.source_id = Some(source.id);
+    status.message = Some("Read-only Apple Photos access granted and indexed in Gala.".to_string());
+    Ok(status)
+}
 
 pub(crate) fn get_db_path(app: &AppHandle) -> Result<PathBuf, String> {
     let app_data_dir = app
@@ -49,6 +107,56 @@ fn get_thumbnail_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
 
     Ok(app_data_dir.join("thumbnails"))
+}
+
+fn get_source_thumbnail_cache_dir(app: &AppHandle, source_path: &Path) -> Result<PathBuf, String> {
+    if let Some(sidecar) = SidecarStore::for_source(source_path) {
+        sidecar.prepare()?;
+        allow_sidecar_thumbnail_scope(app, &sidecar)?;
+        return Ok(sidecar.thumbnail_dir());
+    }
+    get_thumbnail_cache_dir(app)
+}
+
+fn allow_sidecar_thumbnail_scope(app: &AppHandle, sidecar: &SidecarStore) -> Result<(), String> {
+    if sidecar.thumbnail_dir().exists() {
+        app.asset_protocol_scope()
+            .allow_directory(sidecar.thumbnail_dir(), true)
+            .map_err(|error| format!("Failed to allow Gala sidecar thumbnails: {}", error))?;
+    }
+    Ok(())
+}
+
+fn restore_sidecar_if_available(
+    conn: &mut rusqlite::Connection,
+    source_path: &Path,
+    source_id: &str,
+) -> Result<(), String> {
+    if let Some(sidecar) = SidecarStore::for_source(source_path) {
+        if sidecar.read_manifest()?.is_some() {
+            sidecar.restore_source_index(conn, source_id, source_path)?;
+        }
+    }
+    Ok(())
+}
+
+fn persist_sidecar(
+    conn: &rusqlite::Connection,
+    source_path: &Path,
+    source_id: &str,
+    photo_count: usize,
+) -> Result<(), String> {
+    if let Some(sidecar) = SidecarStore::for_source(source_path) {
+        sidecar.export_source_index(conn, source_id)?;
+        sidecar.write_manifest(&SidecarManifest {
+            schema_version: crate::library::sidecar::SIDECAR_SCHEMA_VERSION,
+            source_root: source_path.to_string_lossy().to_string(),
+            source_id: source_id.to_string(),
+            generated_by: format!("gala/{}", env!("CARGO_PKG_VERSION")),
+            photo_count,
+        })?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -110,7 +218,10 @@ pub fn relink_photo_source(
     migrate_schema(&conn)?;
 
     let source_path = PathBuf::from(&root_path);
+    ensure_source_active("local_folder", &root_path)?;
+    ensure_source_directory(&source_path)?;
     let source = relink_source(&conn, &source_id, &source_path)?;
+    restore_sidecar_if_available(&mut conn, &source_path, &source.id)?;
     let photos = discover_photos_with_progress(&source_path, |count, file_name| {
         emit_scan_progress(
             &app,
@@ -147,7 +258,8 @@ pub fn relink_photo_source(
 
     let upserted = upsert_source_photos(&mut conn, &source.id, &source_path, &photos)?;
     let total_upserted = upserted.len() as i64;
-    let needs_work: Vec<_> = upserted.iter().filter(|p| p.needs_thumbnail).collect();
+    let mut needs_work: Vec<_> = upserted.iter().filter(|p| p.needs_thumbnail).collect();
+    needs_work.sort_by_key(|photo| thumbnail_source_priority(&photo.extension));
     let skipped_count = total_upserted - needs_work.len() as i64;
 
     emit_scan_progress(
@@ -166,7 +278,7 @@ pub fn relink_photo_source(
         },
     );
 
-    let thumbnail_cache = get_thumbnail_cache_dir(&app)?;
+    let thumbnail_cache = get_source_thumbnail_cache_dir(&app, &source_path)?;
     let thumbnail_gen = ThumbnailGenerator::new(thumbnail_cache)?;
     let mut thumbnail_ready_count = 0_i64;
     let mut thumbnail_failed_count = 0_i64;
@@ -179,8 +291,24 @@ pub fn relink_photo_source(
             .and_then(|f| f.to_str())
             .map(|f| f.to_string());
 
-        match thumbnail_gen.generate_all(photo_id, &PathBuf::from(photo_path)) {
-            Ok(paths) => {
+        let reused = upserted_photo
+            .logical_id
+            .as_deref()
+            .map(|logical_id| {
+                reuse_logical_photo_assets(&conn, photo_id, logical_id).unwrap_or(false)
+            })
+            .unwrap_or(false);
+        match if reused {
+            Ok(None)
+        } else {
+            thumbnail_gen
+                .generate_all(photo_id, &PathBuf::from(photo_path))
+                .map(Some)
+        } {
+            Ok(None) => {
+                thumbnail_ready_count += 1;
+            }
+            Ok(Some(paths)) => {
                 thumbnail_ready_count += 1;
                 if let Err(e) =
                     upsert_photo_assets(&conn, photo_id, &paths.small, &paths.medium, &paths.large)
@@ -240,6 +368,7 @@ pub fn relink_photo_source(
         );
     }
 
+    persist_sidecar(&conn, &source_path, &source.id, photos.len())?;
     let updated_source = relink_source(&conn, &source.id, &source_path)?;
 
     emit_scan_progress(
@@ -291,7 +420,10 @@ fn scan_photo_source_inner(app: &AppHandle, root_path: String) -> Result<ScanSum
     initialize_schema(&conn)?;
 
     let source_path = PathBuf::from(&root_path);
+    ensure_source_active("local_folder", &root_path)?;
+    ensure_source_directory(&source_path)?;
     let source = upsert_source(&conn, &source_path)?;
+    restore_sidecar_if_available(&mut conn, &source_path, &source.id)?;
     eprintln!("[scan_photo_source] Source ID: {}", source.id);
 
     let photos = discover_photos_with_progress(&source_path, |count, file_name| {
@@ -333,7 +465,8 @@ fn scan_photo_source_inner(app: &AppHandle, root_path: String) -> Result<ScanSum
     // Incremental upsert — only reprocesses changed/new files, preserves user data
     let upserted = upsert_source_photos(&mut conn, &source.id, &source_path, &photos)?;
     let total_upserted = upserted.len() as i64;
-    let needs_work: Vec<_> = upserted.iter().filter(|p| p.needs_thumbnail).collect();
+    let mut needs_work: Vec<_> = upserted.iter().filter(|p| p.needs_thumbnail).collect();
+    needs_work.sort_by_key(|photo| thumbnail_source_priority(&photo.extension));
     let skipped_count = total_upserted - needs_work.len() as i64;
 
     emit_scan_progress(
@@ -352,7 +485,7 @@ fn scan_photo_source_inner(app: &AppHandle, root_path: String) -> Result<ScanSum
         },
     );
 
-    let thumbnail_cache = get_thumbnail_cache_dir(app)?;
+    let thumbnail_cache = get_source_thumbnail_cache_dir(app, &source_path)?;
     eprintln!("[scan_photo_source] Thumbnail cache: {:?}", thumbnail_cache);
     let thumbnail_gen = ThumbnailGenerator::new(thumbnail_cache)?;
 
@@ -371,8 +504,28 @@ fn scan_photo_source_inner(app: &AppHandle, root_path: String) -> Result<ScanSum
             .and_then(|f| f.to_str())
             .map(|f| f.to_string());
 
-        match thumbnail_gen.generate_all(photo_id, &PathBuf::from(photo_path)) {
-            Ok(paths) => {
+        let reused = upserted_photo
+            .logical_id
+            .as_deref()
+            .map(|logical_id| {
+                reuse_logical_photo_assets(&conn, photo_id, logical_id).unwrap_or(false)
+            })
+            .unwrap_or(false);
+        match if reused {
+            Ok(None)
+        } else {
+            thumbnail_gen
+                .generate_all(photo_id, &PathBuf::from(photo_path))
+                .map(Some)
+        } {
+            Ok(None) => {
+                thumbnail_ready_count += 1;
+                eprintln!(
+                    "[scan_photo_source] Reused logical-photo thumbnails for: {}",
+                    photo_path
+                );
+            }
+            Ok(Some(paths)) => {
                 thumbnail_ready_count += 1;
                 eprintln!(
                     "[scan_photo_source] Generated thumbnails: small={}, medium={}, large={}",
@@ -436,6 +589,7 @@ fn scan_photo_source_inner(app: &AppHandle, root_path: String) -> Result<ScanSum
         );
     }
 
+    persist_sidecar(&conn, &source_path, &source.id, photos.len())?;
     let updated_source = upsert_source(&conn, &source_path)?;
     eprintln!("[scan_photo_source] Scan complete!");
 
@@ -460,6 +614,14 @@ fn scan_photo_source_inner(app: &AppHandle, root_path: String) -> Result<ScanSum
         indexed_count,
         skipped_count,
     })
+}
+
+fn thumbnail_source_priority(extension: &str) -> u8 {
+    match extension.to_ascii_lowercase().as_str() {
+        "jpg" | "jpeg" => 0,
+        "heic" | "heif" | "hif" => 1,
+        _ => 2,
+    }
 }
 
 fn emit_scan_progress(app: &AppHandle, progress: ScanProgress) {
@@ -488,7 +650,26 @@ pub fn get_library_summary(app: AppHandle) -> Result<LibrarySummary, String> {
     let conn = open_database(&db_path)?;
     initialize_schema(&conn)?;
     migrate_schema(&conn)?;
-    get_summary(&conn)
+    let mut summary = get_summary(&conn)?;
+    for source in &summary.sources {
+        if source.source_kind == "local_folder" {
+            if let Some(sidecar) = SidecarStore::for_source(Path::new(&source.root_path)) {
+                allow_sidecar_thumbnail_scope(&app, &sidecar)?;
+            }
+        }
+    }
+    let apple_status = apple_photos_status();
+    for source in &mut summary.sources {
+        if source.source_kind == "apple_photos" {
+            source.status = match apple_status.authorization.as_str() {
+                "authorized" | "limited" => "online".to_string(),
+                "denied" | "restricted" => "denied".to_string(),
+                "unsupported" => "missing".to_string(),
+                _ => "offline".to_string(),
+            };
+        }
+    }
+    Ok(summary)
 }
 
 #[tauri::command]
@@ -498,6 +679,7 @@ pub fn get_timeline_photos_cmd(
     offset: i64,
     source_id: Option<String>,
     folder_path: Option<String>,
+    merge_variants: Option<bool>,
 ) -> Result<Vec<TimelinePhoto>, String> {
     let db_path = get_db_path(&app)?;
 
@@ -508,13 +690,34 @@ pub fn get_timeline_photos_cmd(
     let conn = open_database(&db_path)?;
     initialize_schema(&conn)?;
     migrate_schema(&conn)?;
-    get_timeline_photos(
+    get_timeline_photos_with_variant_mode(
         &conn,
         limit,
         offset,
         source_id.as_deref(),
         folder_path.as_deref(),
+        merge_variants.unwrap_or(true),
     )
+}
+
+#[tauri::command]
+pub fn get_source_collection_photos_cmd(
+    app: AppHandle,
+    collection_id: String,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<TimelinePhoto>, String> {
+    let conn = open_conn(&app)?;
+    get_source_collection_photos(&conn, &collection_id, limit, offset)
+}
+
+#[tauri::command]
+pub fn get_source_collections_cmd(
+    app: AppHandle,
+    source_id: String,
+) -> Result<Vec<SourceCollection>, String> {
+    let conn = open_conn(&app)?;
+    get_source_collections(&conn, &source_id)
 }
 
 #[tauri::command]
@@ -531,13 +734,167 @@ pub fn get_source_folders_cmd(app: AppHandle) -> Result<Vec<SourceFolder>, Strin
     get_source_folders(&conn)
 }
 
+fn thumbnail_edge(size: &str) -> Result<f64, String> {
+    match size {
+        "small" => Ok(96.0),
+        "medium" => Ok(512.0),
+        "large" => Ok(1280.0),
+        _ => Err("Invalid thumbnail size".to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn download_apple_photos_thumbnail_cmd(
+    app: AppHandle,
+    photo_id: String,
+    size: String,
+) -> Result<String, String> {
+    if !photo_id.starts_with("apple-photos:") {
+        return Err("Only Apple Photos assets support iCloud downloads".to_string());
+    }
+    let thumbnail_cache = get_thumbnail_cache_dir(&app)?;
+    let size_dir = match size.as_str() {
+        "small" => "small",
+        "medium" => "medium",
+        "large" => "large",
+        _ => return Err("Invalid thumbnail size".to_string()),
+    };
+    let thumbnail_path = thumbnail_cache
+        .join(size_dir)
+        .join(format!("{}.jpg", photo_id));
+    if !thumbnail_path.exists() {
+        let local_identifier = photo_id.trim_start_matches("apple-photos:");
+        write_apple_photos_thumbnail_with_network(
+            local_identifier,
+            &thumbnail_path,
+            thumbnail_edge(&size)?,
+            true,
+        )?;
+    }
+    thumbnail_path
+        .to_str()
+        .map(|path| path.to_string())
+        .ok_or_else(|| "Invalid thumbnail path".to_string())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplePhotosOriginalPath {
+    pub photo_id: String,
+    pub path: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplePhotosOriginalBatchResult {
+    pub downloaded: usize,
+    pub failed: usize,
+    pub paths: Vec<ApplePhotosOriginalPath>,
+}
+
+#[tauri::command]
+pub fn download_apple_photos_originals_cmd(
+    app: AppHandle,
+    photo_ids: Vec<String>,
+) -> Result<ApplePhotosOriginalBatchResult, String> {
+    if photo_ids.is_empty() {
+        return Ok(ApplePhotosOriginalBatchResult {
+            downloaded: 0,
+            failed: 0,
+            paths: Vec::new(),
+        });
+    }
+    if photo_ids.len() > 100_000 {
+        return Err("A selection cannot exceed 100,000 photos".to_string());
+    }
+    let mut downloaded = 0;
+    let mut failed = 0;
+    let mut paths = Vec::new();
+    for photo_id in photo_ids {
+        match download_apple_photos_original_cmd(app.clone(), photo_id.clone()) {
+            Ok(path) => {
+                downloaded += 1;
+                paths.push(ApplePhotosOriginalPath { photo_id, path });
+            }
+            Err(error) => {
+                failed += 1;
+                eprintln!("Apple Photos original batch item failed: {}", error);
+            }
+        }
+    }
+    Ok(ApplePhotosOriginalBatchResult {
+        downloaded,
+        failed,
+        paths,
+    })
+}
+
+#[tauri::command]
+pub fn download_apple_photos_original_cmd(
+    app: AppHandle,
+    photo_id: String,
+) -> Result<String, String> {
+    if !photo_id.starts_with("apple-photos:") {
+        return Err("Only Apple Photos assets support original downloads".to_string());
+    }
+    let originals_dir = get_thumbnail_cache_dir(&app)?.join("apple-originals");
+    let local_identifier = photo_id.trim_start_matches("apple-photos:");
+    let extension =
+        get_photo_original_extension(&app, &photo_id).unwrap_or_else(|| "img".to_string());
+    let destination = originals_dir.join(format!("{}.{}", photo_id, extension));
+    if !destination.exists() {
+        write_apple_photos_original(local_identifier, &destination)?;
+    }
+    destination
+        .to_str()
+        .map(|path| path.to_string())
+        .ok_or_else(|| "Invalid original image path".to_string())
+}
+
+fn get_photo_original_extension(app: &AppHandle, photo_id: &str) -> Option<String> {
+    let db_path = get_db_path(app).ok()?;
+    let conn = open_database(&db_path).ok()?;
+    let file_name: String = conn
+        .query_row(
+            "SELECT file_name FROM photos WHERE id = ?1",
+            [photo_id],
+            |row| row.get(0),
+        )
+        .ok()?;
+    Path::new(&file_name)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .filter(|value| {
+            value.len() <= 8
+                && value
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric())
+        })
+}
+
 #[tauri::command]
 pub fn get_thumbnail_file(
     app: AppHandle,
     photo_id: String,
     size: String,
 ) -> Result<String, String> {
-    let thumbnail_cache = get_thumbnail_cache_dir(&app)?;
+    let db_path = get_db_path(&app)?;
+    let conn = open_database(&db_path)?;
+    initialize_schema(&conn)?;
+    migrate_schema(&conn)?;
+    let thumbnail_cache = if photo_id.starts_with("apple-photos:") {
+        get_thumbnail_cache_dir(&app)?
+    } else {
+        let source_root: String = conn
+            .query_row(
+                "SELECT s.root_path FROM photos p INNER JOIN sources s ON s.id = p.source_id WHERE p.id = ?1",
+                params![photo_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| format!("Photo source not found: {}", error))?;
+        get_source_thumbnail_cache_dir(&app, Path::new(&source_root))?
+    };
 
     let size_dir = match size.as_str() {
         "small" => "small",
@@ -550,6 +907,16 @@ pub fn get_thumbnail_file(
         .join(size_dir)
         .join(format!("{}.jpg", photo_id));
 
+    if !thumbnail_path.exists() && photo_id.starts_with("apple-photos:") {
+        let local_identifier = photo_id.trim_start_matches("apple-photos:");
+        let edge = match size.as_str() {
+            "small" => 96.0,
+            "medium" => 512.0,
+            "large" => 1280.0,
+            _ => 512.0,
+        };
+        write_apple_photos_thumbnail(local_identifier, &thumbnail_path, edge)?;
+    }
     if !thumbnail_path.exists() {
         return Err(format!("Thumbnail not found: {}", photo_id));
     }
@@ -571,7 +938,12 @@ pub fn get_photo_data_url(app: AppHandle, photo_id: String) -> Result<String, St
     let conn = open_database(&db_path)?;
     initialize_schema(&conn)?;
 
+    ensure_photo_source_active(&conn, &photo_id)?;
     let photo_path = PathBuf::from(get_photo_original_path(&conn, &photo_id)?);
+    if is_raw_path(&photo_path) {
+        return get_raw_photo_data_url(&app, &photo_id, &photo_path);
+    }
+
     let metadata = std::fs::metadata(&photo_path)
         .map_err(|e| format!("Failed to read photo metadata: {}", e))?;
 
@@ -588,6 +960,53 @@ pub fn get_photo_data_url(app: AppHandle, photo_id: String) -> Result<String, St
     let encoded = general_purpose::STANDARD.encode(bytes);
 
     Ok(format!("data:{};base64,{}", mime_type, encoded))
+}
+
+fn get_raw_photo_data_url(
+    app: &AppHandle,
+    photo_id: &str,
+    photo_path: &Path,
+) -> Result<String, String> {
+    let preview_root = get_source_thumbnail_cache_dir_for_photo(app, photo_id)?;
+    let preview_path = preview_root
+        .join("raw-previews")
+        .join(format!("{}.jpg", photo_id));
+    if !cached_preview_is_current(photo_path, &preview_path) {
+        write_raw_preview(photo_path, &preview_path, MAX_RAW_VIEWER_PREVIEW_DIMENSION)?;
+    }
+
+    let bytes = std::fs::read(&preview_path)
+        .map_err(|error| format!("Failed to read rendered RAW preview: {}", error))?;
+    let encoded = general_purpose::STANDARD.encode(bytes);
+    Ok(format!("data:image/jpeg;base64,{}", encoded))
+}
+
+fn get_source_thumbnail_cache_dir_for_photo(
+    app: &AppHandle,
+    photo_id: &str,
+) -> Result<PathBuf, String> {
+    let db_path = get_db_path(app)?;
+    let conn = open_database(&db_path)?;
+    let source_root: String = conn
+        .query_row(
+            "SELECT s.root_path FROM photos p INNER JOIN sources s ON s.id = p.source_id WHERE p.id = ?1",
+            params![photo_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| format!("Photo source not found: {}", error))?;
+    get_source_thumbnail_cache_dir(app, Path::new(&source_root))
+}
+
+fn cached_preview_is_current(source_path: &Path, preview_path: &Path) -> bool {
+    let Ok(source_modified) = std::fs::metadata(source_path).and_then(|value| value.modified())
+    else {
+        return false;
+    };
+    let Ok(preview_modified) = std::fs::metadata(preview_path).and_then(|value| value.modified())
+    else {
+        return false;
+    };
+    preview_modified >= source_modified
 }
 
 fn mime_type_for_path(path: &Path) -> &'static str {
@@ -631,6 +1050,7 @@ pub fn get_favorite_photos_cmd(
     app: AppHandle,
     limit: i64,
     offset: i64,
+    source_id: Option<String>,
 ) -> Result<Vec<TimelinePhoto>, String> {
     let db_path = get_db_path(&app)?;
 
@@ -641,7 +1061,7 @@ pub fn get_favorite_photos_cmd(
     let conn = open_database(&db_path)?;
     initialize_schema(&conn)?;
     migrate_schema(&conn)?;
-    get_favorite_photos(&conn, limit, offset)
+    get_favorite_photos(&conn, limit, offset, source_id.as_deref())
 }
 
 #[tauri::command]
@@ -719,6 +1139,7 @@ pub fn get_hidden_photos_cmd(
     app: AppHandle,
     limit: i64,
     offset: i64,
+    source_id: Option<String>,
 ) -> Result<Vec<TimelinePhoto>, String> {
     let db_path = get_db_path(&app)?;
     if !db_path.exists() {
@@ -727,7 +1148,7 @@ pub fn get_hidden_photos_cmd(
     let conn = open_database(&db_path)?;
     initialize_schema(&conn)?;
     migrate_schema(&conn)?;
-    get_hidden_photos(&conn, limit, offset)
+    get_hidden_photos(&conn, limit, offset, source_id.as_deref())
 }
 
 #[tauri::command]
@@ -800,7 +1221,11 @@ pub fn rename_album_cmd(app: AppHandle, album_id: String, new_name: String) -> R
 }
 
 #[tauri::command]
-pub fn rename_source_cmd(app: AppHandle, source_id: String, new_name: String) -> Result<(), String> {
+pub fn rename_source_cmd(
+    app: AppHandle,
+    source_id: String,
+    new_name: String,
+) -> Result<(), String> {
     let conn = open_conn(&app)?;
     rename_source(&conn, &source_id, &new_name)
 }
@@ -945,18 +1370,32 @@ pub fn delete_source_cmd(app: AppHandle, source_id: String) -> Result<(), String
         rows
     };
 
+    // Commit the database mutation before removing cache files. A database
+    // failure must leave both indexed rows and their thumbnails intact.
+    delete_source(&mut conn, &source_id)?;
+
     let cache_root = get_thumbnail_cache_dir(&app)?;
-    for size in ["small", "medium", "large"] {
-        let size_dir = cache_root.join(size);
-        for photo_id in &photo_ids {
-            let path = size_dir.join(format!("{}.jpg", photo_id));
+    remove_cached_photo_assets(&cache_root, &photo_ids);
+
+    Ok(())
+}
+
+fn remove_cached_photo_assets(cache_root: &Path, photo_ids: &[String]) {
+    for bucket in ["small", "medium", "large", "raw-previews"] {
+        let bucket_dir = cache_root.join(bucket);
+        for photo_id in photo_ids {
+            let path = bucket_dir.join(format!("{}.jpg", photo_id));
             if path.exists() {
-                let _ = std::fs::remove_file(&path);
+                if let Err(error) = std::fs::remove_file(&path) {
+                    eprintln!(
+                        "Failed to remove cached photo asset {}: {}",
+                        path.display(),
+                        error
+                    );
+                }
             }
         }
     }
-
-    delete_source(&mut conn, &source_id)
 }
 
 #[tauri::command]
@@ -1074,8 +1513,34 @@ pub fn get_photos_by_tag_cmd(
 }
 
 #[tauri::command]
+pub fn open_source_folder_cmd(root_path: String) -> Result<(), String> {
+    let path = std::path::Path::new(&root_path);
+    ensure_source_directory(path)?;
+    std::process::Command::new("open")
+        .arg(path)
+        .spawn()
+        .map_err(|e| format!("Failed to open source folder: {}", e))?;
+    Ok(())
+}
+
+fn ensure_photo_source_active(conn: &rusqlite::Connection, photo_id: &str) -> Result<(), String> {
+    let (source_kind, root_path): (String, String) = conn
+        .query_row(
+            "SELECT s.source_type, s.root_path FROM photos p INNER JOIN sources s ON s.id = p.source_id WHERE p.id = ?1",
+            params![photo_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|e| format!("Failed to query photo source: {}", e))?;
+    ensure_source_active(&source_kind, &root_path)
+}
+
+#[tauri::command]
 pub fn reveal_in_finder_cmd(app: AppHandle, photo_id: String) -> Result<(), String> {
+    if photo_id.starts_with("apple-photos:") {
+        return Err("Apple Photos assets do not expose stable Finder paths".to_string());
+    }
     let conn = open_conn(&app)?;
+    ensure_photo_source_active(&conn, &photo_id)?;
     let path = get_photo_original_path(&conn, &photo_id)?;
     std::process::Command::new("open")
         .arg("-R")
@@ -1648,4 +2113,34 @@ pub fn background_tasks_reconcile_startup_cmd(app: AppHandle) -> Result<i64, Str
         )
         .map_err(|e| format!("Failed to reconcile background tasks: {}", e))?;
     Ok(changed as i64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::remove_cached_photo_assets;
+    use tempfile::TempDir;
+
+    #[test]
+    fn removing_cached_photo_assets_includes_raw_viewer_previews() {
+        let temp_dir = TempDir::new().unwrap();
+        let cache_root = temp_dir.path();
+        let photo_id = "raw-photo";
+
+        for bucket in ["small", "medium", "large", "raw-previews"] {
+            let bucket_dir = cache_root.join(bucket);
+            std::fs::create_dir_all(&bucket_dir).unwrap();
+            std::fs::write(bucket_dir.join(format!("{photo_id}.jpg")), b"cache").unwrap();
+            std::fs::write(bucket_dir.join("unrelated.jpg"), b"keep").unwrap();
+        }
+
+        remove_cached_photo_assets(cache_root, &[photo_id.to_string()]);
+
+        for bucket in ["small", "medium", "large", "raw-previews"] {
+            assert!(!cache_root
+                .join(bucket)
+                .join(format!("{photo_id}.jpg"))
+                .exists());
+            assert!(cache_root.join(bucket).join("unrelated.jpg").exists());
+        }
+    }
 }

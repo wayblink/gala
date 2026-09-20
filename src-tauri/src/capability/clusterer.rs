@@ -24,7 +24,8 @@ use chrono::Utc;
 use hnsw_rs::prelude::{DistCosine, Hnsw};
 use rusqlite::{params, Connection};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
 use uuid::Uuid;
 
 use super::types::CapabilityError;
@@ -323,23 +324,6 @@ fn run_hnsw(faces: &[LoadedFace]) -> Vec<usize> {
         assignments.push(cluster);
     }
     assignments
-}
-
-/// Resolve absolute artifact path for a face id under the data directory.
-/// Used by the analysis_cluster_faces_cmd in commands.rs to locate
-/// `.bin` files when not embedded inline.
-#[allow(dead_code)]
-pub fn artifact_path_for(
-    artifact_root: &Path,
-    photo_id: &str,
-    provider_id: &str,
-    face_id: &str,
-) -> PathBuf {
-    artifact_root
-        .join(photo_id)
-        .join("face.embed")
-        .join(provider_id)
-        .join(format!("{}.bin", face_id))
 }
 
 #[cfg(test)]

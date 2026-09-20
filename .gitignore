@@ -16,6 +16,8 @@ test-photos-*/
 
 # Local agent / editor noise
 .DS_Store
+__pycache__/
+*.py[cod]
 .claude/
 .codex/
 .vscode/

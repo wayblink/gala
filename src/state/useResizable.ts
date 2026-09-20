@@ -5,9 +5,10 @@ type UseResizableOpts = {
   initial: number
   min: number
   max: number
+  step?: number
 }
 
-export function useResizable({ storageKey, initial, min, max }: UseResizableOpts) {
+export function useResizable({ storageKey, initial, min, max, step = 8 }: UseResizableOpts) {
   const [width, setWidth] = useState<number>(() => {
     if (!storageKey || typeof window === 'undefined') return initial
     try {
@@ -42,6 +43,25 @@ export function useResizable({ storageKey, initial, min, max }: UseResizableOpts
     [width],
   )
 
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        setWidth((current) => clamp(current + step, min, max))
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+        e.preventDefault()
+        setWidth((current) => clamp(current - step, min, max))
+      } else if (e.key === 'Home') {
+        e.preventDefault()
+        setWidth(min)
+      } else if (e.key === 'End') {
+        e.preventDefault()
+        setWidth(max)
+      }
+    },
+    [max, min, step],
+  )
+
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
       const d = draggingRef.current
@@ -62,7 +82,7 @@ export function useResizable({ storageKey, initial, min, max }: UseResizableOpts
     }
   }, [min, max])
 
-  return { width, setWidth, onPointerDown }
+  return { width, setWidth, onPointerDown, onKeyDown, min, max }
 }
 
 function clamp(v: number, lo: number, hi: number) {

@@ -1,24 +1,29 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useI18n } from '../state/useLocale'
 import type { LibrarySummary, ScanProgress } from '../types/library'
-import type { Album, ComingSoonViewId, PhotoFilter, SourceFolder, Tag } from '../types/photos'
+import type { Album, ComingSoonViewId, PhotoFilter, SourceCollection, SourceFolder, Tag } from '../types/photos'
 
 type RailItem = {
   label: string
-  count?: string
   active?: boolean
   muted?: boolean
   onClick?: () => void
 }
 
-function NavGroup({ title, items, action }: { title: string; items: RailItem[]; action?: React.ReactNode }) {
+function Chevron({ expanded }: { expanded: boolean }) {
+  return <span className="rail-chevron" aria-hidden="true">{expanded ? '⌄' : '›'}</span>
+}
+
+function NavGroup({ title, items, expanded, onToggle, action }: { title: string; items: RailItem[]; expanded: boolean; onToggle: () => void; action?: React.ReactNode }) {
   return (
     <section className="rail-group">
-      <h2 className={action ? 'rail-group__header-row' : undefined}>
-        {title}
+      <h2 className="rail-group__header-row">
+        <button type="button" className="rail-group__collapse" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${title}`} aria-expanded={expanded} onClick={onToggle}>
+          <Chevron expanded={expanded} /><span>{title}</span>
+        </button>
         {action}
       </h2>
-      <div className="rail-list">
+      {expanded ? <div className="rail-list">
         {items.map((item) => (
           <button
             className={`rail-item${item.active ? ' rail-item--active' : ''}${item.muted ? ' rail-item--muted' : ''}`}
@@ -27,12 +32,34 @@ function NavGroup({ title, items, action }: { title: string; items: RailItem[]; 
             onClick={item.onClick}
           >
             <span className="rail-item__label">{item.label}</span>
-            {item.count ? <span className="rail-item__count">{item.count}</span> : null}
           </button>
         ))}
-      </div>
+      </div> : null}
     </section>
   )
+}
+
+const NAV_STATE_KEY = 'gala:left-rail-sections'
+type RailSection = 'library' | 'sources' | 'applePhotos' | 'applePhotosAlbums' | 'localFolders' | 'albums' | 'analysis'
+type RailSections = Record<RailSection, boolean>
+const DEFAULT_SECTIONS: RailSections = { library: true, sources: true, applePhotos: false, applePhotosAlbums: false, localFolders: false, albums: true, analysis: true }
+
+function loadRailSections(): RailSections {
+  if (typeof window.localStorage?.getItem !== 'function') return DEFAULT_SECTIONS
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(NAV_STATE_KEY) ?? '{}') as Partial<RailSections>
+    const migrated = { ...DEFAULT_SECTIONS, ...saved }
+    // The previous persisted shape wrote Local Folders=true as an automatic
+    // default. Treat records without the new Albums key as pre-migration so
+    // existing installs receive the new collapsed defaults once.
+    if (!Object.prototype.hasOwnProperty.call(saved, 'applePhotosAlbums')) {
+      migrated.localFolders = false
+      migrated.applePhotosAlbums = false
+    }
+    return migrated
+  } catch {
+    return DEFAULT_SECTIONS
+  }
 }
 
 const compactCount = (count: number) => (count >= 1000 ? `${Math.round(count / 1000)}k` : String(count))
@@ -47,6 +74,9 @@ type LeftRailProps = {
   onSelectRecent?: () => void
   onSelectFavorites?: () => void
   onSelectHidden?: () => void
+  onSelectSourceFavorites?: (sourceId: string, sourceName: string) => void
+  sourceCollections?: SourceCollection[]
+  onSelectSourceCollection?: (collection: SourceCollection) => void
   onSelectFolder?: (filter: PhotoFilter) => void
   onSelectSources?: () => void
   onAddSource?: () => void
@@ -149,6 +179,9 @@ export function LeftRail({
   onSelectRecent = () => undefined,
   onSelectFavorites = () => undefined,
   onSelectHidden = () => undefined,
+  onSelectSourceFavorites = () => undefined,
+  sourceCollections = [],
+  onSelectSourceCollection = () => undefined,
   onSelectFolder = () => undefined,
   onSelectSources = () => undefined,
   onAddSource = () => undefined,
@@ -172,33 +205,46 @@ export function LeftRail({
   const { t } = useI18n()
   const activeSourceId = activeFilter?.type === 'folder' ? activeFilter.sourceId : null
   const activeFolderPath = activeFilter?.type === 'folder' ? activeFilter.folderPath : null
+  const applePhotosSources = librarySummary.sources.filter((source) => source.sourceKind === 'apple_photos')
+  const localSources = librarySummary.sources.filter((source) => source.sourceKind !== 'apple_photos')
+  const localSourceFolders = sourceFolders.filter((folder) => {
+    const source = librarySummary.sources.find((item) => item.id === folder.sourceId)
+    return source?.sourceKind !== 'apple_photos'
+  })
+  const [sections, setSections] = useState<RailSections>(loadRailSections)
   const [newAlbumName, setNewAlbumName] = useState('')
   const [showNewAlbumInput, setShowNewAlbumInput] = useState(false)
   const [renamingAlbumId, setRenamingAlbumId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
 
+  useEffect(() => {
+    if (typeof window.localStorage?.setItem === 'function') {
+      window.localStorage.setItem(NAV_STATE_KEY, JSON.stringify(sections))
+    }
+  }, [sections])
+
+  const toggleSection = (section: RailSection) => {
+    setSections((current) => ({ ...current, [section]: !current[section] }))
+  }
+
   const libraryItems: RailItem[] = [
     {
       label: t('nav.allPhotos'),
-      count: compactCount(librarySummary.totalPhotos),
       active: activeFilter === null,
       onClick: onSelectAllPhotos,
     },
     {
       label: t('nav.recentlyAdded'),
-      count: compactCount(librarySummary.recentlyAddedCount),
       active: activeFilter?.type === 'recent',
       onClick: onSelectRecent,
     },
     {
       label: t('nav.favorites'),
-      count: compactCount(librarySummary.favoritesCount),
       active: activeFilter?.type === 'favorites',
       onClick: onSelectFavorites,
     },
     {
       label: t('nav.hidden'),
-      count: librarySummary.hiddenCount > 0 ? compactCount(librarySummary.hiddenCount) : undefined,
       active: activeFilter?.type === 'hidden',
       onClick: onSelectHidden,
     },
@@ -238,21 +284,22 @@ export function LeftRail({
       </button>
       {!collapsed && (
         <div className="left-rail__scroll">
-          <NavGroup title={t('nav.library')}  items={libraryItems} />
-
-          <NavGroup title={t('nav.explore')}  items={exploreItems} />
-
-          <NavGroup title={t('nav.arrange')}  items={arrangeItems} />
+          <NavGroup title={t('nav.library')} items={libraryItems} expanded={sections.library} onToggle={() => toggleSection('library')} />
 
           <section className="rail-group">
             <h2 className="rail-group__header-row">
-              <button
-                className={`rail-group__title-btn${activeFilter?.type === 'sources' ? ' rail-group__title-btn--active' : ''}`}
-                type="button"
-                onClick={onSelectSources}
-              >
-                {t('nav.sources')}
-              </button>
+              <div className="rail-group__heading-main">
+                <button type="button" className="rail-group__collapse rail-group__collapse--icon-only" aria-label={`${sections.sources ? 'Collapse' : 'Expand'} ${t('nav.sources')}`} aria-expanded={sections.sources} onClick={() => toggleSection('sources')}>
+                  <Chevron expanded={sections.sources} />
+                </button>
+                <button
+                  className={`rail-group__title-btn${activeFilter?.type === 'sources' ? ' rail-group__title-btn--active' : ''}`}
+                  type="button"
+                  onClick={onSelectSources}
+                >
+                  {t('nav.sources')}
+                </button>
+              </div>
               <button
                 className="rail-header-btn"
                 aria-label={t('sources.add')}
@@ -263,8 +310,62 @@ export function LeftRail({
                 +
               </button>
             </h2>
-            <div className="rail-list">
-              {sourceFolders.map((folder) => {
+            {sections.sources ? <div className="rail-list rail-list--sources">
+              {applePhotosSources.map((source) => (
+                <div className="rail-source-provider" key={source.id}>
+                  <div className="rail-source-provider__heading">
+                    <button type="button" className="rail-source-provider__collapse" aria-label={`${sections.applePhotos ? 'Collapse' : 'Expand'} ${source.name}`} aria-expanded={sections.applePhotos} onClick={() => toggleSection('applePhotos')}>
+                      <Chevron expanded={sections.applePhotos} /><span>{source.name}</span>
+                    </button>
+                  </div>
+                  {sections.applePhotos ? <>
+                    <button
+                      className={`rail-item rail-item--provider-child${activeSourceId === source.id && activeFolderPath === '' ? ' rail-item--active' : ''}`}
+                      type="button"
+                      onClick={() => onSelectFolder({ type: 'folder', sourceId: source.id, folderPath: '' })}
+                    >
+                      <span className="rail-item__label">{t('nav.allPhotos')}</span>
+                    </button>
+                    {sourceCollections.length > 0 ? (
+                      <button
+                        type="button"
+                        className={`rail-item rail-item--provider-child rail-item--provider-toggle${sections.applePhotosAlbums ? ' rail-item--provider-toggle-expanded' : ''}`}
+                        aria-label={`${sections.applePhotosAlbums ? 'Collapse' : 'Expand'} ${t('nav.albums')}`}
+                        aria-expanded={sections.applePhotosAlbums}
+                        onClick={() => toggleSection('applePhotosAlbums')}
+                      >
+                        <span className="rail-item__tree-toggle"><Chevron expanded={sections.applePhotosAlbums} /></span>
+                        <span className="rail-item__label">{t('nav.albums')}</span>
+                      </button>
+                    ) : null}
+                    {sections.applePhotosAlbums ? sourceCollections.map((collection) => (
+                      <button
+                        key={collection.id}
+                        className={`rail-item rail-item--provider-collection${activeFilter?.type === 'source-collection' && activeFilter.collectionId === collection.id ? ' rail-item--active' : ''}`}
+                        type="button"
+                        onClick={() => onSelectSourceCollection(collection)}
+                      >
+                        <span className="rail-item__label">{collection.name}</span>
+                      </button>
+                    )) : null}
+                    <button
+                      className={`rail-item rail-item--provider-child${activeFilter?.type === 'source-favorites' && activeFilter.sourceId === source.id ? ' rail-item--active' : ''}`}
+                      type="button"
+                      onClick={() => onSelectSourceFavorites(source.id, source.name)}
+                    >
+                      <span className="rail-item__label">{t('nav.favorites')}</span>
+                    </button>
+                  </> : null}
+                </div>
+              ))}
+              {localSources.length > 0 ? (
+                <div className="rail-source-provider rail-source-provider--local">
+                  <div className="rail-source-provider__heading">
+                    <button type="button" className="rail-source-provider__collapse" aria-label={`${sections.localFolders ? 'Collapse' : 'Expand'} ${t('sources.localFolders')}`} aria-expanded={sections.localFolders} onClick={() => toggleSection('localFolders')}>
+                      <Chevron expanded={sections.localFolders} /><span>{t('sources.localFolders')}</span>
+                    </button>
+                  </div>
+                  {sections.localFolders ? localSourceFolders.map((folder) => {
                 const source = librarySummary.sources.find((item) => item.id === folder.sourceId)
                 const isActive = activeSourceId === folder.sourceId && activeFolderPath === folder.folderPath
                 const isRoot = folder.depth === 0
@@ -274,7 +375,7 @@ export function LeftRail({
                     className={`rail-item rail-item--source rail-item--folder${
                       isActive ? ' rail-item--active active' : ''
                     } rail-item--${source?.status ?? 'online'}${isRoot ? ' rail-item--source-root' : ''}`}
-                    style={{ paddingLeft: `${9 + folder.depth * 12}px` }}
+                    style={{ paddingLeft: `${34 + folder.depth * 12}px` }}
                   >
                     <button
                       aria-label={`${folder.name} ${compactCount(folder.photoCount)}`}
@@ -289,9 +390,8 @@ export function LeftRail({
                       }
                     >
                       <span className="rail-item__label">{folder.name}</span>
-                      <span className="rail-item__count">{compactCount(folder.photoCount)}</span>
                     </button>
-                    {isRoot ? (
+                    {isRoot && source?.sourceKind !== 'apple_photos' ? (
                       <button
                         className="rail-item__rename"
                         title={t('sources.edit')}
@@ -311,11 +411,7 @@ export function LeftRail({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation()
-                          if (
-                            window.confirm(t('sources.deleteConfirm', { name: folder.name }))
-                          ) {
-                            onDeleteSource(folder.sourceId)
-                          }
+                          onDeleteSource(folder.sourceId)
                         }}
                       >
                         ×
@@ -323,12 +419,12 @@ export function LeftRail({
                     ) : null}
                   </div>
                 )
-              })}
-              {sourceFolders.length === 0 &&
-                librarySummary.sources.map((source) => (
+                  }) : null}
+                  {sections.localFolders && localSourceFolders.length === 0 &&
+                    localSources.map((source) => (
                   <div
                     key={source.id}
-                    className={`rail-item rail-item--source rail-item--source-root rail-item--${source.status}`}
+                    className={`rail-item rail-item--source rail-item--source-root rail-item--provider-child rail-item--${source.status}`}
                   >
                     <button
                       aria-label={`${source.name} ${compactCount(source.photoCount)}`}
@@ -337,48 +433,50 @@ export function LeftRail({
                       onClick={() => onSelectFolder({ type: 'folder', sourceId: source.id, folderPath: '' })}
                     >
                       <span className="rail-item__label">{source.name}</span>
-                      <span className="rail-item__count">{compactCount(source.photoCount)}</span>
                     </button>
-                    <button
-                      className="rail-item__rename"
-                      title={t('sources.edit')}
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onRenameSource(source.id, source.name)
-                      }}
-                    >
-                      ✎
-                    </button>
+                    {source.sourceKind !== 'apple_photos' ? (
+                      <button
+                        className="rail-item__rename"
+                        title={t('sources.edit')}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onRenameSource(source.id, source.name)
+                        }}
+                      >
+                        ✎
+                      </button>
+                    ) : null}
                     <button
                       className="rail-item__delete"
                       title="Remove source"
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation()
-                        if (
-                          window.confirm(t('sources.deleteConfirm', { name: source.name }))
-                        ) {
-                          onDeleteSource(source.id)
-                        }
+                        onDeleteSource(source.id)
                       }}
                     >
                       ×
                     </button>
                   </div>
-                ))}
+                    ))}
+                </div>
+              ) : null}
               {librarySummary.sources.length === 0 && (
                 <div className="rail-item rail-item--muted">
                   <span>{t('nav.noSources')}</span>
                 </div>
               )}
-            </div>
+            </div> : null}
           </section>
 
           <section className="rail-group">
             <h2 className="rail-group__header-row">
-              {t('nav.albums')}
+              <button type="button" className="rail-group__collapse" aria-label={`${sections.albums ? 'Collapse' : 'Expand'} ${t('nav.albums')}`} aria-expanded={sections.albums} onClick={() => toggleSection('albums')}>
+                <Chevron expanded={sections.albums} /><span>{t('nav.albums')}</span>
+              </button>
               <button
+                aria-label={t('nav.newAlbum')}
                 className="rail-header-btn"
                 title={t('nav.newAlbum')}
                 type="button"
@@ -387,7 +485,7 @@ export function LeftRail({
                 +
               </button>
             </h2>
-            <div className="rail-list">
+            {sections.albums ? <div className="rail-list">
               {showNewAlbumInput && (
                 <form
                   className="rail-new-album"
@@ -461,7 +559,6 @@ export function LeftRail({
                       }}
                     >
                       <span className="rail-item__label">{album.name}</span>
-                      <span className="rail-item__count">{compactCount(album.photoCount)}</span>
                     </button>
                     <button
                       className="rail-item__rename"
@@ -496,8 +593,15 @@ export function LeftRail({
                   <span>No albums</span>
                 </div>
               )}
-            </div>
+            </div> : null}
           </section>
+
+          <NavGroup
+            title={t('nav.galaAnalysis')}
+            items={[...exploreItems, ...arrangeItems]}
+            expanded={sections.analysis}
+            onToggle={() => toggleSection('analysis')}
+          />
 
           {tags.length > 0 && (
             <section className="rail-group">
@@ -516,7 +620,6 @@ export function LeftRail({
                   >
                     <span className="rail-item__tag-dot" aria-hidden="true" />
                     <span className="rail-item__label">{tag.name}</span>
-                    <span className="rail-item__count">{compactCount(tag.photoCount)}</span>
                   </button>
                 ))}
               </div>

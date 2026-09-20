@@ -5,9 +5,14 @@ use serde::{Deserialize, Serialize};
 pub struct LibrarySource {
     pub id: String,
     pub name: String,
+    pub source_kind: String,
     pub root_path: String,
     pub status: String,
     pub photo_count: i64,
+    pub preview_paths: Vec<String>,
+    pub storage_mode: String,
+    pub sidecar_root: Option<String>,
+    pub volume_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,6 +50,15 @@ pub struct LibrarySummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SourceCollection {
+    pub id: String,
+    pub source_id: String,
+    pub name: String,
+    pub photo_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SourceFolder {
     pub id: String,
     pub source_id: String,
@@ -67,7 +81,9 @@ pub struct PhotoQualityScore {
 #[serde(rename_all = "camelCase")]
 pub struct TimelinePhoto {
     pub id: String,
+    pub logical_id: Option<String>,
     pub file_name: String,
+    pub extension: String,
     pub relative_path: String,
     pub folder_path: String,
     pub captured_at: Option<String>,
@@ -86,12 +102,25 @@ pub struct TimelinePhoto {
     pub is_hidden: bool,
     pub quality: Option<PhotoQualityScore>,
     pub tags: Vec<String>,
+    pub variant_count: usize,
+    pub variants: Vec<PhotoVariant>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhotoVariant {
+    pub id: String,
+    pub file_name: String,
+    pub extension: String,
+    pub format_kind: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpsertedPhoto {
     pub id: String,
+    pub logical_id: Option<String>,
+    pub extension: String,
     pub absolute_path: String,
     pub needs_thumbnail: bool,
 }

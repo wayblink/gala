@@ -24,11 +24,14 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/thumbnails/**", "$APPDATA/artifacts/**"]
+        "scope": ["$APPDATA/thumbnails/**", "$APPDATA/artifacts/**", "/Volumes/**/.gala/thumbnails/**"]
       }
     }
   },
   "bundle": {
+    "macOS": {
+      "infoPlist": "Info.plist"
+    },
     "active": true,
     "targets": "all",
     "icon": [

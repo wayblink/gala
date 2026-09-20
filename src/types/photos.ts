@@ -10,8 +10,10 @@ export type PhotoFilter =
   | { type: 'hidden' }
   // Views — semantic views (V1 targets; most are placeholders in V0)
   | { type: 'view'; viewId: ComingSoonViewId }
-  // Sources — filesystem sources and nested folders
+  // Sources — provider-scoped views and local filesystem folders
   | { type: 'folder'; sourceId: string; folderPath: string }
+  | { type: 'source-favorites'; sourceId: string; sourceName: string }
+  | { type: 'source-collection'; sourceId: string; collectionId: string; collectionName: string }
   // Custom views — user-created groupings
   | { type: 'album'; albumId: string }
   | { type: 'tag'; tagName: string }
@@ -47,6 +49,13 @@ export type FilterOptions = {
 
 export type PhotoDisplayMode = 'thumbnail' | 'list' | 'gallery'
 
+export type SourceCollection = {
+  id: string
+  sourceId: string
+  name: string
+  photoCount: number
+}
+
 export type SourceFolder = {
   id: string
   sourceId: string
@@ -58,7 +67,9 @@ export type SourceFolder = {
 
 export type TimelinePhoto = {
   id: string
+  logicalId?: string | null
   fileName: string
+  extension?: string
   relativePath: string
   folderPath: string
   capturedAt: string | null
@@ -77,6 +88,15 @@ export type TimelinePhoto = {
   isHidden: boolean
   quality?: PhotoQualityScore | null
   tags: string[]
+  variantCount?: number
+  variants?: PhotoVariant[]
+}
+
+export type PhotoVariant = {
+  id: string
+  fileName: string
+  extension: string
+  formatKind: 'raw' | 'jpeg' | 'heif' | 'other' | string
 }
 
 export type Tag = {

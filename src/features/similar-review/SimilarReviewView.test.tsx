@@ -101,6 +101,7 @@ describe('SimilarReviewView', () => {
         onZoomPhotos={vi.fn()}
         embeddingsLoaded={false}
         onApplyDecisions={onApplyDecisions}
+        showQuality
       />,
     )
 

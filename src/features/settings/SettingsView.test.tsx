@@ -10,6 +10,7 @@ describe('SettingsView', () => {
     const user = userEvent.setup()
     const onThemeChange = vi.fn()
     const onLanguageChange = vi.fn()
+    const onPhotoQualityChange = vi.fn()
 
     render(
       <SettingsView
@@ -19,12 +20,16 @@ describe('SettingsView', () => {
         languages={LANGUAGE_OPTIONS}
         activeLanguageId="en"
         onLanguageChange={onLanguageChange}
+        photoQualityEnabled={false}
+        onPhotoQualityChange={onPhotoQualityChange}
       />,
     )
 
     expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 2, name: 'Color style' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 2, name: 'Display language' })).toBeInTheDocument()
+    const qualitySwitch = screen.getByRole('switch', { name: 'Off' })
+    expect(qualitySwitch).toHaveAttribute('aria-checked', 'false')
     expect(screen.getByRole('radio', { name: /Archive Amber/i })).toHaveAttribute('aria-checked', 'true')
     expect(screen.getByRole('radio', { name: /Glacier Blue/i })).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: /Mint Lime/i })).toBeInTheDocument()
@@ -39,5 +44,8 @@ describe('SettingsView', () => {
 
     await user.click(screen.getByRole('radio', { name: /简体中文/i }))
     expect(onLanguageChange).toHaveBeenCalledWith('zh-Hans')
+
+    await user.click(qualitySwitch)
+    expect(onPhotoQualityChange).toHaveBeenCalledWith(true)
   })
 })

@@ -1,0 +1,6 @@
+{
+  "aliases": {
+    "dataset:alluxio:/mnt/s3/example/warehouse/dwd/dwd_example": "example_db.dwd_example",
+    "s3://example-bucket:dwd/table/dwd_example": "example_db.dwd_example"
+  }
+}

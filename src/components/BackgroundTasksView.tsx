@@ -13,6 +13,7 @@ type BackgroundTasksViewProps = {
   onRunPeopleScan?: () => void
   onRunContentScan?: () => void
   onRunQualityScan?: () => void
+  photoQualityEnabled?: boolean
 }
 
 export function BackgroundTasksView({
@@ -22,6 +23,7 @@ export function BackgroundTasksView({
   onRunPeopleScan,
   onRunContentScan,
   onRunQualityScan,
+  photoQualityEnabled = false,
 }: BackgroundTasksViewProps) {
   const { t } = useI18n()
   const activeCount = tasks.filter((task) => task.status === 'queued' || task.status === 'running').length
@@ -37,7 +39,7 @@ export function BackgroundTasksView({
           <h1>{t('tasks.title')}</h1>
         </div>
         <div className="task-view__actions">
-          <button type="button" onClick={onRunQualityScan}>{t('tasks.scanQuality')}</button>
+          <button type="button" onClick={onRunQualityScan} disabled={!photoQualityEnabled}>{t('tasks.scanQuality')}</button>
           <button type="button" onClick={onRunSimilarScan}>{t('tasks.scanSimilar')}</button>
           <button type="button" onClick={onRunPeopleScan}>{t('tasks.scanPeople')}</button>
           <button type="button" onClick={onRunContentScan}>{t('tasks.scanContent')}</button>

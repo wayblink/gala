@@ -28,6 +28,7 @@ type Props = {
   embeddingsBusy?: boolean
   onApplyDecisions?: (decisions: Record<string, Decision>) => Promise<void>
   decisionsBusy?: boolean
+  showQuality?: boolean
 }
 
 
@@ -125,6 +126,7 @@ function Tile({
   isMultiSelected,
   isFocusSelected,
   isRecommended,
+  showQuality,
   onClick,
   onZoom,
   onKeep,
@@ -137,6 +139,7 @@ function Tile({
   isMultiSelected: boolean
   isFocusSelected: boolean
   isRecommended: boolean
+  showQuality: boolean
   onClick: () => void
   onZoom: () => void
   onKeep: () => void
@@ -169,7 +172,7 @@ function Tile({
     .join(' ')
 
   const label = photo?.fileName ?? fileNameFallback
-  const quality = photo ? computePhotoQualityScore(photo) : null
+  const quality = showQuality && photo ? computePhotoQualityScore(photo) : null
 
   return (
     <button
@@ -306,6 +309,7 @@ export function SimilarReviewView({
   embeddingsBusy,
   onApplyDecisions,
   decisionsBusy,
+  showQuality = false,
 }: Props) {
   const [decisionsByCard, setDecisionsByCard] = useState<Record<string, Record<string, Decision>>>(
     () => Object.fromEntries(cards.map((c) => [c.id, {}])),
@@ -434,7 +438,7 @@ export function SimilarReviewView({
   const activeRecommendation = activeCard?.recommendedKeepPhotoId
     ? photosById.get(activeCard.recommendedKeepPhotoId)
     : null
-  const activeRecommendationQuality = activeRecommendation ? computePhotoQualityScore(activeRecommendation) : null
+  const activeRecommendationQuality = showQuality && activeRecommendation ? computePhotoQualityScore(activeRecommendation) : null
 
   return (
     <main className="similar-review-view" aria-label="Similar review workflow">
@@ -616,6 +620,7 @@ export function SimilarReviewView({
                     isMultiSelected={selectedIds.has(id)}
                     isFocusSelected={!selectionMode && selectedPhotoId === id}
                     isRecommended={activeCard.recommendedKeepPhotoId === id}
+                    showQuality={showQuality}
                     onClick={() => handleTileClick(activeCard.id, id)}
                     onZoom={() => handleTileZoom(activeCard.photoIds, id)}
                     onKeep={() => setDecision(activeCard.id, id, 'keep')}

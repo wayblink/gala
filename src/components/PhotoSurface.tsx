@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Eye, EyeOff, Star } from 'lucide-react'
 import {
+  downloadApplePhotosOriginal,
   getAlbumPhotos,
   getFavoritePhotos,
   getFilteredPhotos,
@@ -9,18 +9,23 @@ import {
   getPhotosByPerson,
   getPhotosByTag,
   getRecentlyAddedPhotos,
+  getSourceCollectionPhotos,
   getTimelinePhotos,
   searchPhotos,
 } from '../desktop/photos'
 import { groupTimelinePhotos } from '../data/photoTimeline'
-import type { Album, ComingSoonViewId, FilterOptions, PhotoDisplayMode, PhotoFilter, SmartFilter, TimelinePhoto } from '../types/photos'
+import type { SelectionScope } from '../state/useSelection'
+import type { ComingSoonViewId, FilterOptions, PhotoDisplayMode, PhotoFilter, SmartFilter, TimelinePhoto } from '../types/photos'
 import { ComingSoonView } from './ComingSoonView'
 import { FilterPanel } from './FilterPanel'
 import { PhotoCard } from './PhotoCard'
 import { PhotoGallery } from './PhotoGallery'
 import { PhotoViewer } from './PhotoViewer'
+import { ThemedSelect } from './ThemedSelect'
 
 const PHOTOS_PER_PAGE = 50
+const SELECTION_PAGE_SIZE = 500
+const MAX_SELECTION_SIZE = 100_000
 
 type PhotoSurfaceProps = {
   filter: PhotoFilter | null
@@ -30,23 +35,31 @@ type PhotoSurfaceProps = {
   searchQuery: string
   dataVersion?: number
   onSelectPhoto: (photo: TimelinePhoto | null) => void
+  onHoverPhoto?: (photo: TimelinePhoto | null) => void
   smartFilter?: SmartFilter
   filterPanelOpen?: boolean
   filterOptions?: FilterOptions | null
   onSmartFilterChange?: (f: SmartFilter) => void
   onCloseFilterPanel?: () => void
-  albums?: Album[]
-  onBatchAddToAlbum?: (albumId: string, photoIds: string[]) => Promise<void>
-  onBatchRemoveFromAlbum?: (albumId: string, photoIds: string[]) => Promise<void>
   selectionMode?: boolean
   onToggleSelectionMode?: () => void
   selectedIds: Set<string>
   onToggleSelectedId: (photoId: string) => void
   onClearSelection: () => void
-  onSetSelectedIds: (ids: Set<string>) => void
-  onBatchFavorite?: (photoIds: string[], favorited: boolean) => Promise<void>
-  onBatchHide?: (photoIds: string[], hidden: boolean) => Promise<void>
-  onBatchAddTags?: (photoIds: string[], tags: string[]) => Promise<void>
+  onSetSelectedIds: (ids: Set<string>, scope?: SelectionScope | null) => void
+  selectionScope?: SelectionScope | null
+  showQuality?: boolean
+  originalPaths?: Record<string, string>
+  onOriginalPathsLoaded?: (paths: Record<string, string>) => void
+}
+
+type VariantDisplayMode = 'merged' | 'separate'
+type VariantSelectionMode = 'all' | 'raw' | 'jpeg' | 'heif'
+
+function getTimelineWithVariantMode(limit: number, offset: number, filter: PhotoFilter | null, mode: VariantDisplayMode) {
+  return mode === 'merged'
+    ? getTimelinePhotos(limit, offset, filter)
+    : getTimelinePhotos(limit, offset, filter, false)
 }
 
 function filterKey(filter: PhotoFilter | null, searchQuery: string, smartFilter: SmartFilter, dataVersion: number): string {
@@ -57,6 +70,8 @@ function filterKey(filter: PhotoFilter | null, searchQuery: string, smartFilter:
   if (filter.type === 'recent') return `recent${v}`
   if (filter.type === 'favorites') return `favorites${v}`
   if (filter.type === 'hidden') return `hidden${v}`
+  if (filter.type === 'source-favorites') return `source-favorites:${filter.sourceId}${v}`
+  if (filter.type === 'source-collection') return `source-collection:${filter.collectionId}${v}`
   if (filter.type === 'album') return `album:${filter.albumId}${v}`
   if (filter.type === 'tag') return `tag:${filter.tagName}${v}`
   if (filter.type === 'label') return `label:${filter.labelId}${v}`
@@ -92,33 +107,34 @@ export function PhotoSurface({
   searchQuery,
   dataVersion = 0,
   onSelectPhoto,
+  onHoverPhoto,
   smartFilter = {},
   filterPanelOpen = false,
   filterOptions = null,
   onSmartFilterChange,
   onCloseFilterPanel,
-  albums = [],
-  onBatchAddToAlbum,
-  onBatchRemoveFromAlbum,
   selectionMode = false,
   onToggleSelectionMode,
   selectedIds,
   onToggleSelectedId,
   onClearSelection,
   onSetSelectedIds,
-  onBatchFavorite,
-  onBatchHide,
-  onBatchAddTags,
+  selectionScope = null,
+  showQuality = false,
+  originalPaths = {},
+  onOriginalPathsLoaded,
 }: PhotoSurfaceProps) {
+  const [variantDisplayMode, setVariantDisplayMode] = useState<VariantDisplayMode>('merged')
+  const [variantSelectionMode, setVariantSelectionMode] = useState<VariantSelectionMode>('all')
   const [photos, setPhotos] = useState<TimelinePhoto[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [offset, setOffset] = useState(0)
   const [hasMore, setHasMore] = useState(true)
   const [viewerIndex, setViewerIndex] = useState<number | null>(null)
-  const [batchAlbumPickerOpen, setBatchAlbumPickerOpen] = useState(false)
-  const [tagInput, setTagInput] = useState('')
+  const [selectionBusyLabel, setSelectionBusyLabel] = useState<string | null>(null)
+  const [selectionError, setSelectionError] = useState<string | null>(null)
   const trimmedSearchQuery = searchQuery.trim()
-  const currentFilterKey = filterKey(filter, searchQuery, smartFilter, dataVersion)
+  const currentFilterKey = `${filterKey(filter, searchQuery, smartFilter, dataVersion)}:${variantDisplayMode}`
   const comingSoon = isComingSoonFilter(filter)
   const hasSmartFilter = Object.keys(smartFilter).some(
     (k) => (smartFilter as Record<string, unknown>)[k] !== undefined &&
@@ -135,12 +151,14 @@ export function PhotoSurface({
     [groupedPhotos, photos, shouldGroupByTimeline],
   )
 
-  const allSelectedFavorited = useMemo(() => {
-    if (selectedIds.size === 0) return false
-    const selectedPhotos = visiblePhotos.filter((p) => selectedIds.has(p.id))
-    return selectedPhotos.length > 0 && selectedPhotos.every((p) => p.isFavorite)
-  }, [selectedIds, visiblePhotos])
-
+  const selectionSummary = useMemo(() => {
+    const applePhotos = Array.from(selectedIds).filter((id) => id.startsWith('apple-photos:')).length
+    return {
+      total: selectedIds.size,
+      applePhotos,
+      localPhotos: selectedIds.size - applePhotos,
+    }
+  }, [selectedIds])
   useEffect(() => {
     setPhotos([])
     setIsLoading(true)
@@ -183,12 +201,16 @@ export function PhotoSurface({
         newPhotos = await getPhotosByLabel(filter.labelId, PHOTOS_PER_PAGE, offset)
       } else if (filter?.type === 'person') {
         newPhotos = await getPhotosByPerson(filter.personId, PHOTOS_PER_PAGE, offset)
+      } else if (filter?.type === 'source-favorites') {
+        newPhotos = await getFavoritePhotos(PHOTOS_PER_PAGE, offset, filter.sourceId)
+      } else if (filter?.type === 'source-collection') {
+        newPhotos = await getSourceCollectionPhotos(filter.collectionId, PHOTOS_PER_PAGE, offset)
       } else if (hasSmartFilter) {
         const sourceId = filter?.type === 'folder' ? filter.sourceId : undefined
         const folderPath = filter?.type === 'folder' ? filter.folderPath : undefined
         newPhotos = await getFilteredPhotos(PHOTOS_PER_PAGE, offset, smartFilter, sourceId, folderPath)
       } else {
-        newPhotos = await getTimelinePhotos(PHOTOS_PER_PAGE, offset, filter)
+        newPhotos = await getTimelineWithVariantMode(PHOTOS_PER_PAGE, offset, filter, variantDisplayMode)
       }
 
       if (cancelled) {
@@ -244,7 +266,105 @@ export function PhotoSurface({
   }
 
   const selectAllVisible = () => {
-    onSetSelectedIds(new Set(visiblePhotos.map((p) => p.id)))
+    if (!selectionMode) onToggleSelectionMode?.()
+    const ids = visiblePhotos.flatMap((photo) => {
+      const variants = photo.variants ?? []
+      if (variantSelectionMode === 'all') return variants.length > 0 ? variants.map((v) => v.id) : [photo.id]
+      return variants.filter((variant) => variant.formatKind === variantSelectionMode).map((variant) => variant.id)
+    })
+    onSetSelectedIds(new Set(ids), { kind: 'visible', label: `Visible photos · ${variantSelectionMode}` })
+  }
+  const fetchSelectionPage = async (limit: number, pageOffset: number): Promise<TimelinePhoto[]> => {
+    if (trimmedSearchQuery) return searchPhotos(trimmedSearchQuery, limit, pageOffset)
+    if (filter?.type === 'recent') return getRecentlyAddedPhotos(limit, pageOffset)
+    if (filter?.type === 'favorites') return getFavoritePhotos(limit, pageOffset)
+    if (filter?.type === 'hidden') return getHiddenPhotos(limit, pageOffset)
+    if (filter?.type === 'album') return getAlbumPhotos(filter.albumId, limit, pageOffset)
+    if (filter?.type === 'tag') return getPhotosByTag(filter.tagName, limit, pageOffset)
+    if (filter?.type === 'label') return getPhotosByLabel(filter.labelId, limit, pageOffset)
+    if (filter?.type === 'person') return getPhotosByPerson(filter.personId, limit, pageOffset)
+    if (filter?.type === 'source-favorites') return getFavoritePhotos(limit, pageOffset, filter.sourceId)
+    if (filter?.type === 'source-collection') return getSourceCollectionPhotos(filter.collectionId, limit, pageOffset)
+    if (hasSmartFilter) {
+      return getFilteredPhotos(
+        limit,
+        pageOffset,
+        smartFilter,
+        filter?.type === 'folder' ? filter.sourceId : undefined,
+        filter?.type === 'folder' ? filter.folderPath : undefined,
+      )
+    }
+    return getTimelineWithVariantMode(limit, pageOffset, filter, variantDisplayMode)
+  }
+
+  const resolveAllPages = async (
+    getPage: (limit: number, pageOffset: number) => Promise<TimelinePhoto[]>,
+  ): Promise<TimelinePhoto[]> => {
+    const resolved: TimelinePhoto[] = []
+    for (let pageOffset = 0; ; pageOffset += SELECTION_PAGE_SIZE) {
+      const page = await getPage(SELECTION_PAGE_SIZE, pageOffset)
+      if (resolved.length + page.length > MAX_SELECTION_SIZE) {
+        throw new Error(`Selection exceeds the ${MAX_SELECTION_SIZE.toLocaleString()} photo safety limit.`)
+      }
+      resolved.push(...page)
+      if (page.length < SELECTION_PAGE_SIZE) return resolved
+      if (resolved.length === MAX_SELECTION_SIZE) {
+        const overflow = await getPage(1, pageOffset + SELECTION_PAGE_SIZE)
+        if (overflow.length > 0) {
+          throw new Error(`Selection exceeds the ${MAX_SELECTION_SIZE.toLocaleString()} photo safety limit.`)
+        }
+        return resolved
+      }
+    }
+  }
+
+  const selectAllMatching = async () => {
+    if (selectionBusyLabel) return
+    if (!selectionMode) onToggleSelectionMode?.()
+    setSelectionError(null)
+    setSelectionBusyLabel('Selecting all matching photos…')
+    try {
+      const matching = await resolveAllPages(fetchSelectionPage)
+      const ids = matching.flatMap((photo) => {
+        const variants = photo.variants ?? []
+        if (variantSelectionMode === 'all') return variants.length > 0 ? variants.map((v) => v.id) : [photo.id]
+        return variants.filter((variant) => variant.formatKind === variantSelectionMode).map((variant) => variant.id)
+      })
+      onSetSelectedIds(new Set(ids), { kind: 'matching', label: variantSelectionMode === 'all' ? title : `${title} · ${variantSelectionMode}` })
+    } catch (error) {
+      setSelectionError(error instanceof Error ? error.message : 'Could not select all matching photos.')
+    } finally {
+      setSelectionBusyLabel(null)
+    }
+  }
+
+  const resolveDateGroup = async (group: typeof groupedPhotos[number]) => {
+    const allMatching = await resolveAllPages(fetchSelectionPage)
+    if (group.key === 'undated') return allMatching.filter((photo) => !photo.capturedAt)
+    return allMatching.filter((photo) => {
+      if (!photo.capturedAt) return false
+      const date = new Date(photo.capturedAt)
+      if (Number.isNaN(date.getTime())) return false
+      const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+      return key === group.key
+    })
+  }
+
+  const selectDateGroup = async (group: typeof groupedPhotos[number], deselect: boolean) => {
+    if (selectionBusyLabel) return
+    if (!selectionMode) onToggleSelectionMode?.()
+    setSelectionError(null)
+    setSelectionBusyLabel(`${deselect ? 'Deselecting' : 'Selecting'} ${group.title}…`)
+    try {
+      const datePhotos = await resolveDateGroup(group)
+      const nextSelection = new Set(selectedIds)
+      datePhotos.forEach((photo) => deselect ? nextSelection.delete(photo.id) : nextSelection.add(photo.id))
+      onSetSelectedIds(nextSelection, deselect ? { kind: 'explicit' } : { kind: 'date', dateKey: group.key, label: group.title })
+    } catch (error) {
+      setSelectionError(error instanceof Error ? error.message : `Could not select ${group.title}.`)
+    } finally {
+      setSelectionBusyLabel(null)
+    }
   }
 
   const renderPhotoCard = (photo: TimelinePhoto) => {
@@ -262,9 +382,12 @@ export function PhotoSurface({
       >
         <PhotoCard
           photo={photo}
+          originalPath={originalPaths[photo.id]}
           variant={displayMode === 'list' ? 'list' : 'thumbnail'}
           selected={photo.id === selectedPhotoId}
           onClick={() => handlePhotoClick(photo)}
+          onHover={() => onHoverPhoto?.(photo)}
+          showQuality={showQuality}
         />
         {selectionMode && (
           <button
@@ -298,6 +421,7 @@ export function PhotoSurface({
       className={`photo-surface${displayMode === 'gallery' ? ' photo-surface--gallery' : ''}`}
       aria-label="Timeline photo surface"
       onScroll={handleScroll}
+      onMouseLeave={() => onHoverPhoto?.(null)}
     >
       {filterPanelOpen && filterOptions && (
         <FilterPanel
@@ -318,6 +442,12 @@ export function PhotoSurface({
           </p>
         </header>
       )}
+      {displayMode !== 'gallery' && (
+        <div className="photo-surface__variant-controls" aria-label="Photo variant controls">
+          <ThemedSelect value={variantDisplayMode} ariaLabel="Variant display" options={[{ value: 'merged', label: '合并显示' }, { value: 'separate', label: '分开显示' }]} onChange={(value) => setVariantDisplayMode(value as VariantDisplayMode)} />
+          <ThemedSelect value={variantSelectionMode} ariaLabel="Variant selection" options={[{ value: 'all', label: '选择所有格式' }, { value: 'raw', label: '仅选择 RAW' }, { value: 'jpeg', label: '仅选择 JPG/JPEG' }, { value: 'heif', label: '仅选择 HEIF/HIF' }]} onChange={(value) => setVariantSelectionMode(value as VariantSelectionMode)} />
+        </div>
+      )}
 
       {photos.length === 0 && !isLoading && (
         <div className="photo-surface__empty">
@@ -333,19 +463,32 @@ export function PhotoSurface({
           onOpenPhoto={openPhotoViewer}
         />
       ) : shouldGroupByTimeline ? (
-        groupedPhotos.map((group) => (
-          <section className="timeline-group" key={group.key}>
-            <div className="timeline-group__header">
-              <div>
-                <h3>{group.title}</h3>
-                <p>{group.count} photos</p>
+        groupedPhotos.map((group) => {
+          const selectedInGroup = group.photos.filter((photo) => selectedIds.has(photo.id)).length
+          const allInGroupSelected = selectedInGroup === group.photos.length
+          return (
+            <section className="timeline-group" key={group.key}>
+              <div className="timeline-group__header">
+                <div>
+                  <h3>{group.title}</h3>
+                  <p>{group.count} photos</p>
+                </div>
+                <button
+                  type="button"
+                  className="timeline-group__select-btn"
+                  onClick={() => void selectDateGroup(group, allInGroupSelected)}
+                  disabled={selectionBusyLabel !== null}
+                  aria-label={`${allInGroupSelected ? 'Deselect' : 'Select'} photos from ${group.title}`}
+                >
+                  {allInGroupSelected ? 'Deselect date' : selectedInGroup > 0 ? 'Select remaining' : 'Select date'}
+                </button>
               </div>
-            </div>
-            <div className={collectionClassName}>
-              {group.photos.map(renderPhotoCard)}
-            </div>
-          </section>
-        ))
+              <div className={collectionClassName}>
+                {group.photos.map(renderPhotoCard)}
+              </div>
+            </section>
+          )
+        })
       ) : (
         <div className={collectionClassName}>
           {photos.map(renderPhotoCard)}
@@ -362,6 +505,12 @@ export function PhotoSurface({
         <PhotoViewer
           photos={visiblePhotos}
           initialIndex={viewerIndex}
+          originalPaths={originalPaths}
+          onLoadOriginal={async (photoId) => {
+            const path = await downloadApplePhotosOriginal(photoId)
+            if (path) onOriginalPathsLoaded?.({ [photoId]: path })
+            return path
+          }}
           onPhotoChange={onSelectPhoto}
           onClose={() => setViewerIndex(null)}
         />
@@ -371,16 +520,27 @@ export function PhotoSurface({
         <div className="selection-toolbar">
           <span className="selection-toolbar__count">
             {selectedIds.size} selected
-            {selectionMode ? ' · Select mode' : ''}
+            {selectionScope && 'label' in selectionScope ? ` · ${selectionScope.label}` : ''}
+            {selectionSummary.total > 0 ? ` · ${selectionSummary.applePhotos} Apple Photos · ${selectionSummary.localPhotos} local` : ''}
           </span>
           <div className="selection-toolbar__actions">
+            {selectionBusyLabel && <span className="selection-toolbar__status" role="status">{selectionBusyLabel}</span>}
+            {selectionError && <span className="selection-toolbar__status selection-toolbar__status--error" role="alert">{selectionError}</span>}
             <button
               className="selection-toolbar__btn"
               type="button"
               onClick={selectAllVisible}
-              disabled={visiblePhotos.length === 0}
+              disabled={visiblePhotos.length === 0 || selectionBusyLabel !== null}
             >
-              Select all
+              Select visible
+            </button>
+            <button
+              className="selection-toolbar__btn"
+              type="button"
+              onClick={() => void selectAllMatching()}
+              disabled={visiblePhotos.length === 0 || selectionBusyLabel !== null}
+            >
+              Select all matching
             </button>
             <button
               className="selection-toolbar__btn"
@@ -391,108 +551,10 @@ export function PhotoSurface({
               Unselect all
             </button>
             <button
-              className="selection-toolbar__btn"
-              type="button"
-              disabled={selectedIds.size === 0 || !onBatchFavorite}
-              title={allSelectedFavorited ? 'Remove favorite from selection' : 'Mark selection as favorite'}
-              aria-label={allSelectedFavorited ? 'Unfavorite selection' : 'Favorite selection'}
-              onClick={async () => {
-                await onBatchFavorite?.(Array.from(selectedIds), !allSelectedFavorited)
-              }}
-            >
-              <Star
-                size={14}
-                strokeWidth={2}
-                fill={allSelectedFavorited ? 'currentColor' : 'none'}
-              />
-              {allSelectedFavorited ? 'Unfavorite' : 'Favorite'}
-            </button>
-            <button
-              className="selection-toolbar__btn"
-              type="button"
-              disabled={selectedIds.size === 0 || !onBatchHide}
-              title={filter?.type === 'hidden' ? 'Unhide selection' : 'Hide selection'}
-              aria-label={filter?.type === 'hidden' ? 'Unhide selection' : 'Hide selection'}
-              onClick={async () => {
-                await onBatchHide?.(Array.from(selectedIds), filter?.type !== 'hidden')
-              }}
-            >
-              {filter?.type === 'hidden' ? <Eye size={14} strokeWidth={2} /> : <EyeOff size={14} strokeWidth={2} />}
-              {filter?.type === 'hidden' ? 'Unhide' : 'Hide'}
-            </button>
-            <form
-              className="selection-toolbar__tag-form"
-              onSubmit={async (e) => {
-                e.preventDefault()
-                const tag = tagInput.trim()
-                if (!tag || selectedIds.size === 0 || !onBatchAddTags) return
-                await onBatchAddTags(Array.from(selectedIds), [tag])
-                setTagInput('')
-              }}
-            >
-              <input
-                className="selection-toolbar__tag-input"
-                placeholder="Add tag…"
-                type="text"
-                value={tagInput}
-                onChange={(e) => setTagInput(e.target.value)}
-                disabled={selectedIds.size === 0 || !onBatchAddTags}
-              />
-              <button
-                className="selection-toolbar__btn"
-                type="submit"
-                disabled={selectedIds.size === 0 || !onBatchAddTags || !tagInput.trim()}
-              >
-                Tag
-              </button>
-            </form>
-            <div className="selection-toolbar__album-picker">
-              <button
-                className="selection-toolbar__btn"
-                type="button"
-                onClick={() => setBatchAlbumPickerOpen((v) => !v)}
-                disabled={selectedIds.size === 0}
-              >
-                Add to Album
-              </button>
-              {batchAlbumPickerOpen && (
-                <div className="selection-toolbar__album-dropdown">
-                  {albums.length === 0 && <div className="selection-toolbar__album-empty">No albums</div>}
-                  {albums.map((album) => (
-                    <button
-                      className="selection-toolbar__album-item"
-                      key={album.id}
-                      type="button"
-                      onClick={async () => {
-                        await onBatchAddToAlbum?.(album.id, Array.from(selectedIds))
-                        setBatchAlbumPickerOpen(false)
-                      }}
-                    >
-                      {album.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            {filter?.type === 'album' && onBatchRemoveFromAlbum ? (
-              <button
-                className="selection-toolbar__btn"
-                type="button"
-                disabled={selectedIds.size === 0}
-                onClick={async () => {
-                  if (filter.type !== 'album') return
-                  await onBatchRemoveFromAlbum(filter.albumId, Array.from(selectedIds))
-                }}
-              >
-                Remove from Album
-              </button>
-            ) : null}
-            <button
               className="selection-toolbar__btn selection-toolbar__btn--clear"
               type="button"
               onClick={() => {
                 onClearSelection()
-                setBatchAlbumPickerOpen(false)
                 if (selectionMode) onToggleSelectionMode?.()
               }}
             >

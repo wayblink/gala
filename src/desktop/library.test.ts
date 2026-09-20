@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { listenToScanProgress, getLibrarySummary, pickPhotoFolder, relinkPhotoSource, scanPhotoSource } from './library'
+import { connectApplePhotos, getApplePhotosStatus, listenToScanProgress, getLibrarySummary, openSourceFolder, pickPhotoFolder, relinkPhotoSource, scanPhotoSource } from './library'
+import { deleteSource, renameSource } from './photos'
 import { listen } from '@tauri-apps/api/event'
+import { getWebMockLibrarySummary } from './webMock'
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(),
@@ -12,14 +14,31 @@ afterEach(() => {
 })
 
 describe('library desktop bridge', () => {
-  it('returns an empty library summary in web mode', async () => {
-    await expect(getLibrarySummary()).resolves.toEqual({
-      sources: [],
-      totalPhotos: 0,
-      recentlyAddedCount: 0,
-      favoritesCount: 0,
-      hiddenCount: 0,
-    })
+  it('returns a preview mock library summary in web mode', async () => {
+    await expect(getLibrarySummary()).resolves.toEqual(getWebMockLibrarySummary())
+  })
+
+  it('uses native PhotoKit status and connection commands', async () => {
+    const status = { available: true, authorization: 'authorized', assetCount: 12, sourceId: null, message: null }
+    const invoke = vi.fn().mockResolvedValue(status)
+    window.__TAURI_INTERNALS__ = { invoke }
+
+    await expect(getApplePhotosStatus()).resolves.toEqual(status)
+    await expect(connectApplePhotos()).resolves.toEqual(status)
+
+    expect(invoke).toHaveBeenNthCalledWith(1, 'apple_photos_status_cmd', {}, undefined)
+    expect(invoke).toHaveBeenNthCalledWith(2, 'connect_apple_photos_cmd', {}, undefined)
+  })
+
+  it('passes source paths to the native folder opener', async () => {
+    const invoke = vi.fn().mockResolvedValue(undefined)
+    window.__TAURI_INTERNALS__ = { invoke }
+
+    await openSourceFolder('/Users/me/Pictures')
+
+    expect(invoke).toHaveBeenCalledWith('open_source_folder_cmd', {
+      rootPath: '/Users/me/Pictures',
+    }, undefined)
   })
 
   it('invokes the native folder picker when Tauri is available', async () => {
@@ -70,6 +89,20 @@ describe('library desktop bridge', () => {
     expect(invoke).toHaveBeenCalledWith('relink_photo_source', {
       sourceId: 'source-1',
       rootPath: '/Volumes/Archive/Pictures',
+    }, undefined)
+  })
+
+  it('invokes native source deletion and rename commands', async () => {
+    const invoke = vi.fn().mockResolvedValue(undefined)
+    window.__TAURI_INTERNALS__ = { invoke }
+
+    await deleteSource('source-1')
+    await renameSource('source-1', 'Travel Archive')
+
+    expect(invoke).toHaveBeenNthCalledWith(1, 'delete_source_cmd', { sourceId: 'source-1' }, undefined)
+    expect(invoke).toHaveBeenNthCalledWith(2, 'rename_source_cmd', {
+      sourceId: 'source-1',
+      newName: 'Travel Archive',
     }, undefined)
   })
 
