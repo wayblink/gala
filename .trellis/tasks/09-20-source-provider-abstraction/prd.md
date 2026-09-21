@@ -32,9 +32,9 @@
 - [x] provider contract 可以描述 `move`、`copy`、`export`、`readOriginal`、`collections` 等能力，但当前 organization execute 只消费 `move`。
 - [x] Provider capability gate 已接入 Reorganize 计划扫描：只有支持 move 的 Local Folder 才能进入 organization execute；Apple Photos 当前 fail closed。
 - [x] Reorganize 前后端均强制 move-only；copy/export 不属于当前组织执行路径。
-- [ ] 现有前端测试、Rust 测试和数据迁移兼容性保持通过。
-- [ ] 形成 provider contract、错误语义和迁移边界的设计文档。
-- [ ] provider 错误、能力不足和目标状态变化都能映射到可持久化的 paused 状态，并支持显式 continue/rollback。
+- [x] 现有前端测试、Rust 测试和数据迁移兼容性保持通过。
+- [x] 形成 provider contract、错误语义和迁移边界的设计文档。
+- [x] provider 错误、能力不足和目标状态变化都能映射到可持久化的 paused 状态，并支持显式 continue/rollback。
 
 ## Confirmed data identity rule
 
