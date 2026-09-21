@@ -1,10 +1,11 @@
 import { invoke } from '@tauri-apps/api/core'
 import { isTauriAvailable } from './tauri'
 
-export type ReorganizeMode = 'copy' | 'move'
+export type ReorganizeMode = 'move'
 export type ReorganizeCollisionStrategy = 'keep_both' | 'skip' | 'overwrite'
 
 export type ReorganizePlanOptions = {
+  sourceRoots?: string[]
   targetRoot: string
   pattern: string
   mode: ReorganizeMode
@@ -28,6 +29,7 @@ export type ReorganizePlanEntry = {
   afterDir: string
   action: string
   conflict: boolean
+  sourceFingerprint?: string | null
 }
 
 export type ReorganizePlan = {
@@ -68,6 +70,7 @@ export async function scanReorganizePlan(options: ReorganizePlanOptions): Promis
 }
 
 export async function executeReorganizePlan(
+  planId: string,
   entries: ReorganizePlanEntry[],
   mode: ReorganizeMode,
   collisionStrategy: ReorganizeCollisionStrategy,
@@ -77,9 +80,20 @@ export async function executeReorganizePlan(
     return { attempted: 0, completed: 0, failed: 0, skipped: 0, errors: [] }
   }
   return await invoke<ReorganizeExecuteSummary>('reorganize_execute_plan_cmd', {
+    planId,
     entries,
     mode,
     collisionStrategy,
     targetRoot,
   })
+}
+
+export async function continueReorganizePlan(planId: string): Promise<ReorganizeExecuteSummary> {
+  if (!isTauriAvailable()) return { attempted: 0, completed: 0, failed: 0, skipped: 0, errors: [] }
+  return await invoke<ReorganizeExecuteSummary>('reorganize_continue_cmd', { planId })
+}
+
+export async function rollbackReorganizePlan(planId: string): Promise<ReorganizeExecuteSummary> {
+  if (!isTauriAvailable()) return { attempted: 0, completed: 0, failed: 0, skipped: 0, errors: [] }
+  return await invoke<ReorganizeExecuteSummary>('reorganize_rollback_cmd', { planId })
 }

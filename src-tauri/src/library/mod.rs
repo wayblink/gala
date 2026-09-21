@@ -2,6 +2,7 @@ pub mod apple_photos;
 pub mod commands;
 pub mod exif;
 pub mod models;
+pub mod provider;
 pub mod raw;
 pub mod scanner;
 pub mod sidecar;

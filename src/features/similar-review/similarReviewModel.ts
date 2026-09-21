@@ -18,6 +18,7 @@ export type SimilarReviewCard = {
 
 export type SimilarReviewPhoto = {
   id: string
+  logicalId?: string | null
   fileName: string
   capturedAt: string | null
   width?: number | null
@@ -68,6 +69,24 @@ const sortPhotos = (photos: SimilarReviewPhoto[]) =>
     const bTime = b.capturedAt ? Date.parse(b.capturedAt) : Number.POSITIVE_INFINITY
     return aTime - bTime || naturalCompare(a.fileName, b.fileName) || a.id.localeCompare(b.id)
   })
+
+const collapseLogicalVariants = (photos: SimilarReviewPhoto[]): SimilarReviewPhoto[] => {
+  const byGroup = new Map<string, SimilarReviewPhoto>()
+  for (const photo of photos) {
+    const key = photo.logicalId ? `group:${photo.logicalId}` : `photo:${photo.id}`
+    const existing = byGroup.get(key)
+    if (!existing) {
+      byGroup.set(key, photo)
+      continue
+    }
+    const existingScore = existing.quality?.score ?? -1
+    const photoScore = photo.quality?.score ?? -1
+    if (photo.isFavorite && !existing.isFavorite || photoScore > existingScore) {
+      byGroup.set(key, photo)
+    }
+  }
+  return Array.from(byGroup.values())
+}
 
 const closeByTime = (a: SimilarReviewPhoto, b: SimilarReviewPhoto, windowMs: number): boolean => {
   const aTime = a.capturedAt ? Date.parse(a.capturedAt) : Number.NaN
@@ -207,7 +226,7 @@ export function buildSimilarReviewQueue(
   const embeddings = options.embeddings
   const embeddingsAvailable = !!embeddings && embeddings.size > 0
 
-  const sorted = sortPhotos(photos)
+  const sorted = sortPhotos(collapseLogicalVariants(photos))
   const cards: SimilarReviewCard[] = []
   let group: SimilarReviewPhoto[] = []
 

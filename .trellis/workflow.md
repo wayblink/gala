@@ -10,6 +10,14 @@
 4. **Incremental development** — one task at a time
 5. **Capture learnings** — after each task, review and write new knowledge back to spec
 
+## Cross-Cutting Skill Protocol
+
+The phase router chooses the next Trellis action; it does not disable other skills. At the beginning of every turn and before each phase transition, perform a skill check against the full available skill set. Superpower skills remain available throughout planning, research, implementation, debugging, review, specification updates, and wrap-up. When a skill applies, load and follow it even if the current Trellis phase has a different primary route.
+
+`umem` is the persistence layer for this workflow. Use its retrieval rules whenever the user refers to prior work, preferences, decisions, memory, continuation, or when durable context could change the answer. Record concrete operations, decisions, verification, and unresolved next steps in the configured log; record stable user preferences and confirmed project decisions in the appropriate durable memory file. Do not let Trellis task artifacts replace memory, or memory replace task artifacts: keep requirements and implementation plans in `.trellis/tasks/`, and use `umem` for cross-session continuity.
+
+If a product, scope, UX, compatibility, migration, or risk decision belongs to the user and is unresolved, pause the dependent action and ask one focused question at a time. An `in_progress` task permits implementation only after its planning decisions are resolved; it does not authorize guessing through new user-owned decisions. If implementation reveals a missing or invalid requirement, roll back to planning and invoke `trellis-brainstorm` again.
+
 ---
 
 ## Trellis System
@@ -178,6 +186,7 @@ Create new children with `task.py create "<title>" --slug <name> --parent <paren
 
 [workflow-state:no_task]
 No active task. First classify the current turn and ask for task-creation consent before creating any Trellis task.
+At the start of this turn, run the full skill check; superpower skills and `umem` remain available even before a Trellis task exists.
 Simple conversation / small task: ask only whether this turn should create a Trellis task. If the user says no, skip Trellis for this session.
 Complex task: ask the user if you can create a Trellis task and enter the planning phase. If the user says no, explain, clarify scope, or suggest a smaller split.
 [/workflow-state:no_task]
@@ -202,6 +211,7 @@ Preserve existing task fields and artifacts. If the correct status cannot be det
 
 [workflow-state:planning]
 Load `trellis-brainstorm`; stay in planning.
+Run the full skill check and use applicable superpower skills and `umem` alongside `trellis-brainstorm`. Ask focused questions for unresolved user-owned decisions; do not infer them from the task status.
 Lightweight: `prd.md` can be enough. Complex: finish `prd.md`, `design.md`, and `implement.md`; ask for review before `task.py start`.
 Multi-deliverable scope: consider a parent task plus independently verifiable child tasks; dependencies must be written in child artifacts, not implied by tree position.
 Sub-agent mode: curate `implement.jsonl` and `check.jsonl` as spec/research manifests before start.
@@ -215,6 +225,7 @@ Sub-agent mode: curate `implement.jsonl` and `check.jsonl` as spec/research mani
 
 [workflow-state:planning-inline]
 Load `trellis-brainstorm`; stay in planning.
+Run the full skill check and use applicable superpower skills and `umem` alongside `trellis-brainstorm`. Ask focused questions for unresolved user-owned decisions; do not infer them from the task status.
 Lightweight: `prd.md` can be enough. Complex: finish `prd.md`, `design.md`, and `implement.md`; ask for review before `task.py start`.
 Multi-deliverable scope: consider a parent task plus independently verifiable child tasks; dependencies must be written in child artifacts, not implied by tree position.
 Inline mode: skip jsonl curation; Phase 2 reads artifacts/specs via `trellis-before-dev`.
@@ -234,6 +245,7 @@ Inline mode: skip jsonl curation; Phase 2 reads artifacts/specs via `trellis-bef
 Sub-agent dispatch protocol applies to all platforms and all sub-agents, including native Codex `SubagentStart` context injection with child-side pull fallback, class-2 Gemini/Qoder/Copilot/Reasonix/Trae/Grok/Kimi Code, hook-backed ZCode/Snow, and `trellis-research`: every dispatch prompt starts with `Active task: <task path from task.py current>` before role-specific instructions. On Grok Build, use `spawn_subagent` with `subagent_type` set to the Trellis agent name (e.g. `trellis-implement`). On Kimi Code, dispatch the built-in `coder` / `explore` sub-agent with the matching `.kimi-code/skills/trellis-<role>/SKILL.md` instructions.
 
 [workflow-state:in_progress]
+Run the full skill check before dispatching or editing. Superpower skills and `umem` remain available during implementation, debugging, review, spec updates, and commit preparation. If a new user-owned decision appears, pause and ask before continuing; return to planning when requirements need revision.
 Tools: `trellis-implement` / `trellis-research` are sub-agent types only (Task/Agent tool, NOT Skill; there is no skill by these names). `trellis-update-spec` is a skill. `trellis-check` exists as both; prefer the Agent form when verifying after code changes.
 Flow: `trellis-implement` -> `trellis-check` -> `trellis-update-spec` -> commit (Phase 3.4) -> `/trellis:finish-work`.
 Main-session default: dispatch implement/check sub-agents. Sub-agent self-exemption: if already running as `trellis-implement`, do NOT spawn another `trellis-implement` or `trellis-check`; if already running as `trellis-check`, do NOT spawn another `trellis-check` or `trellis-implement`. Dispatch is main session only.
@@ -246,6 +258,7 @@ Dispatch prompt starts with `Active task: <task path from task.py current>`. Rea
      instead of dispatching sub-agents. -->
 
 [workflow-state:in_progress-inline]
+Run the full skill check before editing and after each meaningful implementation change. Superpower skills and `umem` remain available throughout; pause for unresolved user-owned decisions and return to planning when requirements need revision.
 Flow: `trellis-before-dev` -> edit -> `trellis-check` -> validation -> `trellis-update-spec` -> commit (Phase 3.4) -> `/trellis:finish-work`.
 Do not dispatch implement/check sub-agents in inline mode.
 Read context: `prd.md` -> `design.md if present` -> `implement.md if present`, plus relevant spec/research loaded by skills.
@@ -268,6 +281,7 @@ Read context: `prd.md` -> `design.md if present` -> `implement.md if present`, p
      channel as the live blocks. -->
 
 [workflow-state:completed]
+Before wrap-up, run the full skill check and use `umem` to record the durable result, decisions, and follow-up context when applicable.
 Code committed. Run `/trellis:finish-work`; if dirty, return to Phase 3.4 first.
 [/workflow-state:completed]
 

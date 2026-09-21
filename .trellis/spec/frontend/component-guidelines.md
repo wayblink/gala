@@ -1,5 +1,13 @@
 # Component Guidelines
 
+Shared components receive explicit props and keep data loading in `src/desktop/` or `src/state/`. `PhotoCard` renders a `TimelinePhoto`; `PhotoSurface` owns paging, filtering and selection orchestration; feature views such as `ReorganizeView` own feature-local workflow state.
+
+Use semantic controls and accessible labels. Existing examples use `aria-label` for photo surfaces and icon buttons, `ThemedSelect` for themed selects, and real buttons for actions. Do not put Tauri `invoke` calls in reusable UI components.
+
+Prefer small render helpers when a component has repeated visual units. Preserve callback ownership: a child reports intent (`onSelect`, `onOpen`, `onExecute`) and the parent performs mutations.
+
+Tests should assert user-visible behavior with Testing Library roles and labels. Use `findBy*`/`waitFor` when a command or state refresh is asynchronous.
+
 > How components are built in this project.
 
 ---

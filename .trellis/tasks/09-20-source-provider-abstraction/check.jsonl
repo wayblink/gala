@@ -1,0 +1,2 @@
+{"file":".trellis/tasks/09-20-source-provider-abstraction/design.md","reason":"检查 provider capability、错误状态和恢复语义是否符合设计。"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"执行前端和 Rust 质量门槛，验证 adapter 变更没有破坏现有行为。"}

@@ -117,6 +117,60 @@ pub fn initialize_schema(conn: &Connection) -> Result<(), String> {
             asset_status TEXT NOT NULL,
             generated_at TEXT
         );
+        CREATE TABLE IF NOT EXISTS photo_locations (
+            id TEXT PRIMARY KEY,
+            photo_id TEXT NOT NULL REFERENCES photos(id),
+            source_id TEXT NOT NULL REFERENCES sources(id),
+            relative_path TEXT NOT NULL,
+            absolute_path_snapshot TEXT NOT NULL,
+            fingerprint TEXT,
+            is_current INTEGER NOT NULL DEFAULT 1,
+            observed_at TEXT NOT NULL,
+            moved_by_operation_id TEXT
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_photo_locations_current
+            ON photo_locations(photo_id) WHERE is_current = 1;
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_photo_locations_source_path
+            ON photo_locations(source_id, relative_path) WHERE is_current = 1;
+        CREATE TABLE IF NOT EXISTS photo_groups (
+            id TEXT PRIMARY KEY,
+            representative_photo_id TEXT REFERENCES photos(id),
+            rule_type TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS photo_group_members (
+            photo_group_id TEXT NOT NULL REFERENCES photo_groups(id),
+            photo_id TEXT NOT NULL REFERENCES photos(id),
+            role TEXT NOT NULL,
+            match_method TEXT NOT NULL,
+            confidence REAL,
+            status TEXT NOT NULL DEFAULT 'active',
+            confirmed_by TEXT,
+            PRIMARY KEY(photo_group_id, photo_id)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_group_member_active
+            ON photo_group_members(photo_id) WHERE status = 'active';
+        CREATE TABLE IF NOT EXISTS view_items (
+            view_instance_id TEXT NOT NULL,
+            item_kind TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            group_key TEXT,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            weight REAL,
+            reason_json TEXT,
+            location_snapshot TEXT,
+            PRIMARY KEY(view_instance_id, item_kind, item_id)
+        );
+        CREATE TABLE IF NOT EXISTS view_instances (
+            id TEXT PRIMARY KEY,
+            view_kind TEXT NOT NULL,
+            filter_json TEXT,
+            status TEXT NOT NULL DEFAULT 'active',
+            generated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_view_items_order
+            ON view_items(view_instance_id, group_key, sort_order);
         CREATE TABLE IF NOT EXISTS albums (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL UNIQUE,
@@ -255,6 +309,55 @@ pub fn initialize_schema(conn: &Connection) -> Result<(), String> {
             updated_at TEXT NOT NULL,
             completed_at TEXT
         );
+        CREATE TABLE IF NOT EXISTS organization_plans (
+            id TEXT PRIMARY KEY,
+            status TEXT NOT NULL,
+            source_roots_json TEXT NOT NULL,
+            options_json TEXT NOT NULL,
+            before_tree_json TEXT NOT NULL,
+            after_tree_json TEXT NOT NULL,
+            plan_version INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            reviewed_at TEXT,
+            executed_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS organization_entries (
+            id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL REFERENCES organization_plans(id),
+            photo_id TEXT NOT NULL REFERENCES photos(id),
+            source_path TEXT NOT NULL,
+            target_path TEXT NOT NULL,
+            source_fingerprint TEXT,
+            status TEXT NOT NULL,
+            error TEXT,
+            started_at TEXT,
+            completed_at TEXT,
+            rolled_back_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS organization_runs (
+            id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL REFERENCES organization_plans(id),
+            background_task_id TEXT REFERENCES background_tasks(id),
+            status TEXT NOT NULL,
+            current_cursor INTEGER NOT NULL DEFAULT 0,
+            completed_count INTEGER NOT NULL DEFAULT 0,
+            failed_count INTEGER NOT NULL DEFAULT 0,
+            skipped_count INTEGER NOT NULL DEFAULT 0,
+            error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS organization_logs (
+            id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL REFERENCES organization_plans(id),
+            run_id TEXT REFERENCES organization_runs(id),
+            entry_id TEXT REFERENCES organization_entries(id),
+            event_type TEXT NOT NULL,
+            payload_json TEXT,
+            created_at TEXT NOT NULL
+        );
         CREATE INDEX IF NOT EXISTS idx_background_tasks_status
             ON background_tasks(status, updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_background_tasks_kind
@@ -274,6 +377,12 @@ pub fn initialize_schema(conn: &Connection) -> Result<(), String> {
             ON faces(person_id, photo_id) WHERE person_id IS NOT NULL AND status = 'active';
         CREATE INDEX IF NOT EXISTS idx_persons_name
             ON persons(display_name) WHERE display_name IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_org_entries_plan_status
+            ON organization_entries(plan_id, status);
+        CREATE INDEX IF NOT EXISTS idx_org_runs_plan_created
+            ON organization_runs(plan_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_org_logs_plan_created
+            ON organization_logs(plan_id, created_at DESC);
         -- Indexes on columns added by migrate_schema (content_hash,
         -- fingerprint, photo_tag_sources) live in `migrate_schema`
         -- below — see #content-hash-index-order. They MUST run after
@@ -305,6 +414,19 @@ pub fn migrate_schema(conn: &Connection) -> Result<(), String> {
     let current_version: i32 = conn
         .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
         .unwrap_or(1);
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS photo_locations (id TEXT PRIMARY KEY, photo_id TEXT NOT NULL REFERENCES photos(id), source_id TEXT NOT NULL REFERENCES sources(id), relative_path TEXT NOT NULL, absolute_path_snapshot TEXT NOT NULL, fingerprint TEXT, is_current INTEGER NOT NULL DEFAULT 1, observed_at TEXT NOT NULL, moved_by_operation_id TEXT); \
+         CREATE UNIQUE INDEX IF NOT EXISTS ux_photo_locations_current ON photo_locations(photo_id) WHERE is_current = 1; \
+         CREATE UNIQUE INDEX IF NOT EXISTS ux_photo_locations_source_path ON photo_locations(source_id, relative_path) WHERE is_current = 1; \
+         CREATE TABLE IF NOT EXISTS photo_groups (id TEXT PRIMARY KEY, representative_photo_id TEXT REFERENCES photos(id), rule_type TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); \
+         CREATE TABLE IF NOT EXISTS photo_group_members (photo_group_id TEXT NOT NULL REFERENCES photo_groups(id), photo_id TEXT NOT NULL REFERENCES photos(id), role TEXT NOT NULL, match_method TEXT NOT NULL, confidence REAL, status TEXT NOT NULL DEFAULT 'active', confirmed_by TEXT, PRIMARY KEY(photo_group_id, photo_id)); \
+         CREATE UNIQUE INDEX IF NOT EXISTS ux_group_member_active ON photo_group_members(photo_id) WHERE status = 'active'; \
+         CREATE TABLE IF NOT EXISTS view_instances (id TEXT PRIMARY KEY, view_kind TEXT NOT NULL, filter_json TEXT, status TEXT NOT NULL DEFAULT 'active', generated_at TEXT NOT NULL); \
+         CREATE TABLE IF NOT EXISTS view_items (view_instance_id TEXT NOT NULL, item_kind TEXT NOT NULL, item_id TEXT NOT NULL, group_key TEXT, sort_order INTEGER NOT NULL DEFAULT 0, weight REAL, reason_json TEXT, location_snapshot TEXT, PRIMARY KEY(view_instance_id, item_kind, item_id)); \
+         CREATE INDEX IF NOT EXISTS ix_view_items_order ON view_items(view_instance_id, group_key, sort_order);",
+    )
+    .map_err(|e| format!("Failed to create organization relation tables during migration: {}", e))?;
 
     add_column_if_missing(conn, "photos", "favorited_at", "TEXT")?;
     add_column_if_missing(conn, "photos", "hidden_at", "TEXT")?;
@@ -557,6 +679,21 @@ pub fn migrate_schema(conn: &Connection) -> Result<(), String> {
 
     migrate_photo_tag_sources(conn)?;
     backfill_tag_layer_metadata(conn)?;
+
+    conn.execute(
+        "INSERT OR IGNORE INTO photo_groups (id, representative_photo_id, rule_type, created_at, updated_at) \
+         SELECT 'logical:' || logical_id, MIN(id), 'legacy_logical_id', datetime('now'), datetime('now') \
+         FROM photos WHERE logical_id IS NOT NULL AND TRIM(logical_id) <> '' GROUP BY logical_id",
+        [],
+    )
+    .map_err(|e| format!("Failed to migrate logical photo groups: {}", e))?;
+    conn.execute(
+        "INSERT OR IGNORE INTO photo_group_members (photo_group_id, photo_id, role, match_method, confidence, status, confirmed_by) \
+         SELECT 'logical:' || logical_id, id, CASE WHEN LOWER(extension) IN ('jpg','jpeg','heic','heif','hif') THEN 'rendered' ELSE 'source' END, 'legacy_logical_id', 1.0, 'active', 'migration' \
+         FROM photos WHERE logical_id IS NOT NULL AND TRIM(logical_id) <> ''",
+        [],
+    )
+    .map_err(|e| format!("Failed to migrate logical photo group members: {}", e))?;
 
     if current_version < SCHEMA_VERSION {
         conn.execute(
@@ -2461,7 +2598,58 @@ pub fn get_timeline_photos_with_variant_mode(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("Failed to collect timeline: {}", e))?;
     populate_photo_variants(conn, &mut photos)?;
+    materialize_timeline_view(
+        conn,
+        source_id,
+        normalized.as_deref(),
+        merge_variants,
+        &photos,
+    )?;
     Ok(photos)
+}
+
+fn materialize_timeline_view(
+    conn: &Connection,
+    source_id: Option<&str>,
+    folder_path: Option<&str>,
+    merge_variants: bool,
+    photos: &[TimelinePhoto],
+) -> Result<(), String> {
+    let view_id = format!(
+        "timeline:{}:{}:{}",
+        source_id.unwrap_or("all"),
+        folder_path.unwrap_or("root"),
+        if merge_variants { "merged" } else { "separate" }
+    );
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO view_instances (id, view_kind, filter_json, status, generated_at) VALUES (?1, 'timeline', ?2, 'active', ?3) \
+         ON CONFLICT(id) DO UPDATE SET status = 'active', generated_at = excluded.generated_at",
+        params![view_id, serde_json::json!({"sourceId": source_id, "folderPath": folder_path, "mergeVariants": merge_variants}).to_string(), now],
+    )
+    .map_err(|e| format!("Failed to persist timeline view: {}", e))?;
+    conn.execute(
+        "DELETE FROM view_items WHERE view_instance_id = ?1",
+        params![view_id],
+    )
+    .map_err(|e| format!("Failed to refresh timeline view items: {}", e))?;
+    for (index, photo) in photos.iter().enumerate() {
+        let item_kind = if merge_variants && photo.logical_id.is_some() {
+            "group"
+        } else {
+            "photo"
+        };
+        let item_id = if item_kind == "group" {
+            photo.logical_id.as_deref().unwrap_or(&photo.id)
+        } else {
+            &photo.id
+        };
+        conn.execute(
+            "INSERT OR REPLACE INTO view_items (view_instance_id, item_kind, item_id, group_key, sort_order, weight, reason_json, location_snapshot) VALUES (?1, ?2, ?3, ?4, ?5, NULL, NULL, ?6)",
+            params![view_id, item_kind, item_id, photo.captured_at.as_deref().unwrap_or("undated"), index as i64, photo.relative_path],
+        ).map_err(|e| format!("Failed to persist timeline view item: {}", e))?;
+    }
+    Ok(())
 }
 
 fn populate_photo_variants(conn: &Connection, photos: &mut [TimelinePhoto]) -> Result<(), String> {
@@ -3184,6 +3372,15 @@ mod tests {
             "persons",
             "photo_faces",
             "background_tasks",
+            "organization_plans",
+            "organization_entries",
+            "organization_runs",
+            "organization_logs",
+            "photo_locations",
+            "photo_groups",
+            "photo_group_members",
+            "view_items",
+            "view_instances",
         ] {
             assert!(table_exists(&conn, table), "missing table {}", table);
         }

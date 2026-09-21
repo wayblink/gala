@@ -1,5 +1,25 @@
 # Hook Guidelines
 
+Custom hooks use the `use` prefix and return a typed object. `useViewFilter` owns filter/search/display state; `useLibrary` owns library summary and scan-progress subscription; `useBackgroundTasks` owns durable task refresh and mutation helpers.
+
+Keep provider calls in `src/desktop/` and call them from hooks or feature workflows. Effects that subscribe to Tauri events must return cleanup functions and tolerate browser preview mode where no listener exists.
+
+Do not treat hooks as singleton stores. Two calls have separate state unless the hook is backed by an explicit context such as `I18nProvider`. Preserve refresh/version triggers when refactoring async hooks.
+
+Example pattern:
+
+```tsx
+useEffect(() => {
+  let active = true
+  void getLibrarySummary().then((next) => {
+    if (active) setSummary(next)
+  })
+  return () => { active = false }
+}, [dataVersion])
+```
+
+Tests should cover loading, browser fallback, cleanup and refresh after a mutation.
+
 > How hooks are used in this project.
 
 ---

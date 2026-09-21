@@ -155,10 +155,9 @@ Review 反馈汇总。按优先级与领域组织，逐项消化后迁移到对�
 
 ## P2 — V1 之前
 
-- [ ] **Logical Photo Set 完整 schema**
-  - 基于 P0 已预留的 `photos.logical_id`，补上 `photo_groups(id, representative_photo_id, rule_type, created_at)`。
-  - 自动关联规则（基于时间戳 + 文件名 + camera）。
-  - 用户手动合并 / 拆分的接口。
+- [x] **Logical Photo Set 完整 schema**
+  - 已基于 `photos.logical_id` 增加 `photo_groups` 与 `photo_group_members`，并在迁移时投影现有关联。
+  - 当前自动关联继续使用已有 logical_id；基于时间戳/文件名/camera 的候选匹配和用户手动合并/拆分仍属于后续 V1 任务。
 
 - [ ] **AI Agent 层接口草案**
   - 承接 V2 的 AI 能力引入。

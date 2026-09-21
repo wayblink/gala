@@ -12,6 +12,16 @@ const at = (iso: string | null, id: string, name = `${id}.JPG`) => ({
 })
 
 describe('buildSimilarReviewQueue', () => {
+  it('collapses RAW and JPEG variants sharing a logical group', () => {
+    const queue = buildSimilarReviewQueue([
+      { ...at('2026-05-12T10:00:00.000Z', 'raw', 'IMG_0001.ARW'), logicalId: 'group-1' },
+      { ...at('2026-05-12T10:00:00.000Z', 'jpeg', 'IMG_0001.JPG'), logicalId: 'group-1' },
+      at('2026-05-12T10:00:10.000Z', 'other', 'IMG_0002.JPG'),
+    ])
+    const ids = queue.flatMap((card) => card.photoIds)
+    expect(ids).toContain('raw')
+    expect(ids).not.toContain('jpeg')
+  })
   it('groups nearby captures into a burst card under the default window', () => {
     const queue = buildSimilarReviewQueue([
       at('2026-05-12T10:00:00.000Z', 'p1', 'IMG_0001.JPG'),

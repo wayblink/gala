@@ -710,6 +710,7 @@ export default function App() {
         ) : isReorganizeSelected ? (
           <ReorganizeView
             onPickTargetRoot={pickPhotoFolder}
+            sources={library.summary.sources}
             runBackgroundTask={backgroundTasks.runBackgroundTask}
             onExecuted={async () => {
               await library.refreshAll()

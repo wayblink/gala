@@ -9,6 +9,7 @@ use crate::library::models::{
     Album, FilterOptions, Label, LibrarySummary, ScanProgress, ScanSummary, SourceCollection,
     SourceFolder, Tag, TimelinePhoto,
 };
+use crate::library::provider::{descriptor_for_source, ensure_action_supported, ProviderAction};
 use crate::library::raw::{is_raw_path, write_raw_preview};
 use crate::library::scanner::{discover_photos_with_progress, ensure_source_directory};
 use crate::library::sidecar::{SidecarManifest, SidecarStore};
@@ -1553,6 +1554,8 @@ pub fn reveal_in_finder_cmd(app: AppHandle, photo_id: String) -> Result<(), Stri
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReorganizePlanOptions {
+    #[serde(default)]
+    pub source_roots: Vec<String>,
     pub target_root: String,
     pub pattern: String,
     pub mode: String,
@@ -1580,6 +1583,7 @@ pub struct ReorganizePlanEntry {
     pub after_dir: String,
     pub action: String,
     pub conflict: bool,
+    pub source_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1609,7 +1613,9 @@ pub struct ReorganizeExecuteSummary {
 #[derive(Debug)]
 struct ReorgPhotoRow {
     id: String,
+    source_id: String,
     source_name: String,
+    source_kind: String,
     root_path: String,
     relative_path: String,
     file_name: String,
@@ -1617,7 +1623,10 @@ struct ReorgPhotoRow {
     file_mtime: i64,
     camera_make: Option<String>,
     camera_model: Option<String>,
+    lens_model: Option<String>,
     extension: String,
+    fingerprint: Option<String>,
+    logical_id: Option<String>,
 }
 
 #[derive(Default)]
@@ -1676,6 +1685,10 @@ fn apply_reorganize_pattern(pattern: &str, row: &ReorgPhotoRow) -> String {
         "Unknown Camera",
     );
     let source = sanitize_component(&row.source_name, "Unknown Source");
+    let lens = sanitize_component(
+        row.lens_model.as_deref().unwrap_or("Unknown Lens"),
+        "Unknown Lens",
+    );
     let ext = sanitize_component(row.extension.trim_start_matches('.'), "file");
     let mut rendered = pattern
         .replace("{year}", &year)
@@ -1683,6 +1696,7 @@ fn apply_reorganize_pattern(pattern: &str, row: &ReorgPhotoRow) -> String {
         .replace("{day}", &day)
         .replace("{source}", &source)
         .replace("{camera}", &camera)
+        .replace("{lens}", &lens)
         .replace("{ext}", &ext);
     rendered = rendered.replace('\\', "/");
     let parts = rendered
@@ -1780,52 +1794,85 @@ pub fn reorganize_scan_plan_cmd(
     app: AppHandle,
     options: ReorganizePlanOptions,
 ) -> Result<ReorganizePlanDto, String> {
+    if options.mode != "move" {
+        return Err("Organization currently supports move only".to_string());
+    }
     let target_root = PathBuf::from(options.target_root.trim());
     if options.target_root.trim().is_empty() {
         return Err("Target root is required".to_string());
     }
-    std::fs::create_dir_all(&target_root)
-        .map_err(|e| format!("Failed to create target root: {}", e))?;
-
     let conn = open_conn(&app)?;
     let limit = options.limit.unwrap_or(100_000).clamp(1, 100_000);
     let mut stmt = conn
         .prepare(
-            "SELECT p.id, s.name, s.root_path, p.relative_path, p.file_name, \
-                    p.captured_at, p.file_mtime, p.camera_make, p.camera_model, p.extension \
+            "SELECT p.id, s.id, s.name, s.source_type, s.root_path, p.relative_path, p.file_name, \
+                    p.captured_at, p.file_mtime, p.camera_make, p.camera_model, p.lens_model, p.extension, p.fingerprint, p.logical_id \
              FROM photos p INNER JOIN sources s ON s.id = p.source_id \
              WHERE p.status = 'indexed' AND p.hidden_at IS NULL \
              ORDER BY COALESCE(strftime('%s', p.captured_at), p.file_mtime) ASC, p.relative_path ASC \
              LIMIT ?1",
         )
         .map_err(|e| format!("Failed to prepare reorganize scan: {}", e))?;
-    let rows = stmt
+    let mut rows = stmt
         .query_map(params![limit], |row| {
             Ok(ReorgPhotoRow {
                 id: row.get(0)?,
-                source_name: row.get(1)?,
-                root_path: row.get(2)?,
-                relative_path: row.get(3)?,
-                file_name: row.get(4)?,
-                captured_at: row.get(5)?,
-                file_mtime: row.get(6)?,
-                camera_make: row.get(7)?,
-                camera_model: row.get(8)?,
-                extension: row.get(9)?,
+                source_id: row.get(1)?,
+                source_name: row.get(2)?,
+                source_kind: row.get(3)?,
+                root_path: row.get(4)?,
+                relative_path: row.get(5)?,
+                file_name: row.get(6)?,
+                captured_at: row.get(7)?,
+                file_mtime: row.get(8)?,
+                camera_make: row.get(9)?,
+                camera_model: row.get(10)?,
+                lens_model: row.get(11)?,
+                extension: row.get(12)?,
+                fingerprint: row.get(13)?,
+                logical_id: row.get(14)?,
             })
         })
         .map_err(|e| format!("Failed to query reorganize scan: {}", e))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("Failed to collect reorganize rows: {}", e))?;
+    if !options.source_roots.is_empty() {
+        rows.retain(|row| {
+            options
+                .source_roots
+                .iter()
+                .any(|root| row.root_path == *root)
+        });
+    }
 
     let mut before_root = TreeBuilderNode::default();
     let mut after_root = TreeBuilderNode::default();
     let mut planned_targets: HashSet<PathBuf> = HashSet::new();
+    let mut logical_dirs: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     let mut entries = Vec::new();
     let mut skipped_count = 0_i64;
     let mut conflict_count = 0_i64;
 
     for row in rows.iter() {
+        let provider = descriptor_for_source(
+            &row.source_id,
+            &row.source_name,
+            &row.source_kind,
+            &row.root_path,
+        )
+        .map_err(|error| error.to_string())?;
+        let requested_action = match options.mode.as_str() {
+            "copy" => ProviderAction::Copy,
+            "move" => ProviderAction::Move,
+            other => return Err(format!("Unsupported reorganize mode: {}", other)),
+        };
+        ensure_action_supported(&provider, requested_action).map_err(|error| {
+            format!(
+                "Cannot {} {} source '{}': {}. Apple Photos must use export.",
+                options.mode, row.source_kind, row.source_name, error
+            )
+        })?;
         let source_path = Path::new(&row.root_path).join(&row.relative_path);
         let before_dir = folder_for_relative_path(&row.relative_path);
         let before_tree_path = if before_dir.is_empty() {
@@ -1844,7 +1891,17 @@ pub fn reorganize_scan_plan_cmd(
             continue;
         }
 
-        let after_dir = apply_reorganize_pattern(&options.pattern, row);
+        let computed_after_dir = apply_reorganize_pattern(&options.pattern, row);
+        let after_dir = row
+            .logical_id
+            .as_deref()
+            .and_then(|id| logical_dirs.get(id).cloned())
+            .unwrap_or_else(|| computed_after_dir.clone());
+        if let Some(logical_id) = row.logical_id.as_deref() {
+            logical_dirs
+                .entry(logical_id.to_string())
+                .or_insert(computed_after_dir);
+        }
         let target = target_root
             .join(&after_dir)
             .join(sanitize_component(&row.file_name, "photo"));
@@ -1873,29 +1930,100 @@ pub fn reorganize_scan_plan_cmd(
             after_dir: resolved_after_dir,
             action,
             conflict,
+            source_fingerprint: row.fingerprint.clone(),
         });
     }
 
+    let plan_id = format!("reorg-{}", uuid::Uuid::new_v4());
+    let now = chrono::Utc::now().to_rfc3339();
+    let before_tree = flatten_tree(before_root, "");
+    let after_tree = flatten_tree(after_root, "");
+    let source_roots = rows
+        .iter()
+        .map(|row| row.root_path.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    conn.execute(
+        "INSERT INTO organization_plans \
+         (id, status, source_roots_json, options_json, before_tree_json, after_tree_json, plan_version, created_at, updated_at) \
+         VALUES (?1, 'ready', ?2, ?3, ?4, ?5, 1, ?6, ?6)",
+        params![
+            plan_id,
+            serde_json::to_string(&source_roots).map_err(|e| format!("Failed to encode plan roots: {}", e))?,
+            serde_json::to_string(&options).map_err(|e| format!("Failed to encode plan options: {}", e))?,
+            serde_json::to_string(&before_tree).map_err(|e| format!("Failed to encode before tree: {}", e))?,
+            serde_json::to_string(&after_tree).map_err(|e| format!("Failed to encode after tree: {}", e))?,
+            now,
+        ],
+    )
+    .map_err(|e| format!("Failed to persist organization plan: {}", e))?;
+    for entry in &entries {
+        conn.execute(
+            "INSERT INTO organization_entries \
+             (id, plan_id, photo_id, source_path, target_path, source_fingerprint, status) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'planned')",
+            params![
+                format!("{}:{}", plan_id, entry.photo_id),
+                plan_id,
+                entry.photo_id,
+                entry.source_path,
+                entry.target_path,
+                entry.source_fingerprint,
+            ],
+        )
+        .map_err(|e| format!("Failed to persist organization entry: {}", e))?;
+    }
+
     Ok(ReorganizePlanDto {
-        id: format!("reorg-{}", uuid::Uuid::new_v4()),
+        id: plan_id,
         options,
         total_photos: rows.len() as i64,
         planned_count: entries.len() as i64,
         skipped_count,
         conflict_count,
-        before_tree: flatten_tree(before_root, ""),
-        after_tree: flatten_tree(after_root, ""),
+        before_tree,
+        after_tree,
         entries,
     })
 }
 
 #[tauri::command]
 pub fn reorganize_execute_plan_cmd(
+    app: AppHandle,
+    plan_id: String,
     entries: Vec<ReorganizePlanEntry>,
     mode: String,
     collision_strategy: String,
     target_root: String,
 ) -> Result<ReorganizeExecuteSummary, String> {
+    if mode != "move" {
+        return Err("Organization currently supports move only".to_string());
+    }
+    let conn = open_conn(&app)?;
+    let plan_status: String = conn
+        .query_row(
+            "SELECT status FROM organization_plans WHERE id = ?1",
+            params![plan_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| "Organization plan was not found".to_string())?;
+    if !matches!(plan_status.as_str(), "ready" | "reviewed" | "paused") {
+        return Err(format!(
+            "Organization plan is not executable: {}",
+            plan_status
+        ));
+    }
+    let run_id = format!("run-{}", uuid::Uuid::new_v4());
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO organization_runs (id, plan_id, status, created_at, updated_at) VALUES (?1, ?2, 'running', ?3, ?3)",
+        params![run_id, plan_id, now],
+    )
+    .map_err(|e| format!("Failed to create organization run: {}", e))?;
+    conn.execute(
+        "UPDATE organization_plans SET status = 'executing', updated_at = ?1 WHERE id = ?2",
+        params![now, plan_id],
+    )
+    .map_err(|e| format!("Failed to mark organization plan executing: {}", e))?;
     let target_root_path = PathBuf::from(target_root);
     std::fs::create_dir_all(&target_root_path)
         .map_err(|e| format!("Failed to create target root: {}", e))?;
@@ -1910,12 +2038,47 @@ pub fn reorganize_execute_plan_cmd(
         errors: Vec::new(),
     };
 
-    for entry in entries {
+    for (entry_index, entry) in entries.into_iter().enumerate() {
+        let entry_id = format!("{}:{}", plan_id, entry.photo_id);
+        conn.execute(
+            "UPDATE organization_entries SET status = 'started', started_at = ?1 WHERE id = ?2 AND plan_id = ?3",
+            params![chrono::Utc::now().to_rfc3339(), entry_id, plan_id],
+        )
+        .map_err(|e| format!("Failed to update organization entry: {}", e))?;
+        conn.execute(
+            "UPDATE organization_runs SET current_cursor = ?1, updated_at = ?2 WHERE id = ?3",
+            params![entry_index as i64, chrono::Utc::now().to_rfc3339(), run_id],
+        )
+        .ok();
+        conn.execute("INSERT INTO organization_logs (id, plan_id, run_id, entry_id, event_type, payload_json, created_at) VALUES (?1, ?2, ?3, ?4, 'entry_started', ?5, ?6)", params![format!("log-{}", uuid::Uuid::new_v4()), plan_id, run_id, entry_id, serde_json::json!({"source": entry.source_path, "target": entry.target_path}).to_string(), chrono::Utc::now().to_rfc3339()]).ok();
         let source = PathBuf::from(&entry.source_path);
         let target = PathBuf::from(&entry.target_path);
         if !source.exists() {
             summary.skipped += 1;
+            conn.execute("UPDATE organization_entries SET status = 'skipped', completed_at = ?1 WHERE id = ?2", params![chrono::Utc::now().to_rfc3339(), entry_id]).ok();
             continue;
+        }
+        if let Some(expected) = entry.source_fingerprint.as_deref() {
+            let metadata = std::fs::metadata(&source).map_err(|e| e.to_string())?;
+            let actual = format!(
+                "{}:{}",
+                metadata.len(),
+                metadata
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0)
+            );
+            if actual != expected {
+                summary.failed += 1;
+                let message = "source fingerprint changed since dry run".to_string();
+                summary
+                    .errors
+                    .push(format!("{}: {}", entry.file_name, message));
+                conn.execute("UPDATE organization_entries SET status = 'failed', error = ?1, completed_at = ?2 WHERE id = ?3", params![message, chrono::Utc::now().to_rfc3339(), entry_id]).ok();
+                continue;
+            }
         }
         if let Some(parent) = target.parent() {
             if let Err(e) = std::fs::create_dir_all(parent) {
@@ -1942,34 +2105,183 @@ pub fn reorganize_execute_plan_cmd(
             match collision_strategy.as_str() {
                 "skip" => {
                     summary.skipped += 1;
+                    conn.execute("UPDATE organization_entries SET status = 'skipped', completed_at = ?1 WHERE id = ?2", params![chrono::Utc::now().to_rfc3339(), entry_id]).ok();
                     continue;
                 }
                 "overwrite" => {}
                 _ => {
                     summary.skipped += 1;
+                    conn.execute("UPDATE organization_entries SET status = 'skipped', completed_at = ?1 WHERE id = ?2", params![chrono::Utc::now().to_rfc3339(), entry_id]).ok();
                     continue;
                 }
             }
         }
-        let result = if mode == "move" {
-            std::fs::rename(&source, &target)
-                .or_else(|_| {
-                    std::fs::copy(&source, &target)?;
-                    std::fs::remove_file(&source)
-                })
-                .map(|_| ())
-        } else {
-            std::fs::copy(&source, &target).map(|_| ())
-        };
+        let result = std::fs::rename(&source, &target)
+            .or_else(|_| {
+                std::fs::copy(&source, &target)?;
+                std::fs::remove_file(&source)
+            })
+            .map(|_| ());
         match result {
-            Ok(()) => summary.completed += 1,
+            Ok(()) => {
+                summary.completed += 1;
+                conn.execute("UPDATE organization_entries SET status = 'completed', completed_at = ?1 WHERE id = ?2", params![chrono::Utc::now().to_rfc3339(), entry_id]).ok();
+                conn.execute("INSERT INTO organization_logs (id, plan_id, run_id, entry_id, event_type, created_at) VALUES (?1, ?2, ?3, ?4, 'entry_completed', ?5)", params![format!("log-{}", uuid::Uuid::new_v4()), plan_id, run_id, entry_id, chrono::Utc::now().to_rfc3339()]).ok();
+                if let Ok((source_id, old_relative)) = conn.query_row::<(String, String), _, _>(
+                    "SELECT source_id, relative_path FROM photos WHERE id = ?1",
+                    params![entry.photo_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                ) {
+                    let now = chrono::Utc::now().to_rfc3339();
+                    conn.execute("UPDATE photo_locations SET is_current = 0 WHERE photo_id = ?1 AND is_current = 1", params![entry.photo_id]).ok();
+                    conn.execute("INSERT INTO photo_locations (id, photo_id, source_id, relative_path, absolute_path_snapshot, fingerprint, is_current, observed_at, moved_by_operation_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8)", params![format!("loc-{}", uuid::Uuid::new_v4()), entry.photo_id, source_id, old_relative, target.to_string_lossy().to_string(), entry.source_fingerprint, now, run_id]).ok();
+                    conn.execute("UPDATE photos SET absolute_path_snapshot = ?1, updated_at = ?2 WHERE id = ?3", params![target.to_string_lossy().to_string(), now, entry.photo_id]).ok();
+                    conn.execute("UPDATE view_instances SET status = 'stale' WHERE view_kind IN ('timeline', 'similar')", []).ok();
+                }
+            }
             Err(e) => {
                 summary.failed += 1;
                 summary.errors.push(format!("{}: {}", entry.file_name, e));
+                conn.execute("UPDATE organization_entries SET status = 'failed', error = ?1, completed_at = ?2 WHERE id = ?3", params![e.to_string(), chrono::Utc::now().to_rfc3339(), entry_id]).ok();
             }
         }
     }
 
+    let final_status = if summary.failed > 0 {
+        "paused"
+    } else {
+        "succeeded"
+    };
+    conn.execute(
+        "UPDATE organization_runs SET status = ?1, completed_count = ?2, failed_count = ?3, skipped_count = ?4, updated_at = ?5, completed_at = ?5 WHERE id = ?6",
+        params![final_status, summary.completed, summary.failed, summary.skipped, chrono::Utc::now().to_rfc3339(), run_id],
+    ).map_err(|e| format!("Failed to finalize organization run: {}", e))?;
+    conn.execute(
+        "UPDATE organization_plans SET status = ?1, updated_at = ?2, executed_at = CASE WHEN ?1 = 'succeeded' THEN ?2 ELSE executed_at END WHERE id = ?3",
+        params![final_status, chrono::Utc::now().to_rfc3339(), plan_id],
+    ).map_err(|e| format!("Failed to finalize organization plan: {}", e))?;
+
+    Ok(summary)
+}
+
+#[tauri::command]
+pub fn reorganize_continue_cmd(
+    app: AppHandle,
+    plan_id: String,
+) -> Result<ReorganizeExecuteSummary, String> {
+    let conn = open_conn(&app)?;
+    let options_json: String = conn
+        .query_row(
+            "SELECT options_json FROM organization_plans WHERE id = ?1",
+            params![plan_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| "Organization plan was not found".to_string())?;
+    let options: ReorganizePlanOptions = serde_json::from_str(&options_json)
+        .map_err(|e| format!("Invalid organization plan options: {}", e))?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT e.photo_id, p.file_name, e.source_path, e.target_path, e.source_fingerprint \
+             FROM organization_entries e JOIN photos p ON p.id = e.photo_id \
+             WHERE e.plan_id = ?1 AND e.status IN ('planned', 'failed', 'started')",
+        )
+        .map_err(|e| format!("Failed to prepare organization resume: {}", e))?;
+    let entries = stmt
+        .query_map(params![plan_id], |row| {
+            Ok(ReorganizePlanEntry {
+                photo_id: row.get(0)?,
+                file_name: row.get(1)?,
+                source_path: row.get(2)?,
+                target_path: row.get(3)?,
+                before_dir: String::new(),
+                after_dir: String::new(),
+                action: "move".to_string(),
+                conflict: false,
+                source_fingerprint: row.get(4)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query organization resume: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to collect organization resume: {}", e))?;
+    drop(stmt);
+    reorganize_execute_plan_cmd(
+        app,
+        plan_id,
+        entries,
+        "move".to_string(),
+        options.collision_strategy,
+        options.target_root,
+    )
+}
+
+#[tauri::command]
+pub fn reorganize_rollback_cmd(
+    app: AppHandle,
+    plan_id: String,
+) -> Result<ReorganizeExecuteSummary, String> {
+    let conn = open_conn(&app)?;
+    let mut stmt = conn
+        .prepare("SELECT e.id, e.photo_id, p.file_name, e.source_path, e.target_path FROM organization_entries e JOIN photos p ON p.id = e.photo_id WHERE e.plan_id = ?1 AND e.status = 'completed'")
+        .map_err(|e| format!("Failed to prepare organization rollback: {}", e))?;
+    let rows = stmt
+        .query_map(params![plan_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })
+        .map_err(|e| format!("Failed to query organization rollback: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to collect organization rollback: {}", e))?;
+    let mut summary = ReorganizeExecuteSummary {
+        attempted: rows.len() as i64,
+        completed: 0,
+        failed: 0,
+        skipped: 0,
+        errors: Vec::new(),
+    };
+    for (entry_id, photo_id, file_name, source_path, target_path) in rows {
+        let source = PathBuf::from(&source_path);
+        let target = PathBuf::from(&target_path);
+        if source.exists() || !target.exists() {
+            summary.failed += 1;
+            summary.errors.push(format!(
+                "{}: rollback target/source state is unsafe",
+                file_name
+            ));
+            continue;
+        }
+        match std::fs::rename(&target, &source) {
+            Ok(()) => {
+                summary.completed += 1;
+                conn.execute("UPDATE organization_entries SET status = 'rolled_back', rolled_back_at = ?1 WHERE id = ?2", params![chrono::Utc::now().to_rfc3339(), entry_id]).ok();
+                conn.execute(
+                    "UPDATE photos SET absolute_path_snapshot = ?1, updated_at = ?2 WHERE id = ?3",
+                    params![source_path, chrono::Utc::now().to_rfc3339(), photo_id],
+                )
+                .ok();
+                conn.execute("UPDATE photo_locations SET is_current = 0 WHERE photo_id = ?1 AND is_current = 1", params![photo_id]).ok();
+                conn.execute("UPDATE photo_locations SET is_current = 1 WHERE photo_id = ?1 AND absolute_path_snapshot = ?2", params![photo_id, source_path]).ok();
+            }
+            Err(error) => {
+                summary.failed += 1;
+                summary.errors.push(format!("{}: {}", file_name, error));
+            }
+        }
+    }
+    let status = if summary.failed == 0 {
+        "rolled_back"
+    } else {
+        "recovery_required"
+    };
+    conn.execute(
+        "UPDATE organization_plans SET status = ?1, updated_at = ?2 WHERE id = ?3",
+        params![status, chrono::Utc::now().to_rfc3339(), plan_id],
+    )
+    .map_err(|e| format!("Failed to update rollback status: {}", e))?;
     Ok(summary)
 }
 

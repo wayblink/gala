@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { ThemedSelect } from '../../components/ThemedSelect'
-import { executeReorganizePlan, scanReorganizePlan } from '../../desktop/reorganize'
+import { continueReorganizePlan, executeReorganizePlan, rollbackReorganizePlan, scanReorganizePlan } from '../../desktop/reorganize'
 import type {
   ReorganizeCollisionStrategy,
   ReorganizeMode,
@@ -8,6 +8,7 @@ import type {
   ReorganizeTreeNode,
 } from '../../desktop/reorganize'
 import type { RunBackgroundTask } from '../../types/backgroundTasks'
+import type { LibrarySource } from '../../types/library'
 
 const DEFAULT_PATTERNS = [
   { label: 'By month', value: '{year}/{month}' },
@@ -20,17 +21,20 @@ type ReorganizeViewProps = {
   onPickTargetRoot: () => Promise<string | null>
   runBackgroundTask: RunBackgroundTask
   onExecuted?: () => Promise<void> | void
+  sources: LibrarySource[]
 }
 
-export function ReorganizeView({ onPickTargetRoot, runBackgroundTask, onExecuted }: ReorganizeViewProps) {
+export function ReorganizeView({ onPickTargetRoot, runBackgroundTask, onExecuted, sources }: ReorganizeViewProps) {
   const [targetRoot, setTargetRoot] = useState('')
   const [pattern, setPattern] = useState(DEFAULT_PATTERNS[0].value)
-  const [mode, setMode] = useState<ReorganizeMode>('copy')
+  const mode: ReorganizeMode = 'move'
   const [collisionStrategy, setCollisionStrategy] = useState<ReorganizeCollisionStrategy>('keep_both')
   const [limit, setLimit] = useState('')
   const [plan, setPlan] = useState<ReorganizePlan | null>(null)
   const [busy, setBusy] = useState(false)
   const [executeArmed, setExecuteArmed] = useState(false)
+  const [runStatus, setRunStatus] = useState<'idle' | 'paused' | 'succeeded' | 'rolled_back'>('idle')
+  const [selectedSourceRoots, setSelectedSourceRoots] = useState<string[]>([])
 
   const effectiveLimit = useMemo(() => {
     const parsed = Number.parseInt(limit, 10)
@@ -56,12 +60,13 @@ export function ReorganizeView({ onPickTargetRoot, runBackgroundTask, onExecuted
           kind: 'reorganize',
           title: 'Scan reorganize plan',
           description: pattern,
-          operationPayload: { command: 'reorganizeScanPlan', targetRoot, pattern, mode, collisionStrategy, limit: effectiveLimit },
+          operationPayload: { command: 'reorganizeScanPlan', sourceRoots: selectedSourceRoots, targetRoot, pattern, mode, collisionStrategy, limit: effectiveLimit },
         },
         async (update) => {
           update({ progressLabel: 'Scanning library…', detail: `Target: ${targetRoot}` })
           const result = await scanReorganizePlan({
             targetRoot,
+            sourceRoots: selectedSourceRoots,
             pattern,
             mode,
             collisionStrategy,
@@ -74,6 +79,7 @@ export function ReorganizeView({ onPickTargetRoot, runBackgroundTask, onExecuted
         },
       )
       setPlan(nextPlan)
+      setRunStatus('idle')
     } finally {
       setBusy(false)
     }
@@ -82,7 +88,7 @@ export function ReorganizeView({ onPickTargetRoot, runBackgroundTask, onExecuted
   const handleExecute = async () => {
     if (!plan || !executeArmed) return
     const confirmed = window.confirm(
-      `${mode === 'move' ? 'Move' : 'Copy'} ${plan.plannedCount} files into ${plan.options.targetRoot}?`,
+      `Move ${plan.plannedCount} files into ${plan.options.targetRoot}?`,
     )
     if (!confirmed) return
 
@@ -91,7 +97,7 @@ export function ReorganizeView({ onPickTargetRoot, runBackgroundTask, onExecuted
       const summary = await runBackgroundTask(
         {
           kind: 'reorganize',
-          title: `${mode === 'move' ? 'Move' : 'Copy'} reorganize plan`,
+          title: 'Move reorganize plan',
           description: plan.options.pattern,
           operationPayload: {
             command: 'reorganizeExecutePlan',
@@ -106,6 +112,7 @@ export function ReorganizeView({ onPickTargetRoot, runBackgroundTask, onExecuted
         async (update) => {
           update({ progressLabel: 'Executing…', detail: `${plan.entries.length} planned file operations` })
           const result = await executeReorganizePlan(
+            plan.id,
             plan.entries,
             plan.options.mode,
             plan.options.collisionStrategy,
@@ -118,10 +125,31 @@ export function ReorganizeView({ onPickTargetRoot, runBackgroundTask, onExecuted
         },
       )
       setExecuteArmed(false)
+      setRunStatus(summary.failed > 0 ? 'paused' : 'succeeded')
       if (summary.completed > 0) await onExecuted?.()
     } finally {
       setBusy(false)
     }
+  }
+
+  const handleContinue = async () => {
+    if (!plan) return
+    setBusy(true)
+    try {
+      const summary = await continueReorganizePlan(plan.id)
+      setRunStatus(summary.failed > 0 ? 'paused' : 'succeeded')
+      if (summary.completed > 0) await onExecuted?.()
+    } finally { setBusy(false) }
+  }
+
+  const handleRollback = async () => {
+    if (!plan) return
+    setBusy(true)
+    try {
+      const summary = await rollbackReorganizePlan(plan.id)
+      setRunStatus(summary.failed > 0 ? 'paused' : 'rolled_back')
+      if (summary.completed > 0) await onExecuted?.()
+    } finally { setBusy(false) }
   }
 
   return (
@@ -134,6 +162,27 @@ export function ReorganizeView({ onPickTargetRoot, runBackgroundTask, onExecuted
       </header>
 
       <section className="reorg-config" aria-label="Reorganize rules">
+        <div className="reorg-field reorg-field--wide">
+          <label>Source folders</label>
+          <div className="reorg-sources" aria-label="Source folders">
+            {sources.filter((source) => source.sourceKind !== 'apple_photos').map((source) => (
+              <label key={source.id}>
+                <input
+                  type="checkbox"
+                  checked={selectedSourceRoots.length === 0 || selectedSourceRoots.includes(source.rootPath)}
+                  onChange={(event) => setSelectedSourceRoots((current) => {
+                    const all = sources.filter((item) => item.sourceKind !== 'apple_photos').map((item) => item.rootPath)
+                    const base = current.length === 0 ? all : current
+                    return event.target.checked ? [...new Set([...base, source.rootPath])] : base.filter((root) => root !== source.rootPath)
+                  })}
+                />
+                <span>{source.name}</span>
+              </label>
+            ))}
+          </div>
+          <small>Apple Photos is read-only and cannot be organized here.</small>
+        </div>
+
         <div className="reorg-field reorg-field--wide">
           <label>Target root</label>
           <div className="reorg-target-row">
@@ -155,20 +204,7 @@ export function ReorganizeView({ onPickTargetRoot, runBackgroundTask, onExecuted
         <div className="reorg-field reorg-field--wide">
           <label>Custom pattern</label>
           <input value={pattern} onChange={(e) => { setPattern(e.target.value); setPlan(null); }} />
-          <small>Tokens: {'{year}'}, {'{month}'}, {'{day}'}, {'{source}'}, {'{camera}'}, {'{ext}'}</small>
-        </div>
-
-        <div className="reorg-field">
-          <label>Mode</label>
-          <ThemedSelect
-            value={mode}
-            options={[
-              { value: 'copy', label: 'Copy files' },
-              { value: 'move', label: 'Move originals' },
-            ]}
-            ariaLabel="Mode"
-            onChange={(next) => { setMode(next as ReorganizeMode); setPlan(null); }}
-          />
+          <small>Tokens: {'{year}'}, {'{month}'}, {'{day}'}, {'{source}'}, {'{camera}'}, {'{lens}'}, {'{ext}'}</small>
         </div>
 
         <div className="reorg-field">
@@ -227,11 +263,17 @@ export function ReorganizeView({ onPickTargetRoot, runBackgroundTask, onExecuted
           <div className="reorg-confirm">
             <label>
               <input type="checkbox" checked={executeArmed} onChange={(e) => setExecuteArmed(e.target.checked)} />
-              I reviewed the plan and want to {plan.options.mode === 'move' ? 'move originals' : 'copy files'}.
+              I reviewed the plan and want to move originals.
             </label>
             <button type="button" onClick={() => void handleExecute()} disabled={busy || !executeArmed || plan.plannedCount === 0}>
               Execute plan
             </button>
+            {runStatus === 'paused' ? <>
+              <button type="button" onClick={() => void handleContinue()} disabled={busy}>Continue</button>
+              <button type="button" onClick={() => void handleRollback()} disabled={busy}>Rollback</button>
+            </> : null}
+            {runStatus === 'succeeded' ? <span className="mono-muted">Completed</span> : null}
+            {runStatus === 'rolled_back' ? <span className="mono-muted">Rolled back</span> : null}
           </div>
         </section>
       ) : (

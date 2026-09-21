@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gala 数据结果拓扑</title>
+<style>
+:root{color-scheme:dark;--bg:#101419;--panel:#171d24;--panel2:#1d2630;--line:#35414d;--text:#eef3f7;--muted:#9eabb6;--blue:#72a7ff;--green:#70d4a2;--amber:#f4c76d;--pink:#e98bb1;--cyan:#72d5df;--red:#ef8c8c}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 20% 0%,#1e2b3a 0,#101419 42%);color:var(--text);font:14px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif}main{max-width:1500px;margin:auto;padding:34px 38px 60px}h1,h2,h3,p{margin:0}h1{font-size:34px;letter-spacing:-.02em}h2{font-size:20px;margin-bottom:14px}h3{font-size:15px;margin-bottom:6px}.lede{color:var(--muted);max-width:880px;margin:8px 0 25px}.meta{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 28px}.pill{border:1px solid var(--line);border-radius:999px;padding:4px 10px;color:var(--muted);background:#151b21}.grid{display:grid;grid-template-columns:1.55fr .9fr;gap:18px}.panel{background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:0 14px 40px #0003}.wide{grid-column:1/-1}.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}.toolbar button{border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:9px;padding:8px 12px;cursor:pointer}.toolbar button[aria-pressed=true]{border-color:var(--blue);color:#dceaff;background:#213451}.diagram{overflow:auto;border:1px solid #2b3640;border-radius:12px;background:#11171d}.diagram svg{display:block;width:100%;min-width:1040px;height:640px}.node{cursor:pointer}.node rect{fill:#202b35;stroke:#4c5d6b;stroke-width:1.2}.node text{fill:var(--text);font-size:13px}.node .sub{fill:var(--muted);font-size:11px}.node.source rect{stroke:var(--blue)}.node.fact rect{stroke:var(--green)}.node.derived rect{stroke:var(--amber)}.node.control rect{stroke:var(--pink)}.node.output rect{stroke:var(--cyan)}.edge{stroke:#70808d;stroke-width:1.4;fill:none;marker-end:url(#arrow)}.edge.dashed{stroke-dasharray:6 6}.edge-label{fill:var(--muted);font-size:11px}.legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;color:var(--muted);font-size:12px}.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px}.facts{display:grid;gap:10px}.fact{padding:12px;border-left:3px solid var(--blue);background:#1b232b;border-radius:8px}.fact strong{display:block}.fact span{color:var(--muted);font-size:12px}.table{width:100%;border-collapse:collapse}.table th,.table td{text-align:left;padding:9px 8px;border-bottom:1px solid #2a343e;vertical-align:top}.table th{color:var(--muted);font-weight:500}.table code{color:#c9e0ff}.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;align-items:stretch}.step{position:relative;padding:14px 12px;background:#1b232b;border:1px solid var(--line);border-radius:10px}.step:not(:last-child):after{content:"→";position:absolute;right:-16px;top:30%;color:var(--muted);font-size:22px}.step b{display:block;color:var(--blue);font-size:12px;margin-bottom:5px}.note{color:var(--muted);font-size:12px}.questions{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.q{padding:14px;background:#211f1a;border:1px solid #5f5133;border-radius:10px}.q b{color:var(--amber);display:block;margin-bottom:4px}.hide-future .future{opacity:.16}.hide-derived .derived{opacity:.16}.hide-control .control{opacity:.16}@media(max-width:1050px){main{padding:24px 16px}.grid{grid-template-columns:1fr}.flow{grid-template-columns:1fr}.step:not(:last-child):after{content:"↓";right:48%;top:auto;bottom:-23px}.questions{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main id="app">
+<h1>Gala 当前产品的数据结果拓扑</h1>
+<p class="lede">这张图把“来源文件 → 索引事实 → 逻辑照片/版本 → 分析结果 → 产品视图与物理整理”放在一张图里。蓝色是输入与来源，绿色是数据库事实，黄色是派生结果，粉色是控制流程，青色是面向用户的结果。</p>
+<div class="meta"><span class="pill">基于当前源码与设计文档</span><span class="pill">schema v13 迁移链</span><span class="pill">现有 Reorganize 已存在</span><span class="pill">RAW/JPEG logical_id 已有基础</span></div>
+<div class="grid">
+<section class="panel wide">
+<h2>总拓扑 / UML 风格关系图</h2>
+<div class="toolbar"><button data-toggle="future" aria-pressed="true">显示未来预留</button><button data-toggle="derived" aria-pressed="true">显示派生结果</button><button data-toggle="control" aria-pressed="true">显示控制与任务</button><button data-reset>恢复全部</button></div>
+<div class="diagram">
+<svg viewBox="0 0 1220 640" role="img" aria-label="Gala 数据拓扑图">
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#70808d"/></marker></defs>
+<path class="edge" d="M145 112 L145 185"/><path class="edge" d="M300 112 L300 185"/><path class="edge" d="M455 112 L455 185"/><path class="edge" d="M145 260 L145 340"/><path class="edge" d="M300 260 L300 340"/><path class="edge" d="M455 260 L455 340"/><path class="edge" d="M610 260 L610 340"/><path class="edge" d="M790 260 L790 340"/><path class="edge" d="M945 260 L945 340"/><path class="edge" d="M300 415 L455 415"/><path class="edge" d="M610 415 L790 415"/><path class="edge" d="M945 415 L1095 415"/><path class="edge dashed" d="M455 490 L455 570"/><path class="edge dashed" d="M790 490 L790 570"/><path class="edge dashed" d="M1095 490 L1095 570"/>
+<text class="edge-label" x="162" y="330">1:N</text><text class="edge-label" x="318" y="330">metadata</text><text class="edge-label" x="470" y="330">assets</text><text class="edge-label" x="625" y="330">tags / labels</text><text class="edge-label" x="806" y="330">analysis</text><text class="edge-label" x="961" y="330">view/query</text><text class="edge-label" x="470" y="548">logical_id</text><text class="edge-label" x="805" y="548">job result</text><text class="edge-label" x="1110" y="548">physical move</text>
+<g class="node source" data-kind="source"><rect x="70" y="38" width="150" height="74" rx="10"/><text x="85" y="64">Local folders</text><text class="sub" x="85" y="84">recursive files / paths</text></g>
+<g class="node source"><rect x="225" y="38" width="150" height="74" rx="10"/><text x="240" y="64">Apple Photos</text><text class="sub" x="240" y="84">assets / collections</text></g>
+<g class="node source"><rect x="380" y="38" width="150" height="74" rx="10"/><text x="395" y="64">RAW / JPEG / HEIF</text><text class="sub" x="395" y="84">physical variants</text></g>
+<g class="node fact"><rect x="70" y="185" width="150" height="75" rx="10"/><text x="85" y="211">sources</text><text class="sub" x="85" y="232">provider / root / status</text></g>
+<g class="node fact"><rect x="225" y="185" width="150" height="75" rx="10"/><text x="240" y="211">photos</text><text class="sub" x="240" y="232">path / file / identity</text></g>
+<g class="node fact"><rect x="380" y="185" width="150" height="75" rx="10"/><text x="395" y="211">photo_assets</text><text class="sub" x="395" y="232">thumbnail / preview cache</text></g>
+<g class="node fact future"><rect x="535" y="185" width="150" height="75" rx="10"/><text x="550" y="211">source_collections</text><text class="sub" x="550" y="232">Apple albums / folders</text></g>
+<g class="node fact derived"><rect x="715" y="185" width="150" height="75" rx="10"/><text x="730" y="211">tags / labels</text><text class="sub" x="730" y="232">manual + semantic</text></g>
+<g class="node control"><rect x="870" y="185" width="150" height="75" rx="10"/><text x="885" y="211">analysis_jobs</text><text class="sub" x="885" y="232">run / events / status</text></g>
+<g class="node derived"><rect x="70" y="340" width="150" height="75" rx="10"/><text x="85" y="366">EXIF / metadata</text><text class="sub" x="85" y="387">date / camera / lens / GPS</text></g>
+<g class="node derived"><rect x="225" y="340" width="150" height="75" rx="10"/><text x="240" y="366">logical photo</text><text class="sub" x="240" y="387">logical_id / variants</text></g>
+<g class="node derived"><rect x="380" y="340" width="150" height="75" rx="10"/><text x="395" y="366">analysis_results</text><text class="sub" x="395" y="387">quality / labels / embeddings</text></g>
+<g class="node derived"><rect x="535" y="340" width="150" height="75" rx="10"/><text x="550" y="366">persons / faces</text><text class="sub" x="550" y="387">face → person clusters</text></g>
+<g class="node derived"><rect x="715" y="340" width="150" height="75" rx="10"/><text x="730" y="366">photo_embeddings</text><text class="sub" x="730" y="387">similar / scene signals</text></g>
+<g class="node output"><rect x="870" y="340" width="150" height="75" rx="10"/><text x="885" y="366">TimelinePhoto DTO</text><text class="sub" x="885" y="387">variants / tags / quality</text></g>
+<g class="node output"><rect x="1025" y="340" width="150" height="75" rx="10"/><text x="1040" y="366">Views</text><text class="sub" x="1040" y="387">Library / Sources / Similar</text></g>
+<g class="node control"><rect x="380" y="570" width="150" height="48" rx="10"/><text x="395" y="599">Reorganize plan</text></g>
+<g class="node control"><rect x="715" y="570" width="150" height="48" rx="10"/><text x="730" y="599">Background tasks</text></g>
+<g class="node control"><rect x="1025" y="570" width="150" height="48" rx="10"/><text x="1040" y="599">Copy / Move</text></g>
+</svg>
+</div>
+<div class="legend"><span><i style="background:var(--blue)"></i>来源输入</span><span><i style="background:var(--green)"></i>持久化事实</span><span><i style="background:var(--amber)"></i>派生结果</span><span><i style="background:var(--pink)"></i>控制/任务</span><span><i style="background:var(--cyan)"></i>产品输出</span></div>
+</section>
+<section class="panel">
+<h2>当前最重要的实体</h2>
+<div class="facts">
+<div class="fact"><strong>sources → photos</strong><span>一对多。photos 保存 source_id + relative_path，是物理文件索引的事实主线。</span></div>
+<div class="fact"><strong>photos → logical_id</strong><span>当前用同一个 logical_id 表达 RAW/JPEG/HEIF 等物理 variant 属于同一逻辑照片。</span></div>
+<div class="fact"><strong>photos → photo_assets</strong><span>缩略图和预览是可重建缓存，不应成为照片事实的唯一来源。</span></div>
+<div class="fact"><strong>analysis_jobs → results/events</strong><span>分析运行和分析结果分开保存，结果再被 materializer 投影成标签/人物等产品数据。</span></div>
+<div class="fact"><strong>Views ≠ source of truth</strong><span>TimelinePhoto 是查询 DTO；Library、Sources、Similar、People 是消费方。</span></div>
+</div>
+</section>
+<section class="panel">
+<h2>当前真实数据流</h2>
+<div class="flow">
+<div class="step"><b>01 来源</b>用户选择一个或多个 Source 根目录；扫描递归发现文件。</div>
+<div class="step"><b>02 索引</b>写入 sources / photos，并解析 EXIF、尺寸、mtime、extension。</div>
+<div class="step"><b>03 归组</b>按同拍逻辑生成 logical_id，查询时合并或展开 variants。</div>
+<div class="step"><b>04 分析</b>analysis_jobs 驱动质量、标签、人脸、embedding 等结果。</div>
+<div class="step"><b>05 输出</b>TimelinePhoto DTO 驱动浏览；Reorganize 生成计划后再 copy/move。</div>
+</div>
+</section>
+<section class="panel wide">
+<h2>实体关系速查</h2>
+<table class="table"><thead><tr><th>层</th><th>对象</th><th>关键关系</th><th>产品意义</th></tr></thead><tbody>
+<tr><td>来源</td><td><code>sources</code></td><td>1:N photos；Apple Photos 另有 collections</td><td>文件系统或系统相册的入口与状态</td></tr>
+<tr><td>事实</td><td><code>photos</code></td><td><code>source_id + relative_path</code>；<code>logical_id</code></td><td>每个物理文件一条记录，同时预留逻辑照片层</td></tr>
+<tr><td>派生资产</td><td><code>photo_assets</code></td><td>photo_id 1:1</td><td>缩略图、预览等可重建缓存</td></tr>
+<tr><td>关系</td><td><code>album_photos</code> / <code>photo_tags</code></td><td>photos 与 albums/tags 多对多</td><td>用户组织和筛选入口</td></tr>
+<tr><td>分析</td><td><code>analysis_jobs/events/results</code></td><td>job 1:N events/results</td><td>运行记录、可重试状态、能力输出</td></tr>
+<tr><td>人物</td><td><code>faces / persons / photo_faces</code></td><td>photo ↔ face ↔ person</td><td>从视觉检测到人物聚类的关系链</td></tr>
+<tr><td>任务</td><td><code>background_tasks</code></td><td>与扫描、分析、重组 UI 关联</td><td>将长任务进度持久化并展示</td></tr>
+<tr><td>物理整理</td><td><code>ReorganizePlanEntry</code></td><td>sourcePath → targetPath</td><td>先生成计划和冲突，再执行 copy/move</td></tr>
+</tbody></table>
+</section>
+<section class="panel">
+<h2>对本次照片组织功能的启发</h2>
+<div class="facts">
+<div class="fact"><strong>事实层和计划层要分开</strong><span>ReorganizePlanEntry 是一次操作的候选结果，不应直接覆盖 photos 的事实记录；执行成功后再刷新/重扫索引。</span></div>
+<div class="fact"><strong>规则应该产出可解释路径</strong><span>日期、格式、相机、镜头都来自 photos/EXIF；缺失值要有明确 Unknown/Unsorted 策略。</span></div>
+<div class="fact"><strong>logical_id 是当前最自然的归组边界</strong><span>RAW+JPEG+HEIF 先作为同一逻辑照片的 variants；显示合并/分开属于查询策略。</span></div>
+<div class="fact"><strong>移动不是分析结果</strong><span>物理 copy/move 属于控制层操作，需要确认、冲突策略、失败记录和重扫验证。</span></div>
+</div>
+</section>
+<section class="panel">
+<h2>脑暴需要先决定</h2>
+<div class="questions">
+<div class="q"><b>Q1 · 组织对象</b>规则是作用于每个物理 variant，还是先按 logical photo 分组再决定整组目标路径？</div>
+<div class="q"><b>Q2 · 移动后的 Source</b>目标目录是新建一个 source，还是更新原 source 的 root/path 并继续作为同一个来源？</div>
+<div class="q"><b>Q3 · 关联置信度</b>RAW/JPEG 只按文件名+时间自动关联，还是低置信度必须进入人工确认队列？</div>
+</div>
+</section>
+<section class="panel wide">
+<h2>建议的下一步拓扑</h2>
+<p class="note">建议新增“组织计划”作为独立控制事实：organization_plans → organization_entries → execution_runs。photos 仍是文件事实；logical_id 仍是照片关系；执行完成后通过 source/path reconciliation 更新 photos。这样 dry run 可以反复修改和预览，execute 只是消费已确认的 plan，不把 UI 当前状态直接当成移动指令。</p>
+</section>
+</div>
+</main>
+<script>
+const app=document.getElementById('app');
+document.querySelectorAll('[data-toggle]').forEach(btn=>btn.addEventListener('click',()=>{const k=btn.dataset.toggle;app.classList.toggle('hide-'+k);btn.setAttribute('aria-pressed',String(!app.classList.contains('hide-'+k)))}));
+document.querySelector('[data-reset]').addEventListener('click',()=>{['future','derived','control'].forEach(k=>app.classList.remove('hide-'+k));document.querySelectorAll('[data-toggle]').forEach(b=>b.setAttribute('aria-pressed','true'))});
+document.querySelectorAll('.node').forEach(node=>node.addEventListener('click',()=>{const key=node.querySelector('text')?.textContent||'';document.title='Gala · '+key}));
+</script>
+</body>
+</html>

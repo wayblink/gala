@@ -72,6 +72,8 @@ pub fn run() {
             library::commands::reveal_in_finder_cmd,
             library::commands::reorganize_scan_plan_cmd,
             library::commands::reorganize_execute_plan_cmd,
+            library::commands::reorganize_continue_cmd,
+            library::commands::reorganize_rollback_cmd,
             library::commands::background_tasks_list_cmd,
             library::commands::background_task_upsert_cmd,
             library::commands::background_tasks_clear_finished_cmd,

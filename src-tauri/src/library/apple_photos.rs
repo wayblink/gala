@@ -255,7 +255,7 @@ mod platform {
             .map_err(|error| format!("Failed to write original image: {}", error))
     }
 
-    fn fetch_assets() -> Vec<ApplePhotoAsset> {
+    pub fn fetch_assets() -> Vec<ApplePhotoAsset> {
         let options = unsafe { PHFetchOptions::new() };
         let result = unsafe {
             PHAsset::fetchAssetsWithMediaType_options(PHAssetMediaType::Image, Some(&options))
@@ -307,7 +307,7 @@ mod platform {
 
 #[cfg(target_os = "macos")]
 pub use platform::{
-    fetch_albums, request_access_and_fetch, status, write_original, write_thumbnail,
+    fetch_albums, fetch_assets, request_access_and_fetch, status, write_original, write_thumbnail,
     write_thumbnail_with_network,
 };
 
@@ -324,6 +324,11 @@ pub fn status() -> ApplePhotosStatus {
 
 #[cfg(not(target_os = "macos"))]
 pub fn fetch_albums() -> Vec<ApplePhotoAlbum> {
+    Vec::new()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn fetch_assets() -> Vec<ApplePhotoAsset> {
     Vec::new()
 }
 

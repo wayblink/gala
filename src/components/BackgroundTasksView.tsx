@@ -74,6 +74,11 @@ export function BackgroundTasksView({
                   {task.detail ? <p className="task-card__detail">{task.detail}</p> : null}
                   {task.result ? <p className="task-card__result">{task.result}</p> : null}
                   {task.error ? <p className="task-card__error">{task.error}</p> : null}
+                  {task.kind === 'reorganize' && task.operationPayload && typeof task.operationPayload === 'object' ? (
+                    <p className="task-card__detail">
+                      Plan: {String((task.operationPayload as { planId?: unknown }).planId ?? 'pending scan')}
+                    </p>
+                  ) : null}
                 </div>
               </div>
               <div className="task-card__meta">
