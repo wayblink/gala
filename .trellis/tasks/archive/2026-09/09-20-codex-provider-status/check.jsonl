@@ -1,1 +1,0 @@
-{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "检查脚本改动是否引入重复逻辑或破坏现有配置行为。"}

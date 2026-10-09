@@ -1,4 +1,0 @@
-{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"质量检查需要覆盖测试、构建、代码审查和禁止模式。"}
-{"file":".trellis/spec/frontend/directory-structure.md","reason":"检查整理后的模块位置和命名是否符合项目边界。"}
-{"file":".trellis/spec/frontend/type-safety.md","reason":"检查 bridge 合并后是否保留显式返回类型并减少 any/断言。"}
-{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"用于最终检查 UI、desktop adapter、Tauri command 和存储层的数据流没有漂移。"}
