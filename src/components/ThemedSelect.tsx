@@ -25,8 +25,15 @@ export function ThemedSelect({
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([])
   const listboxId = useId()
   const active = options.find((option) => option.value === value) ?? options[0]
+  const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value))
+  const [highlightedIndex, setHighlightedIndex] = useState(selectedIndex)
+
+  useEffect(() => {
+    if (open) optionRefs.current[highlightedIndex]?.focus()
+  }, [highlightedIndex, open])
 
   useEffect(() => {
     if (!open) return
@@ -47,11 +54,22 @@ export function ThemedSelect({
     }
   }, [open])
 
+  const openListbox = () => {
+    setHighlightedIndex(selectedIndex)
+    setOpen(true)
+  }
+
   const moveBy = (delta: number) => {
     if (options.length === 0) return
-    const current = Math.max(0, options.findIndex((option) => option.value === value))
-    const next = Math.min(options.length - 1, Math.max(0, current + delta))
-    onChange(options[next].value)
+    setHighlightedIndex((current) => Math.min(options.length - 1, Math.max(0, current + delta)))
+  }
+
+  const commit = (index: number) => {
+    const option = options[index]
+    if (!option) return
+    onChange(option.value)
+    setOpen(false)
+    buttonRef.current?.focus()
   }
 
   return (
@@ -65,19 +83,21 @@ export function ThemedSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={listboxId}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          if (open) setOpen(false)
+          else openListbox()
+        }}
         onKeyDown={(event) => {
           if (event.key === 'ArrowDown') {
             event.preventDefault()
-            if (!open) setOpen(true)
-            else moveBy(1)
+            if (!open) openListbox()
           } else if (event.key === 'ArrowUp') {
             event.preventDefault()
-            if (!open) setOpen(true)
-            else moveBy(-1)
+            if (!open) openListbox()
           } else if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault()
-            setOpen((v) => !v)
+            if (open) setOpen(false)
+            else openListbox()
           }
         }}
       >
@@ -85,21 +105,42 @@ export function ThemedSelect({
         <span className="themed-select__chevron" aria-hidden="true">⌄</span>
       </button>
       {open && !disabled ? (
-        <div className="themed-select__popover" role="listbox" id={listboxId} aria-label={ariaLabel}>
-          {options.map((option) => {
+        <div
+          className="themed-select__popover"
+          role="listbox"
+          id={listboxId}
+          aria-label={ariaLabel}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowDown') {
+              event.preventDefault()
+              moveBy(1)
+            } else if (event.key === 'ArrowUp') {
+              event.preventDefault()
+              moveBy(-1)
+            } else if (event.key === 'Home') {
+              event.preventDefault()
+              setHighlightedIndex(0)
+            } else if (event.key === 'End') {
+              event.preventDefault()
+              setHighlightedIndex(options.length - 1)
+            } else if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              commit(highlightedIndex)
+            }
+          }}
+        >
+          {options.map((option, index) => {
             const selected = option.value === value
             return (
               <button
+                ref={(element) => { optionRefs.current[index] = element }}
                 key={option.value}
                 type="button"
                 role="option"
                 aria-selected={selected}
                 className={`themed-select__option${selected ? ' themed-select__option--selected' : ''}`}
-                onClick={() => {
-                  onChange(option.value)
-                  setOpen(false)
-                  buttonRef.current?.focus()
-                }}
+                onMouseEnter={() => setHighlightedIndex(index)}
+                onClick={() => commit(index)}
               >
                 <span className="themed-select__check" aria-hidden="true">{selected ? '✓' : ''}</span>
                 <span>{option.label}</span>
