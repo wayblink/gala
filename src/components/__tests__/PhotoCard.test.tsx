@@ -42,6 +42,13 @@ const photo: TimelinePhoto = {
 }
 
 describe('PhotoCard', () => {
+  it('loads thumbnail images lazily and decodes them asynchronously', async () => {
+    render(<PhotoCard photo={photo} />)
+
+    const image = await screen.findByRole('img', { name: photo.fileName })
+    expect(image).toHaveAttribute('loading', 'lazy')
+    expect(image).toHaveAttribute('decoding', 'async')
+  })
   it('hides quality by default to avoid unnecessary computation', () => {
     render(<PhotoCard photo={photo} variant="gallery" />)
 

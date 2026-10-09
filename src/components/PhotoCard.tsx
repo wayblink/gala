@@ -124,6 +124,8 @@ export function PhotoCard({
           <img
             src={thumbnailUrl}
             alt={variant === 'list' ? '' : photo.fileName}
+            loading="lazy"
+            decoding="async"
             className="photo-card__image"
             onError={() => setError(true)}
           />
