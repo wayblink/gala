@@ -1,16 +1,8 @@
-import { BackgroundTasksView } from './components/BackgroundTasksView'
 import { ContextPanel } from './components/ContextPanel'
 import { LeftRail } from './components/LeftRail'
 import { PhotoSurface } from './components/PhotoSurface'
 import { PhotoViewer } from './components/PhotoViewer'
 import { TopBar } from './components/TopBar'
-import { SimilarReviewView } from './features/similar-review/SimilarReviewView'
-import { ContentRecognitionView } from './features/explore/ContentRecognitionView'
-import { LabelsView } from './features/explore/LabelsView'
-import { PeopleView } from './features/people/PeopleView'
-import { ReorganizeView } from './features/reorganize/ReorganizeView'
-import { SettingsView } from './features/settings/SettingsView'
-import { SourcesView } from './features/sources/SourcesView'
 import {
   analysisClusterFaces,
   analysisEmbedFaces,
@@ -38,12 +30,21 @@ import { useTags } from './state/useTags'
 import { useViewFilter } from './state/useViewFilter'
 import { useSimilarReviewWorkflow } from './features/similar-review/useSimilarReviewWorkflow'
 import type { ComingSoonViewId, PhotoFilter } from './types/photos'
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { getSourceCollections } from './desktop/photos'
 import type { ApplePhotosStatus } from './types/library'
 import type { SourceCollection } from './types/photos'
 import type { TimelinePhoto } from './types/photos'
 import { relinkPhotoSource } from './desktop/library'
+
+const BackgroundTasksView = lazy(() => import('./components/BackgroundTasksView').then((module) => ({ default: module.BackgroundTasksView })))
+const SimilarReviewView = lazy(() => import('./features/similar-review/SimilarReviewView').then((module) => ({ default: module.SimilarReviewView })))
+const ContentRecognitionView = lazy(() => import('./features/explore/ContentRecognitionView').then((module) => ({ default: module.ContentRecognitionView })))
+const LabelsView = lazy(() => import('./features/explore/LabelsView').then((module) => ({ default: module.LabelsView })))
+const PeopleView = lazy(() => import('./features/people/PeopleView').then((module) => ({ default: module.PeopleView })))
+const ReorganizeView = lazy(() => import('./features/reorganize/ReorganizeView').then((module) => ({ default: module.ReorganizeView })))
+const SettingsView = lazy(() => import('./features/settings/SettingsView').then((module) => ({ default: module.SettingsView })))
+const SourcesView = lazy(() => import('./features/sources/SourcesView').then((module) => ({ default: module.SourcesView })))
 
 export default function App() {
   const [leftCollapsed, setLeftCollapsed] = useState(false)
@@ -660,6 +661,7 @@ export default function App() {
             onDoubleClick={() => leftRailSize.setWidth(240)}
           />
         )}
+        <Suspense fallback={<main className="workspace-view-loading" role="status">Loading view…</main>}>
         {isSimilarReviewSelected ? (
           <SimilarReviewView
             cards={similarReview.cards}
@@ -809,6 +811,7 @@ export default function App() {
             }}
           />
         )}
+        </Suspense>
         {rightPanelVisible && !rightCollapsed && (
           <div
             className="workspace-grid__resizer"

@@ -34,7 +34,7 @@ describe('App', () => {
     await waitFor(() => {
       expect(screen.getAllByRole('button', { name: /^Open / }).length).toBeGreaterThan(1)
     })
-    const photoButtons = screen.getAllByRole('button', { name: /^Open / })
+    const photoButtons = within(screen.getByLabelText('Timeline photo surface')).getAllByRole('button', { name: /^Open / })
     expect(photoButtons.length).toBeGreaterThan(1)
     const secondPhotoName = photoButtons[1].getAttribute('aria-label')?.replace(/^Open /, '')
     expect(secondPhotoName).toBeTruthy()
