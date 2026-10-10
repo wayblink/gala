@@ -5,7 +5,7 @@ test('functional component colors stay distinct inside a theme', async ({ page }
 
   await page.goto('/')
   await page.getByRole('button', { name: 'Settings' }).click()
-  await page.getByRole('radio', { name: /Mint Lime/ }).click()
+  await page.getByRole('radio', { name: /^Dark/ }).click()
 
   const backgrounds = await page.evaluate(() => {
     const readBackground = (className: string) => {
@@ -27,5 +27,5 @@ test('functional component colors stay distinct inside a theme', async ({ page }
   })
 
   expect(new Set(backgrounds).size).toBe(5)
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'mint')
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
 })

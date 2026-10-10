@@ -22,6 +22,8 @@ import { PhotoCard } from './PhotoCard'
 import { PhotoGallery } from './PhotoGallery'
 import { PhotoViewer } from './PhotoViewer'
 import { ThemedSelect } from './ThemedSelect'
+import { CheckSquare, GalleryHorizontal, Grid3X3, Rows3 } from 'lucide-react'
+import { useI18n } from '../state/useLocale'
 
 const PHOTOS_PER_PAGE = 50
 const SELECTION_PAGE_SIZE = 500
@@ -31,6 +33,7 @@ type PhotoSurfaceProps = {
   filter: PhotoFilter | null
   title: string
   displayMode: PhotoDisplayMode
+  onDisplayModeChange?: (mode: PhotoDisplayMode) => void
   selectedPhotoId: string | null
   searchQuery: string
   dataVersion?: number
@@ -103,6 +106,7 @@ export function PhotoSurface({
   filter,
   title,
   displayMode,
+  onDisplayModeChange,
   selectedPhotoId,
   searchQuery,
   dataVersion = 0,
@@ -124,6 +128,7 @@ export function PhotoSurface({
   originalPaths = {},
   onOriginalPathsLoaded,
 }: PhotoSurfaceProps) {
+  const { t } = useI18n()
   const [variantDisplayMode, setVariantDisplayMode] = useState<VariantDisplayMode>('merged')
   const [variantSelectionMode, setVariantSelectionMode] = useState<VariantSelectionMode>('all')
   const [photos, setPhotos] = useState<TimelinePhoto[]>([])
@@ -431,6 +436,19 @@ export function PhotoSurface({
           onClose={() => onCloseFilterPanel?.()}
         />
       )}
+      <div className="photo-surface__toolbar">
+        <div className="photo-surface__toolbar-title">
+          {!shouldShowHeader && <span className="photo-surface__toolbar-title-text">{title}</span>}
+        </div>
+        <div className="photo-surface__toolbar-tools">
+          <div className="seg" role="group" aria-label={t('top.displayMode')}>
+            <button type="button" className={displayMode === 'thumbnail' ? 'on' : ''} title={t('top.thumbnailTable')} aria-label={t('top.thumbnailTable')} aria-pressed={displayMode === 'thumbnail'} onClick={() => onDisplayModeChange?.('thumbnail')}><Grid3X3 size={15} /></button>
+            <button type="button" className={displayMode === 'list' ? 'on' : ''} title={t('top.list')} aria-label={t('top.list')} aria-pressed={displayMode === 'list'} onClick={() => onDisplayModeChange?.('list')}><Rows3 size={15} /></button>
+            <button type="button" className={displayMode === 'gallery' ? 'on' : ''} title={t('top.gallery')} aria-label={t('top.gallery')} aria-pressed={displayMode === 'gallery'} onClick={() => onDisplayModeChange?.('gallery')}><GalleryHorizontal size={15} /></button>
+          </div>
+          <button type="button" className={`iconbtn${selectionMode ? ' on' : ''}`} title={selectionMode ? t('top.doneSelecting') : t('top.select')} aria-label={selectionMode ? t('top.exitSelection') : t('top.enterSelection')} aria-pressed={selectionMode} onClick={onToggleSelectionMode}><CheckSquare size={15} /></button>
+        </div>
+      </div>
       {shouldShowHeader && (
         <header className="photo-surface__header">
           <h2>{title}</h2>
@@ -441,12 +459,6 @@ export function PhotoSurface({
               : ''}
           </p>
         </header>
-      )}
-      {displayMode !== 'gallery' && (
-        <div className="photo-surface__variant-controls" aria-label="Photo variant controls">
-          <ThemedSelect value={variantDisplayMode} ariaLabel="Variant display" options={[{ value: 'merged', label: '合并显示' }, { value: 'separate', label: '分开显示' }]} onChange={(value) => setVariantDisplayMode(value as VariantDisplayMode)} />
-          <ThemedSelect value={variantSelectionMode} ariaLabel="Variant selection" options={[{ value: 'all', label: '选择所有格式' }, { value: 'raw', label: '仅选择 RAW' }, { value: 'jpeg', label: '仅选择 JPG/JPEG' }, { value: 'heif', label: '仅选择 HEIF/HIF' }]} onChange={(value) => setVariantSelectionMode(value as VariantSelectionMode)} />
-        </div>
       )}
 
       {photos.length === 0 && !isLoading && (

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { Eye, EyeOff, Search, Star, X } from 'lucide-react'
+import { Eye, EyeOff, Search, SlidersHorizontal, Star, X } from 'lucide-react'
 import { computePhotoQualityScore } from '../domain/photoQuality'
 import type { LibrarySource, LibrarySummary } from '../types/library'
 import type { SelectionScope } from '../state/useSelection'
@@ -43,6 +43,10 @@ type ContextPanelProps = {
   similarReviewMode?: boolean
   similarReviewInspector?: ReactNode
   showQuality?: boolean
+  searchQuery?: string
+  onSearchChange?: (query: string) => void
+  filterActive?: boolean
+  onToggleFilter?: () => void
 }
 
 const formatFileSize = (bytes: number) => {
@@ -126,6 +130,10 @@ export function ContextPanel({
   similarReviewMode = false,
   similarReviewInspector,
   showQuality = false,
+  searchQuery = '',
+  onSearchChange,
+  filterActive = false,
+  onToggleFilter,
 }: ContextPanelProps) {
   const [albumDialogMode, setAlbumDialogMode] = useState<AlbumDialogMode | null>(null)
   const [albumDialogQuery, setAlbumDialogQuery] = useState('')
@@ -246,6 +254,30 @@ export function ContextPanel({
       </button>
       {!collapsed && (
         <div className="context-panel__scroll">
+      {!similarReviewMode && (
+        <div className="context-panel__search">
+          <label className="context-panel__search-field">
+            <Search size={14} aria-hidden="true" />
+            <input
+              type="search"
+              placeholder="Search photos…"
+              aria-label="Search photos"
+              value={searchQuery}
+              onChange={(event) => onSearchChange?.(event.target.value)}
+            />
+          </label>
+          <button
+            className={`iconbtn${filterActive ? ' on' : ''}`}
+            type="button"
+            title="Filters"
+            aria-label="Filters"
+            aria-pressed={filterActive}
+            onClick={onToggleFilter}
+          >
+            <SlidersHorizontal size={15} />
+          </button>
+        </div>
+      )}
       {similarReviewMode ? (
         similarReviewInspector ?? (
           <section>

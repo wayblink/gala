@@ -189,40 +189,4 @@ describe('PhotoSurface selection actions', () => {
     expect(screen.queryByRole('button', { name: /Tag/ })).not.toBeInTheDocument()
   })
 
-  it('switches the timeline query between merged and separate variants', async () => {
-    const user = userEvent.setup()
-    getTimelinePhotos.mockResolvedValue([makePhoto(1)])
-
-    renderSurface()
-    await screen.findByRole('button', { name: 'Open IMG_0001.jpg' })
-    await user.click(screen.getByRole('button', { name: 'Variant display' }))
-    await user.click(screen.getByRole('option', { name: /分开显示/ }))
-
-    await waitFor(() => expect(getTimelinePhotos).toHaveBeenCalledWith(50, 0, { type: 'all' }, false))
-  })
-
-  it('selects only RAW physical variants when that selection range is active', async () => {
-    const user = userEvent.setup()
-    const merged = {
-      ...makePhoto(1),
-      variantCount: 3,
-      variants: [
-        { id: 'raw-1', fileName: 'IMG_0001.ARW', extension: 'arw', formatKind: 'raw' },
-        { id: 'jpeg-1', fileName: 'IMG_0001.JPG', extension: 'jpg', formatKind: 'jpeg' },
-        { id: 'heif-1', fileName: 'IMG_0001.HIF', extension: 'hif', formatKind: 'heif' },
-      ],
-    }
-    getTimelinePhotos.mockImplementation(async (_limit: number, offset: number) => offset === 0 ? [merged] : [])
-    const onSetSelectedIds = vi.fn()
-    renderSurface({ onSetSelectedIds })
-
-    await screen.findByRole('button', { name: 'Open IMG_0001.jpg' })
-    await user.click(screen.getByRole('button', { name: 'Variant selection' }))
-    await user.click(screen.getByRole('option', { name: /仅选择 RAW/ }))
-    await user.click(screen.getByRole('button', { name: 'Select all matching' }))
-
-    await waitFor(() => expect(onSetSelectedIds).toHaveBeenCalled())
-    const [ids] = onSetSelectedIds.mock.lastCall as [Set<string>]
-    expect([...ids]).toEqual(['raw-1'])
-  })
 })

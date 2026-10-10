@@ -1,8 +1,9 @@
 import { ContextPanel } from './components/ContextPanel'
+import { FunctionDock } from './components/FunctionDock'
 import { LeftRail } from './components/LeftRail'
 import { PhotoSurface } from './components/PhotoSurface'
 import { PhotoViewer } from './components/PhotoViewer'
-import { TopBar } from './components/TopBar'
+
 import {
   analysisClusterFaces,
   analysisEmbedFaces,
@@ -590,19 +591,6 @@ export default function App() {
         } as React.CSSProperties
       }
     >
-      <TopBar
-        searchQuery={view.searchQuery}
-        onSearchChange={handleSearchChange}
-        displayMode={view.displayMode}
-        onDisplayModeChange={view.setDisplayMode}
-        filterActive={filterActive}
-        onToggleFilter={view.toggleFilterPanel}
-        selectionMode={selection.selectionMode}
-        onToggleSelectionMode={selection.toggleSelectionMode}
-        similarReviewMode={isSimilarReviewSelected}
-        windowMs={similarReview.windowMs}
-        onWindowChange={similarReview.setWindowMs}
-      />
       <div
         className={`workspace-grid${leftCollapsed ? ' workspace-grid--left-collapsed' : ''}${
           rightPanelVisible ? '' : ' workspace-grid--right-hidden'
@@ -787,6 +775,7 @@ export default function App() {
             filter={view.filter}
             title={photoViewTitle}
             displayMode={view.displayMode}
+            onDisplayModeChange={view.setDisplayMode}
             dataVersion={view.dataVersion}
             selectedPhotoId={selection.selectedPhoto?.id ?? null}
             searchQuery={view.searchQuery}
@@ -884,10 +873,35 @@ export default function App() {
           onToggleCollapse={() => setRightCollapsed((v) => !v)}
           similarReviewMode={isSimilarReviewSelected}
           showQuality={photoQuality.enabled}
+          searchQuery={view.searchQuery}
+          onSearchChange={handleSearchChange}
+          filterActive={filterActive}
+          onToggleFilter={view.toggleFilterPanel}
           similarReviewInspector={similarReview.inspector}
         />
         )}
       </div>
+      <FunctionDock>
+        {isSimilarReviewSelected ? (
+          <div className="function-dock__slider">
+            <span className="function-dock__label">分组窗口</span>
+            <input
+              type="range"
+              min={1000}
+              max={300000}
+              step={1000}
+              value={Math.max(1000, Math.min(300000, similarReview.windowMs))}
+              onChange={(event) => similarReview.setWindowMs(Number.parseInt(event.target.value, 10))}
+              aria-label="Group window"
+            />
+            <span className="function-dock__value">
+              {similarReview.windowMs < 60000
+                ? `${Math.round(similarReview.windowMs / 1000)}s`
+                : `${Math.round(similarReview.windowMs / 60000)}min`}
+            </span>
+          </div>
+        ) : null}
+      </FunctionDock>
       {similarReview.viewerState && (
         <PhotoViewer
           photos={similarReview.viewerState.photos}

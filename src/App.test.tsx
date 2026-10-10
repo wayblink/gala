@@ -8,7 +8,7 @@ describe('App', () => {
     render(<App />)
 
     expect(screen.getByText('Gala')).toBeInTheDocument()
-    expect(document.querySelector('.top-bar__brand-mark')).toBeInTheDocument()
+    expect(document.querySelector('.left-rail__brand-mark')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Thumbnail table' })).toHaveAttribute(
       'aria-pressed',

@@ -28,15 +28,8 @@ describe('appearance theme semantics', () => {
 
   it('keeps the persisted theme identifiers stable', () => {
     expect(APPEARANCE_THEMES.map((theme) => theme.id)).toEqual([
-      'archive',
-      'graphite',
-      'midnight',
-      'sage',
-      'paper',
-      'glacier',
-      'mint',
-      'coral',
-      'cyan',
+      'light',
+      'dark',
     ])
   })
 })

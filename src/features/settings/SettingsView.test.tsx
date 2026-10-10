@@ -15,7 +15,7 @@ describe('SettingsView', () => {
     render(
       <SettingsView
         themes={APPEARANCE_THEMES}
-        activeThemeId="archive"
+        activeThemeId="light"
         onThemeChange={onThemeChange}
         languages={LANGUAGE_OPTIONS}
         activeLanguageId="en"
@@ -30,17 +30,14 @@ describe('SettingsView', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Display language' })).toBeInTheDocument()
     const qualitySwitch = screen.getByRole('switch', { name: 'Off' })
     expect(qualitySwitch).toHaveAttribute('aria-checked', 'false')
-    expect(screen.getByRole('radio', { name: /Archive Amber/i })).toHaveAttribute('aria-checked', 'true')
-    expect(screen.getByRole('radio', { name: /Glacier Blue/i })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: /Mint Lime/i })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: /Coral Daylight/i })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: /Clear Cyan/i })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /^Light/i })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: /^Dark/i })).toBeInTheDocument()
     expect(document.querySelectorAll('.theme-card__preview')).toHaveLength(APPEARANCE_THEMES.length)
     expect(document.querySelectorAll('.theme-card__preview-color')).toHaveLength(APPEARANCE_THEMES.length * 5)
 
-    await user.click(screen.getByRole('radio', { name: /Glacier Blue/i }))
+    await user.click(screen.getByRole('radio', { name: /^Dark/i }))
 
-    expect(onThemeChange).toHaveBeenCalledWith('glacier')
+    expect(onThemeChange).toHaveBeenCalledWith('dark')
 
     await user.click(screen.getByRole('radio', { name: /简体中文/i }))
     expect(onLanguageChange).toHaveBeenCalledWith('zh-Hans')

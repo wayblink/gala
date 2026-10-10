@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Aperture, Folder, Image, Library, ListChecks, Settings, Sparkles } from 'lucide-react'
 import { useI18n } from '../state/useLocale'
 import type { LibrarySummary, ScanProgress } from '../types/library'
 import type { Album, ComingSoonViewId, PhotoFilter, SourceCollection, SourceFolder, Tag } from '../types/photos'
@@ -273,6 +274,10 @@ export function LeftRail({
 
   return (
     <aside className={`left-rail${collapsed ? ' left-rail--collapsed' : ''}`} aria-label="Photo navigation">
+      <div className="left-rail__brand">
+        <span className="left-rail__brand-mark" aria-hidden="true"><Aperture size={18} strokeWidth={1.8} /></span>
+        {!collapsed && <span className="left-rail__wordmark">{t('app.brand')}</span>}
+      </div>
       <button
         className="rail-collapse-btn"
         title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -282,7 +287,18 @@ export function LeftRail({
       >
         {collapsed ? '›' : '‹'}
       </button>
-      {!collapsed && (
+      {collapsed ? (
+        <nav className="left-rail__icons" aria-label="Navigation">
+          <button className={`rail-icon${activeFilter === null ? ' rail-icon--active' : ''}`} type="button" title={t('nav.allPhotos')} aria-label={t('nav.allPhotos')} onClick={onSelectAllPhotos}><Image size={18} /></button>
+          <button className={`rail-icon${activeFilter?.type === 'sources' ? ' rail-icon--active' : ''}`} type="button" title={t('nav.sources')} aria-label={t('nav.sources')} onClick={onSelectSources}><Folder size={18} /></button>
+          <button className="rail-icon" type="button" title={t('nav.albums')} aria-label={t('nav.albums')} onClick={() => undefined}><Library size={18} /></button>
+          <button className={`rail-icon${activeFilter?.type === 'view' && activeFilter.viewId === 'similar' ? ' rail-icon--active' : ''}`} type="button" title={t('nav.similarReview')} aria-label={t('nav.similarReview')} onClick={() => onSelectView('similar')}><Sparkles size={18} /></button>
+          <span className="left-rail__icons-spacer" />
+          <button className={`rail-icon${activeFilter?.type === 'tasks' ? ' rail-icon--active' : ''}`} type="button" title={t('nav.backgroundTasks')} aria-label={t('nav.backgroundTasks')} onClick={onSelectTasks}><ListChecks size={18} />{activeTaskCount > 0 ? <span className="rail-icon__badge">{compactCount(activeTaskCount)}</span> : null}</button>
+          <button className={`rail-icon${activeFilter?.type === 'settings' ? ' rail-icon--active' : ''}`} type="button" title={t('nav.settings')} aria-label={t('nav.settings')} onClick={onSelectSettings}><Settings size={18} /></button>
+        </nav>
+      ) : (
+        <>
         <div className="left-rail__scroll">
           <NavGroup title={t('nav.library')} items={libraryItems} expanded={sections.library} onToggle={() => toggleSection('library')} />
 
@@ -630,8 +646,6 @@ export function LeftRail({
             <ScanStatusCard librarySummary={librarySummary} isScanning={isScanning} scanProgress={scanProgress} />
           )}
         </div>
-      )}
-      {!collapsed && (
         <div className="left-rail__utility" aria-label="Utility navigation">
           <button
             className={`rail-utility-btn${activeFilter?.type === 'tasks' ? ' rail-utility-btn--active' : ''}`}
@@ -653,6 +667,7 @@ export function LeftRail({
             <SettingsIcon />
           </button>
         </div>
+        </>
       )}
     </aside>
   )
