@@ -2036,6 +2036,7 @@ input[type='range']::-moz-range-thumb {
 .metadata-list dd {
   color: var(--paper-200);
   text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .metadata-list__code {

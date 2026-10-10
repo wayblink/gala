@@ -636,7 +636,7 @@ export function ContextPanel({
               </div>
               <div>
                 <dt>Folder</dt>
-                <dd>{selectedPhoto.folderPath || 'Source root'}</dd>
+                <dd className="metadata-list__code">{selectedPhoto.folderPath || 'Source root'}</dd>
               </div>
               <div>
                 <dt>Dimensions</dt>
