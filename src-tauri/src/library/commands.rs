@@ -1170,6 +1170,13 @@ pub fn get_filtered_photos_cmd(
     date_from: Option<String>,
     date_to: Option<String>,
     extensions: Vec<String>,
+    merge_variants: Option<bool>,
+    favorites: Option<bool>,
+    hidden: Option<bool>,
+    lenses: Option<Vec<String>>,
+    sources: Option<Vec<String>>,
+    format_kinds: Option<Vec<String>>,
+    query: Option<String>,
 ) -> Result<Vec<TimelinePhoto>, String> {
     let db_path = get_db_path(&app)?;
     if !db_path.exists() {
@@ -1188,6 +1195,13 @@ pub fn get_filtered_photos_cmd(
         date_from.as_deref(),
         date_to.as_deref(),
         &extensions,
+        merge_variants.unwrap_or(true),
+        favorites,
+        hidden,
+        lenses.as_deref().unwrap_or(&[]),
+        sources.as_deref().unwrap_or(&[]),
+        format_kinds.as_deref().unwrap_or(&[]),
+        query.as_deref(),
     )
 }
 

@@ -27,9 +27,30 @@ export type PhotoFilter =
   | { type: 'tasks' }
 
 export type SmartFilter = {
-  cameras?: string[]
+  // 结构/格式（gala 摄影特色）
+  formatKinds?: string[]
+  mergeVariants?: boolean
+  // 时间
   dateFrom?: string
   dateTo?: string
+  datePreset?: 'thisYear' | 'lastYear' | 'last30Days' | 'undated'
+  // 收藏/隐藏
+  favorites?: boolean
+  hidden?: boolean
+  // 标签
+  tags?: string[]
+  // 相机/镜头
+  cameras?: string[]
+  lenses?: string[]
+  // 来源（多源）
+  sources?: string[]
+  // 尺寸/文件大小
+  minWidth?: number
+  minHeight?: number
+  minFileSize?: number
+  // 智能：质量分上限（过滤低质）
+  qualityMax?: number
+  // legacy
   extensions?: string[]
 }
 
@@ -45,6 +66,10 @@ export type FilterOptions = {
   extensions: string[]
   dateMin: string | null
   dateMax: string | null
+  lenses?: string[]
+  tags?: string[]
+  sources?: string[]
+  formatKinds?: string[]
 }
 
 export type PhotoDisplayMode = 'thumbnail' | 'list' | 'gallery'

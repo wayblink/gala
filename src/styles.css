@@ -3410,6 +3410,87 @@ input[type='range']::-moz-range-thumb {
   outline: none;
 }
 
+.filter-chip.on {
+  background: var(--stone-700);
+  border-color: var(--stone-500);
+  color: var(--paper-100);
+}
+.filter-panel__section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 6px 0;
+  cursor: pointer;
+  color: var(--paper-200);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.filter-panel__section-header:hover { color: var(--paper-100); }
+.filter-panel__chevron { color: var(--stone-400); font-size: 0.7rem; }
+.filter-panel__section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 0 8px;
+}
+.filter-panel__active {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--stone-700);
+}
+.filter-active-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(var(--overlay-rgb), 0.08);
+  border: 1px solid var(--stone-600);
+  border-radius: 999px;
+  color: var(--paper-100);
+  cursor: pointer;
+  font-size: 0.76rem;
+  padding: 3px 10px;
+}
+.filter-active-chip:hover { background: rgba(var(--overlay-rgb), 0.14); }
+.filter-seg {
+  display: inline-flex;
+  border: 1px solid var(--stone-600);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.filter-seg button {
+  background: none;
+  border: none;
+  color: var(--stone-400);
+  cursor: pointer;
+  font-size: 0.78rem;
+  padding: 5px 14px;
+}
+.filter-seg button + button { border-left: 1px solid var(--stone-600); }
+.filter-seg button.on {
+  background: rgba(var(--overlay-rgb), 0.1);
+  color: var(--paper-100);
+}
+.filter-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.filter-preset {
+  background: var(--ink-800);
+  border: 1px solid var(--stone-600);
+  border-radius: 999px;
+  color: var(--paper-300);
+  cursor: pointer;
+  font-size: 0.76rem;
+  padding: 3px 10px;
+}
+.filter-preset:hover { color: var(--paper-100); border-color: var(--stone-400); }
+
 /* ── Tag chips ─────────────────────────────── */
 .photo-tags {
   display: grid;

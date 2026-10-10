@@ -3,7 +3,8 @@ import { Eye, EyeOff, Search, SlidersHorizontal, Star, X } from 'lucide-react'
 import { computePhotoQualityScore } from '../domain/photoQuality'
 import type { LibrarySource, LibrarySummary } from '../types/library'
 import type { SelectionScope } from '../state/useSelection'
-import type { Album, TimelinePhoto } from '../types/photos'
+import type { Album, FilterOptions, SmartFilter, TimelinePhoto } from '../types/photos'
+import { FilterPanel } from './FilterPanel'
 
 type ContextPanelProps = {
   librarySummary: LibrarySummary
@@ -47,6 +48,12 @@ type ContextPanelProps = {
   onSearchChange?: (query: string) => void
   filterActive?: boolean
   onToggleFilter?: () => void
+  smartFilter?: SmartFilter
+  filterOptions?: FilterOptions | null
+  onSmartFilterChange?: (f: SmartFilter) => void
+  variantMode?: 'merged' | 'separate'
+  onVariantModeChange?: (m: 'merged' | 'separate') => void
+  filterPanelOpen?: boolean
 }
 
 const formatFileSize = (bytes: number) => {
@@ -134,6 +141,12 @@ export function ContextPanel({
   onSearchChange,
   filterActive = false,
   onToggleFilter,
+  smartFilter = {},
+  filterOptions = null,
+  onSmartFilterChange,
+  variantMode = 'merged',
+  onVariantModeChange,
+  filterPanelOpen = false,
 }: ContextPanelProps) {
   const [albumDialogMode, setAlbumDialogMode] = useState<AlbumDialogMode | null>(null)
   const [albumDialogQuery, setAlbumDialogQuery] = useState('')
@@ -277,6 +290,16 @@ export function ContextPanel({
             <SlidersHorizontal size={15} />
           </button>
         </div>
+      )}
+      {!similarReviewMode && filterPanelOpen && filterOptions && (
+        <FilterPanel
+          filterOptions={filterOptions}
+          smartFilter={smartFilter}
+          onSmartFilterChange={(f) => onSmartFilterChange?.(f)}
+          variantMode={variantMode}
+          onVariantModeChange={(m) => onVariantModeChange?.(m)}
+          onClose={() => onToggleFilter?.()}
+        />
       )}
       {similarReviewMode ? (
         similarReviewInspector ?? (

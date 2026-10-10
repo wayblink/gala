@@ -141,6 +141,10 @@ pub struct FilterOptions {
     pub extensions: Vec<String>,
     pub date_min: Option<String>,
     pub date_max: Option<String>,
+    pub lenses: Vec<String>,
+    pub tags: Vec<String>,
+    pub sources: Vec<String>,
+    pub format_kinds: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -14,12 +14,14 @@ export type UseViewFilter = {
   searchQuery: string
   smartFilter: SmartFilter
   displayMode: PhotoDisplayMode
+  variantMode: 'merged' | 'separate'
   filterPanelOpen: boolean
   dataVersion: number
   setFilter: (next: PhotoFilter | null) => void
   setSearchQuery: (q: string) => void
   setSmartFilter: (f: SmartFilter) => void
   setDisplayMode: (m: PhotoDisplayMode) => void
+  setVariantMode: (m: 'merged' | 'separate') => void
   setFilterPanelOpen: (open: boolean) => void
   toggleFilterPanel: () => void
   bumpDataVersion: () => void
@@ -30,6 +32,7 @@ export function useViewFilter(): UseViewFilter {
   const [searchQuery, setSearchQuery] = useState('')
   const [smartFilter, setSmartFilter] = useState<SmartFilter>({})
   const [displayMode, setDisplayMode] = useState<PhotoDisplayMode>('thumbnail')
+  const [variantMode, setVariantMode] = useState<'merged' | 'separate'>('merged')
   const [filterPanelOpen, setFilterPanelOpen] = useState(false)
   const [dataVersion, setDataVersion] = useState(0)
 
@@ -51,12 +54,14 @@ export function useViewFilter(): UseViewFilter {
     searchQuery,
     smartFilter,
     displayMode,
+    variantMode,
     filterPanelOpen,
     dataVersion,
     setFilter,
     setSearchQuery,
     setSmartFilter,
     setDisplayMode,
+    setVariantMode,
     setFilterPanelOpen,
     toggleFilterPanel,
     bumpDataVersion,

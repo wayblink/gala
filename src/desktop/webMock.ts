@@ -1,5 +1,5 @@
 import type { LibrarySource, LibrarySummary } from '../types/library'
-import type { FilterOptions, Album, PhotoFilter, SourceFolder, TimelinePhoto } from '../types/photos'
+import type { FilterOptions, Album, PhotoFilter, SmartFilter, SourceFolder, TimelinePhoto } from '../types/photos'
 
 const mockSources: LibrarySource[] = [
   {
@@ -292,6 +292,10 @@ export const webMockFilterOptions: FilterOptions = {
   extensions: ['jpg'],
   dateMin: '2026-05-01T07:20:00.000Z',
   dateMax: '2026-05-28T10:09:00.000Z',
+  lenses: [],
+  tags: [],
+  sources: mockSources.map((source) => source.id),
+  formatKinds: ['jpeg'],
 }
 
 export function getWebMockTimelinePhotos(filter?: PhotoFilter | null): TimelinePhoto[] {
@@ -308,6 +312,85 @@ export function getWebMockTimelinePhotos(filter?: PhotoFilter | null): TimelineP
   }
 
   return mockPhotos
+}
+
+const WEB_MOCK_RAW_EXT = ['arw', 'cr2', 'cr3', 'nef', 'raf', 'orf', 'rw2', 'pef', 'srw', 'dng']
+const WEB_MOCK_JPEG_EXT = ['jpg', 'jpeg']
+const WEB_MOCK_HEIF_EXT = ['heic', 'heif', 'hif']
+const webMockExtKind = (ext: string): string => {
+  const e = ext.toLowerCase()
+  if (WEB_MOCK_RAW_EXT.includes(e)) return 'raw'
+  if (WEB_MOCK_JPEG_EXT.includes(e)) return 'jpeg'
+  if (WEB_MOCK_HEIF_EXT.includes(e)) return 'heif'
+  return 'other'
+}
+
+export function getWebMockFilteredPhotos(
+  filter: SmartFilter,
+  sourceId?: string,
+  folderPath?: string,
+  query?: string,
+): TimelinePhoto[] {
+  let photos = getWebMockTimelinePhotos(
+    sourceId ? { type: 'folder', sourceId, folderPath: folderPath ?? '' } : { type: 'all' },
+  )
+
+  if (filter.sources && filter.sources.length > 0) {
+    photos = photos.filter((photo) =>
+      filter.sources!.includes((photo as { sourceId?: string }).sourceId ?? ''),
+    )
+  }
+  if (filter.cameras && filter.cameras.length > 0) {
+    photos = photos.filter((photo) => {
+      const cam = `${photo.cameraMake ?? ''} ${photo.cameraModel ?? ''}`.trim()
+      return filter.cameras!.some((c) => cam === c || cam.includes(c))
+    })
+  }
+  if (filter.lenses && filter.lenses.length > 0) {
+    photos = photos.filter((photo) => photo.lensModel != null && filter.lenses!.includes(photo.lensModel))
+  }
+  if (filter.dateFrom) {
+    photos = photos.filter((photo) => (photo.capturedAt ?? '') >= filter.dateFrom!)
+  }
+  if (filter.dateTo) {
+    photos = photos.filter((photo) => (photo.capturedAt ?? '') <= filter.dateTo!)
+  }
+  if (filter.favorites !== undefined) {
+    photos = photos.filter((photo) => photo.isFavorite === filter.favorites)
+  }
+  if (filter.hidden !== undefined) {
+    photos = photos.filter((photo) => photo.isHidden === filter.hidden)
+  }
+  if (filter.tags && filter.tags.length > 0) {
+    photos = photos.filter((photo) => filter.tags!.every((tag) => photo.tags.includes(tag)))
+  }
+
+  const exts = [...(filter.extensions ?? [])]
+  let hasOther = false
+  for (const kind of filter.formatKinds ?? []) {
+    if (kind === 'raw') exts.push(...WEB_MOCK_RAW_EXT)
+    else if (kind === 'jpeg') exts.push(...WEB_MOCK_JPEG_EXT)
+    else if (kind === 'heif') exts.push(...WEB_MOCK_HEIF_EXT)
+    else if (kind === 'other') hasOther = true
+  }
+  if (exts.length > 0 || hasOther) {
+    const lowerExts = exts.map((e) => e.toLowerCase())
+    photos = photos.filter((photo) => {
+      const ext = (photo.extension ?? photo.fileName.split('.').pop() ?? '').toLowerCase()
+      if (lowerExts.includes(ext)) return true
+      if (hasOther && webMockExtKind(ext) === 'other') return true
+      return false
+    })
+  }
+
+  if (query && query.trim()) {
+    const q = query.trim().toLowerCase()
+    photos = photos.filter(
+      (photo) => photo.fileName.toLowerCase().includes(q) || photo.relativePath.toLowerCase().includes(q),
+    )
+  }
+
+  return photos
 }
 
 export function searchWebMockPhotos(query: string): TimelinePhoto[] {

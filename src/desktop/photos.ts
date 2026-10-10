@@ -10,6 +10,7 @@ import {
   getWebMockAlbumPhotos,
   getWebMockAlbums,
   getWebMockSourceFolders,
+  getWebMockFilteredPhotos,
   getWebMockTimelinePhotos,
   removeWebMockPhotoFromAlbum,
   removeWebMockPhotosFromAlbumBatch,
@@ -231,10 +232,10 @@ export async function getFilteredPhotos(
   filter: SmartFilter,
   sourceId?: string,
   folderPath?: string,
+  query?: string,
 ): Promise<TimelinePhoto[]> {
   if (!isTauriAvailable()) {
-    return getWebMockTimelinePhotos(sourceId ? { type: 'folder', sourceId, folderPath: folderPath ?? '' } : { type: 'all' })
-      .slice(offset, offset + limit)
+    return getWebMockFilteredPhotos(filter, sourceId, folderPath, query).slice(offset, offset + limit)
   }
   try {
     return await invoke<TimelinePhoto[]>('get_filtered_photos_cmd', {
@@ -246,6 +247,13 @@ export async function getFilteredPhotos(
       dateFrom: filter.dateFrom ?? null,
       dateTo: filter.dateTo ?? null,
       extensions: filter.extensions ?? [],
+      mergeVariants: filter.mergeVariants ?? true,
+      favorites: filter.favorites ?? null,
+      hidden: filter.hidden ?? null,
+      lenses: filter.lenses ?? [],
+      sources: filter.sources ?? [],
+      formatKinds: filter.formatKinds ?? [],
+      query: query ?? null,
     })
   } catch (error) {
     console.error('[getFilteredPhotos] Error:', error)

@@ -780,10 +780,7 @@ export default function App() {
             selectedPhotoId={selection.selectedPhoto?.id ?? null}
             searchQuery={view.searchQuery}
             smartFilter={view.smartFilter}
-            filterPanelOpen={view.filterPanelOpen}
-            filterOptions={library.filterOptions}
-            onSmartFilterChange={view.setSmartFilter}
-            onCloseFilterPanel={() => view.setFilterPanelOpen(false)}
+            variantMode={view.variantMode}
             onSelectPhoto={selection.setSelectedPhoto}
             onHoverPhoto={setHoveredPhoto}
             selectionMode={selection.selectionMode}
@@ -877,6 +874,12 @@ export default function App() {
           onSearchChange={handleSearchChange}
           filterActive={filterActive}
           onToggleFilter={view.toggleFilterPanel}
+          smartFilter={view.smartFilter}
+          filterOptions={library.filterOptions}
+          onSmartFilterChange={view.setSmartFilter}
+          variantMode={view.variantMode}
+          onVariantModeChange={view.setVariantMode}
+          filterPanelOpen={view.filterPanelOpen}
           similarReviewInspector={similarReview.inspector}
         />
         )}

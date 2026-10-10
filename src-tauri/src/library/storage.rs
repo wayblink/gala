@@ -383,6 +383,12 @@ pub fn initialize_schema(conn: &Connection) -> Result<(), String> {
             ON organization_runs(plan_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_org_logs_plan_created
             ON organization_logs(plan_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_photos_captured_at ON photos(captured_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_photos_camera ON photos(camera_make, camera_model);
+        CREATE INDEX IF NOT EXISTS idx_photos_lens ON photos(lens_model) WHERE lens_model IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_photos_extension ON photos(extension);
+        CREATE INDEX IF NOT EXISTS idx_photos_source_id ON photos(source_id);
+        CREATE INDEX IF NOT EXISTS idx_photos_favorited_at ON photos(favorited_at DESC) WHERE favorited_at IS NOT NULL;
         -- Indexes on columns added by migrate_schema (content_hash,
         -- fingerprint, photo_tag_sources) live in `migrate_schema`
         -- below — see #content-hash-index-order. They MUST run after
@@ -2955,11 +2961,65 @@ pub fn get_filter_options(conn: &Connection) -> Result<FilterOptions, String> {
         )
         .unwrap_or(None);
 
+    let lenses: Vec<String> = match conn.prepare(
+        "SELECT DISTINCT lens_model FROM photos WHERE hidden_at IS NULL AND lens_model IS NOT NULL AND TRIM(lens_model) != '' ORDER BY 1 COLLATE NOCASE",
+    ) {
+        Ok(mut stmt) => stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+
+    let tags: Vec<String> = match conn.prepare(
+        "SELECT DISTINCT name FROM tags ORDER BY name COLLATE NOCASE",
+    ) {
+        Ok(mut stmt) => stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+
+    let sources: Vec<String> = match conn.prepare(
+        "SELECT id FROM sources ORDER BY name COLLATE NOCASE",
+    ) {
+        Ok(mut stmt) => stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+
+    const RAW_EXT: &[&str] = &["arw", "cr2", "cr3", "nef", "raf", "orf", "rw2", "pef", "srw", "dng"];
+    const JPEG_EXT: &[&str] = &["jpg", "jpeg"];
+    const HEIF_EXT: &[&str] = &["heic", "heif", "hif"];
+    let mut format_kinds: Vec<String> = Vec::new();
+    if extensions.iter().any(|e| RAW_EXT.contains(&e.as_str())) {
+        format_kinds.push("raw".to_string());
+    }
+    if extensions.iter().any(|e| JPEG_EXT.contains(&e.as_str())) {
+        format_kinds.push("jpeg".to_string());
+    }
+    if extensions.iter().any(|e| HEIF_EXT.contains(&e.as_str())) {
+        format_kinds.push("heif".to_string());
+    }
+    if extensions
+        .iter()
+        .any(|e| !RAW_EXT.contains(&e.as_str()) && !JPEG_EXT.contains(&e.as_str()) && !HEIF_EXT.contains(&e.as_str()))
+    {
+        format_kinds.push("other".to_string());
+    }
+
     Ok(FilterOptions {
         cameras,
         extensions,
         date_min,
         date_max,
+        lenses,
+        tags,
+        sources,
+        format_kinds,
     })
 }
 
@@ -2974,18 +3034,43 @@ pub fn get_filtered_photos(
     date_from: Option<&str>,
     date_to: Option<&str>,
     extensions: &[String],
+    merge_variants: bool,
+    favorites: Option<bool>,
+    hidden: Option<bool>,
+    lenses: &[String],
+    sources: &[String],
+    format_kinds: &[String],
+    query: Option<&str>,
 ) -> Result<Vec<TimelinePhoto>, String> {
-    let mut where_parts: Vec<String> = vec![
-        format!("{}", ASSET_READY_COND),
-        "p.hidden_at IS NULL".to_string(),
-    ];
+    let mut where_parts: Vec<String> = vec![format!("{}", ASSET_READY_COND)];
     let mut pv: Vec<rusqlite::types::Value> = vec![];
 
     let normalized = folder_path
         .map(normalize_relative_path)
         .filter(|p| !p.is_empty());
 
-    if let Some(sid) = source_id {
+    // hidden state: default visible only; hidden=Some(true) -> only hidden
+    match hidden {
+        Some(true) => where_parts.push("p.hidden_at IS NOT NULL".to_string()),
+        _ => where_parts.push("p.hidden_at IS NULL".to_string()),
+    }
+    if favorites == Some(true) {
+        where_parts.push("p.favorited_at IS NOT NULL".to_string());
+    } else if favorites == Some(false) {
+        where_parts.push("p.favorited_at IS NULL".to_string());
+    }
+
+    // sources (multi) takes precedence; else single source_id
+    if !sources.is_empty() {
+        let phs: Vec<String> = sources
+            .iter()
+            .map(|s| {
+                pv.push(rusqlite::types::Value::Text(s.clone()));
+                format!("?{}", pv.len())
+            })
+            .collect();
+        where_parts.push(format!("p.source_id IN ({})", phs.join(", ")));
+    } else if let Some(sid) = source_id {
         pv.push(rusqlite::types::Value::Text(sid.to_string()));
         where_parts.push(format!("p.source_id = ?{}", pv.len()));
     }
@@ -3006,6 +3091,16 @@ pub fn get_filtered_photos(
             phs.join(", ")
         ));
     }
+    if !lenses.is_empty() {
+        let phs: Vec<String> = lenses
+            .iter()
+            .map(|l| {
+                pv.push(rusqlite::types::Value::Text(l.clone()));
+                format!("?{}", pv.len())
+            })
+            .collect();
+        where_parts.push(format!("p.lens_model IN ({})", phs.join(", ")));
+    }
     if let Some(df) = date_from {
         pv.push(rusqlite::types::Value::Text(df.to_string()));
         where_parts.push(format!(
@@ -3020,16 +3115,79 @@ pub fn get_filtered_photos(
             pv.len()
         ));
     }
-    if !extensions.is_empty() {
-        let phs: Vec<String> = extensions
-            .iter()
-            .map(|e| {
-                pv.push(rusqlite::types::Value::Text(e.to_lowercase()));
-                format!("?{}", pv.len())
-            })
-            .collect();
-        where_parts.push(format!("LOWER(p.extension) IN ({})", phs.join(", ")));
+
+    // extensions (physical) + format_kinds (semantic) -> combined extension IN filter
+    const RAW_EXT: &[&str] = &["arw", "cr2", "cr3", "nef", "raf", "orf", "rw2", "pef", "srw", "dng"];
+    const JPEG_EXT: &[&str] = &["jpg", "jpeg"];
+    const HEIF_EXT: &[&str] = &["heic", "heif", "hif"];
+    let mut kind_ext: Vec<String> = extensions.iter().map(|e| e.to_lowercase()).collect();
+    let mut has_other = false;
+    for k in format_kinds {
+        match k.as_str() {
+            "raw" => kind_ext.extend(RAW_EXT.iter().map(|s| s.to_string())),
+            "jpeg" => kind_ext.extend(JPEG_EXT.iter().map(|s| s.to_string())),
+            "heif" => kind_ext.extend(HEIF_EXT.iter().map(|s| s.to_string())),
+            "other" => has_other = true,
+            _ => {}
+        }
     }
+    kind_ext.sort();
+    kind_ext.dedup();
+    if !kind_ext.is_empty() || has_other {
+        let mut clauses: Vec<String> = Vec::new();
+        if !kind_ext.is_empty() {
+            let phs: Vec<String> = kind_ext
+                .iter()
+                .map(|e| {
+                    pv.push(rusqlite::types::Value::Text(e.clone()));
+                    format!("?{}", pv.len())
+                })
+                .collect();
+            clauses.push(format!("LOWER(p.extension) IN ({})", phs.join(", ")));
+        }
+        if has_other {
+            let known: Vec<String> = RAW_EXT
+                .iter()
+                .chain(JPEG_EXT.iter())
+                .chain(HEIF_EXT.iter())
+                .map(|s| s.to_string())
+                .collect();
+            let phs: Vec<String> = known
+                .iter()
+                .map(|e| {
+                    pv.push(rusqlite::types::Value::Text(e.clone()));
+                    format!("?{}", pv.len())
+                })
+                .collect();
+            clauses.push(format!("LOWER(p.extension) NOT IN ({})", phs.join(", ")));
+        }
+        where_parts.push(format!("({})", clauses.join(" OR ")));
+    }
+
+    if let Some(q) = query {
+        let q = q.trim();
+        if !q.is_empty() {
+            pv.push(rusqlite::types::Value::Text(format!("%{}%", q)));
+            let qi = pv.len();
+            where_parts.push(format!(
+                "(LOWER(p.file_name) LIKE LOWER(?{qi}) OR LOWER(p.relative_path) LIKE LOWER(?{qi}))"
+            ));
+        }
+    }
+
+    let variant_condition = if merge_variants {
+        "AND (p.logical_id IS NULL OR p.id = (\
+            SELECT pv.id FROM photos pv \
+            INNER JOIN photo_assets pva ON pva.photo_id = pv.id \
+            WHERE pv.logical_id = p.logical_id AND pv.hidden_at IS NULL \
+              AND ((pva.asset_status = 'ready' AND pva.thumbnail_medium_path IS NOT NULL) OR pva.asset_status = 'photos_library') \
+            ORDER BY CASE lower(pv.extension) \
+              WHEN 'jpg' THEN 0 WHEN 'jpeg' THEN 0 \
+              WHEN 'heic' THEN 1 WHEN 'heif' THEN 1 WHEN 'hif' THEN 1 \
+              ELSE 2 END, pv.id LIMIT 1))".to_string()
+    } else {
+        String::new()
+    };
 
     pv.push(rusqlite::types::Value::Integer(limit));
     let limit_idx = pv.len();
@@ -3037,25 +3195,26 @@ pub fn get_filtered_photos(
     let offset_idx = pv.len();
 
     let sql = format!(
-        "SELECT {cols} {joins} WHERE {where} \
+        "SELECT {cols} {joins} WHERE {where} {variant_condition} \
          ORDER BY COALESCE(strftime('%s', p.captured_at), p.file_mtime) DESC, p.file_mtime DESC \
          LIMIT ?{limit_idx} OFFSET ?{offset_idx}",
-        cols = PHOTO_COLS, joins = PHOTO_JOINS,
+        cols = PHOTO_COLS,
+        joins = PHOTO_JOINS,
         where = where_parts.join(" AND "),
-        limit_idx = limit_idx, offset_idx = offset_idx
+        variant_condition = variant_condition,
+        limit_idx = limit_idx,
+        offset_idx = offset_idx
     );
 
     let mut stmt = conn
         .prepare(&sql)
         .map_err(|e| format!("Failed to prepare filtered query: {}", e))?;
-    let photos = stmt
-        .query_map(
-            rusqlite::params_from_iter(pv.iter()),
-            timeline_photo_from_row,
-        )
+    let mut photos = stmt
+        .query_map(rusqlite::params_from_iter(pv.iter()), timeline_photo_from_row)
         .map_err(|e| format!("Failed to query filtered: {}", e))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("Failed to collect filtered: {}", e))?;
+    populate_photo_variants(conn, &mut photos)?;
     Ok(photos)
 }
 

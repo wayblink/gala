@@ -11,13 +11,11 @@ import {
   getRecentlyAddedPhotos,
   getSourceCollectionPhotos,
   getTimelinePhotos,
-  searchPhotos,
 } from '../desktop/photos'
 import { groupTimelinePhotos } from '../data/photoTimeline'
 import type { SelectionScope } from '../state/useSelection'
-import type { ComingSoonViewId, FilterOptions, PhotoDisplayMode, PhotoFilter, SmartFilter, TimelinePhoto } from '../types/photos'
+import type { ComingSoonViewId, PhotoDisplayMode, PhotoFilter, SmartFilter, TimelinePhoto } from '../types/photos'
 import { ComingSoonView } from './ComingSoonView'
-import { FilterPanel } from './FilterPanel'
 import { PhotoCard } from './PhotoCard'
 import { PhotoGallery } from './PhotoGallery'
 import { PhotoViewer } from './PhotoViewer'
@@ -40,10 +38,7 @@ type PhotoSurfaceProps = {
   onSelectPhoto: (photo: TimelinePhoto | null) => void
   onHoverPhoto?: (photo: TimelinePhoto | null) => void
   smartFilter?: SmartFilter
-  filterPanelOpen?: boolean
-  filterOptions?: FilterOptions | null
-  onSmartFilterChange?: (f: SmartFilter) => void
-  onCloseFilterPanel?: () => void
+  variantMode?: 'merged' | 'separate'
   selectionMode?: boolean
   onToggleSelectionMode?: () => void
   selectedIds: Set<string>
@@ -113,10 +108,7 @@ export function PhotoSurface({
   onSelectPhoto,
   onHoverPhoto,
   smartFilter = {},
-  filterPanelOpen = false,
-  filterOptions = null,
-  onSmartFilterChange,
-  onCloseFilterPanel,
+  variantMode = 'merged',
   selectionMode = false,
   onToggleSelectionMode,
   selectedIds,
@@ -129,7 +121,6 @@ export function PhotoSurface({
   onOriginalPathsLoaded,
 }: PhotoSurfaceProps) {
   const { t } = useI18n()
-  const [variantDisplayMode, setVariantDisplayMode] = useState<VariantDisplayMode>('merged')
   const [variantSelectionMode, setVariantSelectionMode] = useState<VariantSelectionMode>('all')
   const [photos, setPhotos] = useState<TimelinePhoto[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -139,7 +130,7 @@ export function PhotoSurface({
   const [selectionBusyLabel, setSelectionBusyLabel] = useState<string | null>(null)
   const [selectionError, setSelectionError] = useState<string | null>(null)
   const trimmedSearchQuery = searchQuery.trim()
-  const currentFilterKey = `${filterKey(filter, searchQuery, smartFilter, dataVersion)}:${variantDisplayMode}`
+  const currentFilterKey = `${filterKey(filter, searchQuery, smartFilter, dataVersion)}:${variantMode}`
   const comingSoon = isComingSoonFilter(filter)
   const hasSmartFilter = Object.keys(smartFilter).some(
     (k) => (smartFilter as Record<string, unknown>)[k] !== undefined &&
@@ -191,7 +182,9 @@ export function PhotoSurface({
 
       let newPhotos: TimelinePhoto[]
       if (trimmedSearchQuery) {
-        newPhotos = await searchPhotos(trimmedSearchQuery, PHOTOS_PER_PAGE, offset)
+        const sourceId = filter?.type === 'folder' ? filter.sourceId : undefined
+        const folderPath = filter?.type === 'folder' ? filter.folderPath : undefined
+        newPhotos = await getFilteredPhotos(PHOTOS_PER_PAGE, offset, { ...smartFilter, mergeVariants: variantMode === 'merged' }, sourceId, folderPath, trimmedSearchQuery)
       } else if (filter?.type === 'recent') {
         newPhotos = await getRecentlyAddedPhotos(PHOTOS_PER_PAGE, offset)
       } else if (filter?.type === 'favorites') {
@@ -213,9 +206,9 @@ export function PhotoSurface({
       } else if (hasSmartFilter) {
         const sourceId = filter?.type === 'folder' ? filter.sourceId : undefined
         const folderPath = filter?.type === 'folder' ? filter.folderPath : undefined
-        newPhotos = await getFilteredPhotos(PHOTOS_PER_PAGE, offset, smartFilter, sourceId, folderPath)
+        newPhotos = await getFilteredPhotos(PHOTOS_PER_PAGE, offset, { ...smartFilter, mergeVariants: variantMode === 'merged' }, sourceId, folderPath)
       } else {
-        newPhotos = await getTimelineWithVariantMode(PHOTOS_PER_PAGE, offset, filter, variantDisplayMode)
+        newPhotos = await getTimelineWithVariantMode(PHOTOS_PER_PAGE, offset, filter, variantMode)
       }
 
       if (cancelled) {
@@ -280,7 +273,11 @@ export function PhotoSurface({
     onSetSelectedIds(new Set(ids), { kind: 'visible', label: `Visible photos · ${variantSelectionMode}` })
   }
   const fetchSelectionPage = async (limit: number, pageOffset: number): Promise<TimelinePhoto[]> => {
-    if (trimmedSearchQuery) return searchPhotos(trimmedSearchQuery, limit, pageOffset)
+    if (trimmedSearchQuery) {
+      const sourceId = filter?.type === 'folder' ? filter.sourceId : undefined
+      const folderPath = filter?.type === 'folder' ? filter.folderPath : undefined
+      return getFilteredPhotos(limit, pageOffset, { ...smartFilter, mergeVariants: variantMode === 'merged' }, sourceId, folderPath, trimmedSearchQuery)
+    }
     if (filter?.type === 'recent') return getRecentlyAddedPhotos(limit, pageOffset)
     if (filter?.type === 'favorites') return getFavoritePhotos(limit, pageOffset)
     if (filter?.type === 'hidden') return getHiddenPhotos(limit, pageOffset)
@@ -299,7 +296,7 @@ export function PhotoSurface({
         filter?.type === 'folder' ? filter.folderPath : undefined,
       )
     }
-    return getTimelineWithVariantMode(limit, pageOffset, filter, variantDisplayMode)
+    return getTimelineWithVariantMode(limit, pageOffset, filter, variantMode)
   }
 
   const resolveAllPages = async (
@@ -428,14 +425,6 @@ export function PhotoSurface({
       onScroll={handleScroll}
       onMouseLeave={() => onHoverPhoto?.(null)}
     >
-      {filterPanelOpen && filterOptions && (
-        <FilterPanel
-          filterOptions={filterOptions}
-          smartFilter={smartFilter}
-          onSmartFilterChange={(f) => onSmartFilterChange?.(f)}
-          onClose={() => onCloseFilterPanel?.()}
-        />
-      )}
       <div className="photo-surface__toolbar">
         <div className="photo-surface__toolbar-title">
           {!shouldShowHeader && <span className="photo-surface__toolbar-title-text">{title}</span>}
