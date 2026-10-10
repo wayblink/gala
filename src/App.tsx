@@ -781,7 +781,6 @@ export default function App() {
             searchQuery={view.searchQuery}
             smartFilter={view.smartFilter}
             variantMode={view.variantMode}
-            onVariantModeChange={view.setVariantMode}
             onSelectPhoto={selection.setSelectedPhoto}
             onHoverPhoto={setHoveredPhoto}
             selectionMode={selection.selectionMode}
