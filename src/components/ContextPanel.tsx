@@ -51,8 +51,6 @@ type ContextPanelProps = {
   smartFilter?: SmartFilter
   filterOptions?: FilterOptions | null
   onSmartFilterChange?: (f: SmartFilter) => void
-  variantMode?: 'merged' | 'separate'
-  onVariantModeChange?: (m: 'merged' | 'separate') => void
   filterPanelOpen?: boolean
 }
 
@@ -144,8 +142,6 @@ export function ContextPanel({
   smartFilter = {},
   filterOptions = null,
   onSmartFilterChange,
-  variantMode = 'merged',
-  onVariantModeChange,
   filterPanelOpen = false,
 }: ContextPanelProps) {
   const [albumDialogMode, setAlbumDialogMode] = useState<AlbumDialogMode | null>(null)
@@ -296,8 +292,6 @@ export function ContextPanel({
           filterOptions={filterOptions}
           smartFilter={smartFilter}
           onSmartFilterChange={(f) => onSmartFilterChange?.(f)}
-          variantMode={variantMode}
-          onVariantModeChange={(m) => onVariantModeChange?.(m)}
           onClose={() => onToggleFilter?.()}
         />
       )}

@@ -781,6 +781,7 @@ export default function App() {
             searchQuery={view.searchQuery}
             smartFilter={view.smartFilter}
             variantMode={view.variantMode}
+            onVariantModeChange={view.setVariantMode}
             onSelectPhoto={selection.setSelectedPhoto}
             onHoverPhoto={setHoveredPhoto}
             selectionMode={selection.selectionMode}
@@ -877,8 +878,6 @@ export default function App() {
           smartFilter={view.smartFilter}
           filterOptions={library.filterOptions}
           onSmartFilterChange={view.setSmartFilter}
-          variantMode={view.variantMode}
-          onVariantModeChange={view.setVariantMode}
           filterPanelOpen={view.filterPanelOpen}
           similarReviewInspector={similarReview.inspector}
         />

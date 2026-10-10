@@ -39,6 +39,7 @@ type PhotoSurfaceProps = {
   onHoverPhoto?: (photo: TimelinePhoto | null) => void
   smartFilter?: SmartFilter
   variantMode?: 'merged' | 'separate'
+  onVariantModeChange?: (m: 'merged' | 'separate') => void
   selectionMode?: boolean
   onToggleSelectionMode?: () => void
   selectedIds: Set<string>
@@ -109,6 +110,7 @@ export function PhotoSurface({
   onHoverPhoto,
   smartFilter = {},
   variantMode = 'merged',
+  onVariantModeChange,
   selectionMode = false,
   onToggleSelectionMode,
   selectedIds,
@@ -434,6 +436,10 @@ export function PhotoSurface({
             <button type="button" className={displayMode === 'thumbnail' ? 'on' : ''} title={t('top.thumbnailTable')} aria-label={t('top.thumbnailTable')} aria-pressed={displayMode === 'thumbnail'} onClick={() => onDisplayModeChange?.('thumbnail')}><Grid3X3 size={15} /></button>
             <button type="button" className={displayMode === 'list' ? 'on' : ''} title={t('top.list')} aria-label={t('top.list')} aria-pressed={displayMode === 'list'} onClick={() => onDisplayModeChange?.('list')}><Rows3 size={15} /></button>
             <button type="button" className={displayMode === 'gallery' ? 'on' : ''} title={t('top.gallery')} aria-label={t('top.gallery')} aria-pressed={displayMode === 'gallery'} onClick={() => onDisplayModeChange?.('gallery')}><GalleryHorizontal size={15} /></button>
+          </div>
+          <div className="seg" role="group" aria-label="变体显示">
+            <button type="button" className={variantMode === 'merged' ? 'on' : ''} title="合并显示" aria-label="合并显示" aria-pressed={variantMode === 'merged'} onClick={() => onVariantModeChange?.('merged')}>合并</button>
+            <button type="button" className={variantMode === 'separate' ? 'on' : ''} title="分开显示" aria-label="分开显示" aria-pressed={variantMode === 'separate'} onClick={() => onVariantModeChange?.('separate')}>分开</button>
           </div>
           <button type="button" className={`iconbtn${selectionMode ? ' on' : ''}`} title={selectionMode ? t('top.doneSelecting') : t('top.select')} aria-label={selectionMode ? t('top.exitSelection') : t('top.enterSelection')} aria-pressed={selectionMode} onClick={onToggleSelectionMode}><CheckSquare size={15} /></button>
         </div>

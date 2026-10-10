@@ -5,8 +5,6 @@ type FilterPanelProps = {
   filterOptions: FilterOptions
   smartFilter: SmartFilter
   onSmartFilterChange: (filter: SmartFilter) => void
-  variantMode: 'merged' | 'separate'
-  onVariantModeChange: (mode: 'merged' | 'separate') => void
   onClose: () => void
 }
 
@@ -43,8 +41,6 @@ export function FilterPanel({
   filterOptions,
   smartFilter,
   onSmartFilterChange,
-  variantMode,
-  onVariantModeChange,
   onClose,
 }: FilterPanelProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
@@ -103,11 +99,7 @@ export function FilterPanel({
         </div>
       )}
 
-      <Section id="format" title="格式与变体" open={isOpen('format')} onToggle={toggleSection}>
-        <div className="filter-seg" role="group" aria-label="变体显示">
-          <button type="button" className={variantMode === 'merged' ? 'on' : ''} onClick={() => onVariantModeChange('merged')}>合并显示</button>
-          <button type="button" className={variantMode === 'separate' ? 'on' : ''} onClick={() => onVariantModeChange('separate')}>分开显示</button>
-        </div>
+      <Section id="format" title="格式" open={isOpen('format')} onToggle={toggleSection}>
         <div className="filter-panel__chips">
           {(filterOptions.formatKinds ?? ['raw', 'jpeg', 'heif', 'other']).map((k) => (
             <label key={k} className={`filter-chip${smartFilter.formatKinds?.includes(k) ? ' on' : ''}`}>
@@ -144,8 +136,8 @@ export function FilterPanel({
         </div>
       </Section>
 
-      {filterOptions.cameras.length > 0 && (
-        <Section id="camera" title="相机" open={isOpen('camera')} onToggle={toggleSection}>
+      <Section id="camera" title="相机" open={isOpen('camera')} onToggle={toggleSection}>
+        {filterOptions.cameras.length > 0 ? (
           <div className="filter-panel__chips">
             {filterOptions.cameras.map((c) => (
               <label key={c} className={`filter-chip${smartFilter.cameras?.includes(c) ? ' on' : ''}`}>
@@ -153,11 +145,13 @@ export function FilterPanel({
               </label>
             ))}
           </div>
-        </Section>
-      )}
+        ) : (
+          <p className="filter-panel__empty">暂无</p>
+        )}
+      </Section>
 
-      {(filterOptions.lenses?.length ?? 0) > 0 && (
-        <Section id="lens" title="镜头" open={isOpen('lens')} onToggle={toggleSection}>
+      <Section id="lens" title="镜头" open={isOpen('lens')} onToggle={toggleSection}>
+        {(filterOptions.lenses?.length ?? 0) > 0 ? (
           <div className="filter-panel__chips">
             {filterOptions.lenses!.map((l) => (
               <label key={l} className={`filter-chip${smartFilter.lenses?.includes(l) ? ' on' : ''}`}>
@@ -165,11 +159,13 @@ export function FilterPanel({
               </label>
             ))}
           </div>
-        </Section>
-      )}
+        ) : (
+          <p className="filter-panel__empty">暂无</p>
+        )}
+      </Section>
 
-      {(filterOptions.sources?.length ?? 0) > 0 && (
-        <Section id="source" title="来源" open={isOpen('source')} onToggle={toggleSection}>
+      <Section id="source" title="来源" open={isOpen('source')} onToggle={toggleSection}>
+        {(filterOptions.sources?.length ?? 0) > 0 ? (
           <div className="filter-panel__chips">
             {filterOptions.sources!.map((s) => (
               <label key={s} className={`filter-chip${smartFilter.sources?.includes(s) ? ' on' : ''}`}>
@@ -177,11 +173,13 @@ export function FilterPanel({
               </label>
             ))}
           </div>
-        </Section>
-      )}
+        ) : (
+          <p className="filter-panel__empty">暂无</p>
+        )}
+      </Section>
 
-      {(filterOptions.tags?.length ?? 0) > 0 && (
-        <Section id="tag" title="标签" open={isOpen('tag')} onToggle={toggleSection}>
+      <Section id="tag" title="标签" open={isOpen('tag')} onToggle={toggleSection}>
+        {(filterOptions.tags?.length ?? 0) > 0 ? (
           <div className="filter-panel__chips">
             {filterOptions.tags!.map((tg) => (
               <label key={tg} className={`filter-chip${smartFilter.tags?.includes(tg) ? ' on' : ''}`}>
@@ -189,8 +187,10 @@ export function FilterPanel({
               </label>
             ))}
           </div>
-        </Section>
-      )}
+        ) : (
+          <p className="filter-panel__empty">暂无</p>
+        )}
+      </Section>
     </div>
   )
 }
